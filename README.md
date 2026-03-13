@@ -1,2 +1,3 @@
 # Lanz-Mining_but_Fair
-Jupyter Notebook used to turn existing Data into a JSON Format compatible with Wikibase using Wikidata conventions as much as possible 
+This code was created as part of the bachelor's thesis 'LanzMining but FAIR: Answering empirical questions about the media
+landscape using FAIR talk show data' and is responsible for the extraction and visualisation of data.
