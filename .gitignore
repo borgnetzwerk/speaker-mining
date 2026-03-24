@@ -203,13 +203,12 @@ __marimo__/
 .streamlit/secrets.toml
 
 # BorgNetzwerk Speaker Mining specific ignores
-data/arrrrrmin
-data/spiegel
-data/zdf_archive
-data/items/*
-!data/items/example.* #Except for example file
-data/sparql_results/*
-!data/sparql_results/example.* #Except for example file
-documentation/*.drawio.xml
-documentation/*Ps.drawio.pdf
+data/01_input/*
+# data/items/*
+# !data/items/example.* #Except for example file
+# data/sparql_results/*
+# !data/sparql_results/example.* #Except for example file
+data/99_archive
+documentation/visualizations/*.drawio.xml
+documentation/visualizations/*Ps.drawio.pdf
 speakermining/src/config/main.json

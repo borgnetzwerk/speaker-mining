@@ -12,14 +12,14 @@ The workflow consists of 6 steps in 4 phases:
 3.2 entity deduplication
 4.1 link prediction
 
-![SpeakerMining Approach](<SpeakerMining_V3-Approach.drawio.png>)
+![SpeakerMining Approach](visualizations/SpeakerMining_V3-Approach.drawio.png)
 
 ## Steps
 
 ### Phase 1: Data Seeding
 **Goal:** Convert source documents into initial structured entities.
 
-![SpeakerMining Phase 1](SpeakerMining_V3-P1.drawio.png)
+![SpeakerMining Phase 1](visualizations/SpeakerMining_V3-P1.drawio.png)
 
 **Steps:**
 1. export text rows from PDF
@@ -42,7 +42,7 @@ The workflow consists of 6 steps in 4 phases:
 ## Phase P2: Candidate Generation
 **Goal:** Generate candidate knowledge-graph entities for mentions.
 
-![SpeakerMining Phase 2](SpeakerMining_V3-P2.drawio.png)
+![SpeakerMining Phase 2](visualizations/SpeakerMining_V3-P2.drawio.png)
 
 **Steps:**
 1. search for candidates
@@ -57,7 +57,7 @@ The workflow consists of 6 steps in 4 phases:
 ## Phase 3: Data Consolidation
 **Goal:** Resolve identities and merge duplicates into a clean entity graph.
 
-![SpeakerMining Phase 3](SpeakerMining_V3-P3.drawio.png)
+![SpeakerMining Phase 3](visualizations/SpeakerMining_V3-P3.drawio.png)
 
 **Steps:**
 1. quantify candidate-entity similarity
