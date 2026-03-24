@@ -60,142 +60,73 @@ The workflow consists of 6 steps in 4 phases:
 ![SpeakerMining Phase 3](SpeakerMining_V3-P3.drawio.png)
 
 **Steps:**
-- quantify candidate-entity similarity
-- select candidate with HITL (human in the loop)
-- quantify entity-entity similarity
-- merge entities with HITL
-- ingest candidate data
+1. quantify candidate-entity similarity
+2. select candidate with HITL (human in the loop)
+3. quantify entity-entity similarity
+4. merge entities with HITL
+5. ingest candidate data
 
-Outputs:
-
-- disambiguated entities
-- deduplicated graph
-
-Important characteristic:
-
-- Human validation is an explicit part of the decision process.
+**Outputs (data consolidation):**
+* disambiguated entities
+* deduplicated graph
 
 ## Phase 4: Inference
 
-Status in diagrams: conceptual placeholder.
+WIP:
+* infer additional links/facts after consolidation
+* produce more complete result graphs for query and analytics
 
-Intent:
-
-- infer additional links/facts after consolidation
-- produce more complete result graphs for query and analytics
-
-
-## Diagram Inventory
-
-The source file contains multiple views:
-
-- Approach: End-to-end conceptual flow
-- Ps: Process summary
-- P1: Data seeding
-- P2: Candidate generation
-- P3: Data consolidation
-- P4: Inference (currently conceptual)
-- Meta-Approach: Multi-source alignment and Wikibase update strategy
-- Class Diagram: Entity and property structure
-- Event Modelling: Expanded process and interactions
-
-Reference files:
-
-- [SpeakerMining_V3-P3.drawio.pdf](SpeakerMining_V3-P3.drawio.pdf)
-- [SpeakerMining_V3-Ps.drawio.pdf](SpeakerMining_V3-Ps.drawio.pdf)
-
-
-
-## Data Model Highlights (Class Diagram)
-
+## Data Model
 The class diagram models item-like entities with core metadata and graph properties.
 
 Typical fields include:
+* reference
+* label
+* description
+* alias
+* wikibase ID
+* wikidata ID
+* instance of
 
-- reference
-- label
-- description
-- alias
-- wikibase ID
-- wikidata ID
-- instance of
-
-Episode/season-oriented properties include:
-
-- publication date
-- talk show guest
-- season
-- part of series
-- genre
-- presenter
-- original broadcaster
-- country of origin
-- original language of film or TV show
+Episode properties include:
+* publication date
+* talk show guest
+* season
+* part of series
+* genre
+* presenter
+* original broadcaster
+* country of origin
+* original language of film or TV show
 
 The diagram also indicates qualifier/reference-capable property structures (triple-like representation), aligning with Wikibase statement semantics.
 
 ## Workspace Mapping
 
-## Main Inputs
+### Main Inputs
 
-- Text/PDF-derived source material: [textfiles](textfiles)
-- Additional datasets: [Arrrrrmin Data](Arrrrrmin%20Data)
-- SPARQL snapshots and imported CSVs: [data/01_input](data/01_input)
+WIP
 
-## Main Outputs
+### Main Outputs
 
-- Persons CSV: [person/Personen.csv](person/Personen.csv)
-- Seasons CSV: [seasons/Staffeln.csv](seasons/Staffeln.csv)
-- Episodes CSV (current dataset location): [data/01_input/items/Episoden.csv](data/01_input/items/Episoden.csv)
-- Analytical outputs: [output](output)
+WIP
 
-## Configuration and Integration
 
-- Wikibase/OpenRefine configuration: [manifest.json](manifest.json)
-- OpenRefine reconciliation assets: [openrefine-wikibase](openrefine-wikibase)
-- Caddy setup: [Caddyfile/Caddyfile](Caddyfile/Caddyfile)
+### Configuration and Integration
 
-## Execution Notes
+* Wikibase/OpenRefine configuration: [manifest.json](speakermining/src/config/manifest.json)
+* OpenRefine reconciliation assets: [openrefine-wikibase](openrefine-wikibase)
+* Caddy setup: [Caddyfile/Caddyfile](speakermining/src/config/Caddyfile)
 
-Current extraction and CSV generation logic is implemented in the notebook [lanz-mining-but-fair.ipynb](lanz-mining-but-fair.ipynb), including:
+## Future Work
 
-- PDF text extraction and episode grouping
-- episode cleaning and duplicate removal heuristics
-- guest/person extraction
-- episode and season table generation
-- CSV export for downstream graph ingestion
+* P4 inference is not yet specified in detail.
+* Candidate generation and consolidation are strongly modeled in diagrams, but parts may still be semi-manual or notebook-centric in implementation.
+* A script-based, reproducible pipeline (outside notebook execution order) would improve operational robustness.
 
-Minimal Python dependencies observed in notebook:
+### Code Rework:
+* Extracting from PDF seems similar to Candidate generation. Seperating these extraction method into "primary" and "secondary" does not seem right - realistically, both are "take source and extract items". If they can be grouped, this might be desirable.
 
-- pdfplumber
-- pypdf
-- pandas
-- matplotlib
+## Further Navigation
 
-## Meta-Approach Context
-
-The Meta-Approach diagram extends this pipeline to multi-source ingestion and alignment:
-
-- extract items from a primary source
-- search similar items across different databases
-- align items from different sources
-- deduplicate aligned records
-- update Wikibase
-
-This supports a FAIR-oriented strategy where multiple CSV sets can be reconciled into one consolidated knowledge base.
-
-## Known Gaps and Next Steps
-
-- P4 inference is not yet specified in detail.
-- Candidate generation and consolidation are strongly modeled in diagrams, but parts may still be semi-manual or notebook-centric in implementation.
-- A script-based, reproducible pipeline (outside notebook execution order) would improve operational robustness.
-
-## Quick Orientation
-
-If you are new to the project, review in this order:
-
-1. [documentation/SpeakerMining_V3.drawio.xml](documentation/SpeakerMining_V3.drawio.xml)
-2. [documentation/README.md](documentation/README.md)
-3. [lanz-mining-but-fair.ipynb](lanz-mining-but-fair.ipynb)
-4. [manifest.json](manifest.json)
-5. CSV outputs under [data](data), [person](person), and [seasons](seasons)
+WIP
