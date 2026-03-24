@@ -2,10 +2,6 @@
 
 This repository contains a notebook-first workflow for extracting, enriching, disambiguating, deduplicating, and inferring structured talk show knowledge.
 
-## What Is This?
-
-Speaker Mining pipeline implementation for research-oriented curation of talk show data.
-
 The workflow is phase-based and human-in-the-loop where precision matters most:
 
 1. mention detection
