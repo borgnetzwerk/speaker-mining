@@ -12,14 +12,14 @@ The workflow consists of 6 steps in 4 phases:
 3.2 entity deduplication
 4.1 link prediction
 
-![SpeakerMining_V3-Approach.drawio.pdf](SpeakerMining_V3-Approach.drawio.pdf)
+![SpeakerMining Approach](<SpeakerMining_V3-Approach.drawio.png>)
 
 ## Steps
 
-### Phase P1: Data Seeding
+### Phase 1: Data Seeding
 **Goal:** Convert source documents into initial structured entities.
 
-![SpeakerMining_V3-P1.drawio.pdf](SpeakerMining_V3-P1.drawio.pdf)
+![SpeakerMining Phase 1](SpeakerMining_V3-P1.drawio.png)
 
 **Steps:**
 1. export text rows from PDF
@@ -42,7 +42,7 @@ The workflow consists of 6 steps in 4 phases:
 ## Phase P2: Candidate Generation
 **Goal:** Generate candidate knowledge-graph entities for mentions.
 
-![SpeakerMining_V3-P2.drawio.pdf](SpeakerMining_V3-P2.drawio.pdf)
+![SpeakerMining Phase 2](SpeakerMining_V3-P2.drawio.png)
 
 **Steps:**
 1. search for candidates
@@ -54,10 +54,10 @@ The workflow consists of 6 steps in 4 phases:
 
 **Implementation:** [speakermining\src\process\candidate_generation.py](candidate_generation.py)
 
-## Phase P3: Data Consolidation
+## Phase 3: Data Consolidation
 **Goal:** Resolve identities and merge duplicates into a clean entity graph.
 
-![SpeakerMining_V3-P3.drawio.pdf](SpeakerMining_V3-P3.drawio.pdf)
+![SpeakerMining Phase 3](SpeakerMining_V3-P3.drawio.png)
 
 **Steps:**
 - quantify candidate-entity similarity
@@ -75,7 +75,7 @@ Important characteristic:
 
 - Human validation is an explicit part of the decision process.
 
-## Phase P4: Inference
+## Phase 4: Inference
 
 Status in diagrams: conceptual placeholder.
 
