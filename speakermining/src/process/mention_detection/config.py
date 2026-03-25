@@ -17,25 +17,24 @@ FILE_PERSON_MENTIONS = "persons.csv"
 FILE_INSTITUTION_MENTIONS = "institutions.csv"
 FILE_TOPIC_MENTIONS = "topics.csv"
 FILE_SEASONS = "seasons.csv"
+FILE_PUBLIKATION = "publications.csv"
 
 
 EPISODE_COLUMNS = [
     "episode_id",
     "sendungstitel",
+    "publikation_id",
     "publikationsdatum",
     "dauer",
+    "archivnummer",
+    "prod_nr_beitrag",
+    "zeit_tc_start",
+    "zeit_tc_end",
     "season",
     "staffel",
     "folge",
     "folgennr",
     "infos",
-    "instance_of",
-    "part_of_series",
-    "genre",
-    "presenter",
-    "original_broadcaster",
-    "country_of_origin",
-    "original_language_of_film_or_tv_show",
 ]
 
 PERSON_MENTION_COLUMNS = [
@@ -44,6 +43,20 @@ PERSON_MENTION_COLUMNS = [
     "name",
     "beschreibung",
     "source_text",
+]
+
+PUBLIKATION_COLUMNS = [
+    "publikation_id",
+    "episode_id",
+    "publication_index",
+    "date",
+    "time",
+    "duration",
+    "program",
+    "prod_nr_sendung",
+    "prod_nr_secondary",
+    "is_primary",
+    "raw_line",
 ]
 
 INSTITUTION_MENTION_COLUMNS = [
@@ -66,13 +79,6 @@ SEASON_COLUMNS = [
     "start_time",
     "end_time",
     "episode_count",
-    "instance_of",
-    "part_of_series",
-    "genre",
-    "presenter",
-    "original_broadcaster",
-    "country_of_origin",
-    "original_language_of_film_or_tv_show",
 ]
 
 

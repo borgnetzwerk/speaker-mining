@@ -69,6 +69,9 @@ def extract_topic_mentions(episode_blocks: Iterable[str], episodes_df: pd.DataFr
 	if df.empty:
 		return pd.DataFrame(columns=TOPIC_MENTION_COLUMNS)
 	df = df.drop_duplicates(subset=["episode_id", "topic"]).reset_index(drop=True)
+	episode_order = {eid: idx for idx, eid in enumerate(episodes_df["episode_id"].tolist())}
+	df["_episode_order"] = df["episode_id"].map(episode_order).fillna(len(episode_order)).astype(int)
+	df = df.sort_values(by=["_episode_order", "topic", "mention_id"]).drop(columns=["_episode_order"])
 	return df[TOPIC_MENTION_COLUMNS]
 
 
