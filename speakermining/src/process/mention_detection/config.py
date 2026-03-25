@@ -14,7 +14,6 @@ ZDF_ARCHIVE_DIR = INPUT_DIR / "zdf_archive"
 # Contract file names for phase outputs.
 FILE_EPISODES = "episodes.csv"
 FILE_PERSON_MENTIONS = "persons.csv"
-FILE_INSTITUTION_MENTIONS = "institutions.csv"
 FILE_TOPIC_MENTIONS = "topics.csv"
 FILE_SEASONS = "seasons.csv"
 FILE_PUBLIKATION = "publications.csv"
@@ -63,18 +62,15 @@ PUBLIKATION_COLUMNS = [
     "raw_line",
 ]
 
-INSTITUTION_MENTION_COLUMNS = [
-    "mention_id",
-    "episode_id",
-    "institution",
-    "source_text",
-]
-
 TOPIC_MENTION_COLUMNS = [
     "mention_id",
     "episode_id",
     "topic",
     "source_text",
+    "source_context",
+    "parsing_rule",
+    "confidence",
+    "confidence_note",
 ]
 
 SEASON_COLUMNS = [

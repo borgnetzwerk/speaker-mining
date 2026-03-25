@@ -14,6 +14,21 @@ Notebook order:
 4. speakermining/src/process/notebooks/31_entity_deduplication.ipynb
 5. speakermining/src/process/notebooks/40_link_prediction.ipynb
 
+## Phase 1 Scope: Mention Detection
+
+Phase 1 extracts clearly identifiable mentions from text archives:
+
+- **Seasons**: Broadcast seasons
+- **Episodes**: Broadcast episodes with metadata and full interview context
+- **Publications**: Broadcast publication metadata  
+- **Persons/Guests**: Identified guest names with role descriptions
+- **Topics**: Discussed topics in episodes
+
+**Deferred to Phase 3 (Semantic Disambiguation)**:
+
+- **Institutions**: Institution extraction is deferred to Phase 3 (entity_disambiguation) when richer context from Wikidata becomes available. Code for institution extraction is preserved in candidate_generation for future use.
+- **Occupations/Roles/Positions**: Role disambiguation is handled downstream during entity reconciliation.
+
 ## Phase Ownership Rules
 
 Each phase reads upstream data and writes only inside its own phase folder.
