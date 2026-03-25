@@ -90,7 +90,8 @@ def _is_plausible_person_name(name: str) -> bool:
 	parts = name.split()
 	if len(parts) < 2:
 		return False
-	if not any(part.isupper() and len(part) >= 3 for part in parts):
+	# Check if any part has uppercase letters and is >= 3 chars (handles ß in surnames like THEVEßEN)
+	if not any(any(c.isupper() for c in part) and len(part) >= 3 for part in parts):
 		return False
 	return True
 

@@ -211,3 +211,4 @@ data/*/*
 documentation/visualizations/*.drawio.xml
 documentation/visualizations/*Ps.drawio.pdf
 speakermining/src/config/main.json
+documentation/findings/*
