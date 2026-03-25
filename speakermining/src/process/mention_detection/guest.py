@@ -53,16 +53,31 @@ _NAME_PATTERN = re.compile(
 	r"(?:[A-ZÄÖÜ][A-ZÄÖÜß-]+(?:\s+[A-ZÄÖÜ][A-ZÄÖÜß-]+)*|[A-ZÄÖÜ][a-zäöüß]+(?:-[A-ZÄÖÜ][a-zäöüß]+)?)\b"
 )
 
+_RELATION_CUE_PATTERN = re.compile(
+	r"\b(?:ehefrau|ehemann|mutter|vater|tochter|sohn|bruder|schwester|"
+	r"zwillingsbruder|freundin|freund|deren|dessen|seine|ihr|ihre|ihrer|ihrem)\b",
+	flags=re.IGNORECASE,
+)
+
+_GROUP_DESC_PATTERN = re.compile(
+	r"\b(?:geschwister|eltern|ehepaar|beide|familie|zwillinge|br[üu]der|schwestern|wettk[öo]nige)\b",
+	flags=re.IGNORECASE,
+)
+
 
 def _clean_name(raw_name: str) -> str:
 	name = _normalize_ws(raw_name).strip(" ,.;:")
-	name = re.sub(
+	prefix_pattern = (
 		r"^(?:den|dem|die|der|des|mit|und|sowie|den\s+Studiogästen|den\s+Studiogast|"
-		r"Studiogästen|Studiogäste|Studiogast|Studiogasts|seine|seiner|ihre|ihrer|ihrem)\s+",
-		"",
-		name,
-		flags=re.IGNORECASE,
+		r"Studiogästen|Studiogäste|Studiogast|Studiogasts|seine|seiner|ihre|ihrer|ihrem|"
+		r"ehefrau|ehemann|mutter|vater|tochter|sohn|bruder|schwester|zwillingsbruder|"
+		r"lebensgefährtin|lebensgefährte)\s+"
 	)
+	while True:
+		stripped = re.sub(prefix_pattern, "", name, flags=re.IGNORECASE)
+		if stripped == name:
+			break
+		name = stripped.strip(" ,.;:")
 	name = re.sub(r"^\d{1,2}-j[a-zäöüß]+r(?:e|er|en)?\s+", "", name, flags=re.IGNORECASE)
 	return name.strip(" ,.;:")
 
@@ -80,29 +95,89 @@ def _is_plausible_person_name(name: str) -> bool:
 	return True
 
 
+def _is_group_description(desc: str) -> bool:
+	return bool(_GROUP_DESC_PATTERN.search(desc or ""))
+
+
+def _candidate_names_with_spans(raw_names: str) -> list[tuple[str, int, int]]:
+	items: list[tuple[str, int, int]] = []
+	for m in _NAME_PATTERN.finditer(raw_names):
+		name = _clean_name(m.group(0))
+		if not _is_plausible_person_name(name):
+			continue
+		items.append((name, m.start(), m.end()))
+	return items
+
+
+def _rule_rows_for_block(
+	episode_id: str,
+	raw_names: str,
+	desc: str,
+	block_text: str,
+	section: str,
+) -> list[dict[str, str]]:
+	candidates = _candidate_names_with_spans(raw_names)
+	if not candidates:
+		return []
+
+	rows: list[dict[str, str]] = []
+	group_desc = _is_group_description(desc)
+	multi = len(candidates) > 1
+
+	for idx, (name, start, _end) in enumerate(candidates):
+		is_last = idx == len(candidates) - 1
+		left_window = raw_names[max(0, start - 40) : start]
+		has_relation_cue = bool(_RELATION_CUE_PATTERN.search(left_window))
+
+		beschreibung = ""
+		parsing_rule = "single_parenthetical"
+		confidence = 0.95
+		confidence_note = "single name directly tied to parenthetical description"
+
+		if not multi:
+			beschreibung = desc
+		else:
+			if group_desc:
+				beschreibung = desc
+				parsing_rule = "group_parenthetical"
+				confidence = 0.70
+				confidence_note = "group-style description assigned to all names in chain"
+			elif is_last:
+				beschreibung = desc
+				parsing_rule = "last_name_parenthetical"
+				confidence = 0.82
+				confidence_note = "description assigned to nearest name before parenthetical"
+			else:
+				beschreibung = ""
+				parsing_rule = "name_without_local_parenthetical"
+				confidence = 0.45 if has_relation_cue else 0.55
+				confidence_note = "name appears in multi-name chain; description withheld to avoid misattribution"
+
+		rows.append(
+			{
+				"mention_id": _mention_id(episode_id, name, beschreibung),
+				"episode_id": episode_id,
+				"name": name,
+				"beschreibung": beschreibung,
+				"source_text": block_text,
+				"source_context": section,
+				"parsing_rule": parsing_rule,
+				"confidence": f"{confidence:.2f}",
+				"confidence_note": confidence_note,
+			}
+		)
+
+	return rows
+
+
 def _extract_person_rows_from_infos(episode_id: str, infos: str) -> list[dict[str, str]]:
 	rows: list[dict[str, str]] = []
 	for section in _extract_infos_sections(infos):
 		for m in re.finditer(r"([^)]+?)\(([^)]+)\)", section):
 			raw_names = _normalize_ws(m.group(1)).strip(" ,;")
 			desc = _normalize_ws(m.group(2))
-
-			candidates = [_clean_name(n) for n in _NAME_PATTERN.findall(raw_names)]
-			if not candidates:
-				continue
-
-			for name in candidates:
-				if not _is_plausible_person_name(name):
-					continue
-				rows.append(
-					{
-						"mention_id": _mention_id(episode_id, name, desc),
-						"episode_id": episode_id,
-						"name": name,
-						"beschreibung": desc,
-						"source_text": raw_names,
-					}
-				)
+			block_text = f"{raw_names} ({desc})"
+			rows.extend(_rule_rows_for_block(episode_id, raw_names, desc, block_text, section))
 
 	return rows
 
@@ -163,7 +238,11 @@ def extract_person_mentions(episode_blocks: Iterable[str], episodes_df: pd.DataF
 							"episode_id": episode_id,
 							"name": name,
 							"beschreibung": desc,
-							"source_text": raw_names,
+							"source_text": f"{raw_names} ({desc})",
+							"source_context": sachinhalt,
+							"parsing_rule": "legacy_sachinhalt_fallback",
+							"confidence": "0.50",
+							"confidence_note": "legacy fallback extraction path",
 						}
 					)
 

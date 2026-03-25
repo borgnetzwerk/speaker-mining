@@ -43,6 +43,10 @@ PERSON_MENTION_COLUMNS = [
     "name",
     "beschreibung",
     "source_text",
+    "source_context",
+    "parsing_rule",
+    "confidence",
+    "confidence_note",
 ]
 
 PUBLIKATION_COLUMNS = [
