@@ -1,4 +1,14 @@
-name,wikibase_id,wikidata_id
-instance of,,P31
-occupation,,P106
-season,,P4908
+name,wikibase_id,wikidata_id,data_type
+instance of,,P31,item
+subclass of,,P279,item
+occupation,,P106,item
+season,,P4908,item
+field of work,,P101,item
+position held,,P39,item
+Wikidata item of this property,,P1629,item
+living people protection class,,P8274,item
+related Wikidata property,,P1659,item
+inverse label item,,P7087,item
+subproperty of,,P1647,item
+
+

@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 DATA_DIR = Path("data")
-INPUT_PHASE_DIR = DATA_DIR / "20_canidate_generation"
+INPUT_PHASE_DIR = DATA_DIR / "20_candidate_generation"
 PHASE_DIR = DATA_DIR / "30_entity_disambiguation"
 HISTORY_DIR = PHASE_DIR / "history"
 
