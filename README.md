@@ -10,15 +10,16 @@ The workflow is phase-based and human-in-the-loop where precision matters most:
 4. entity deduplication (manual decisions)
 5. link prediction
 
-## Start Here
+## Approach
 
-Documentation hub:
 
-- [documentation/README.md](documentation/README.md)
+![SpeakerMining V3 Approach](documentation/visualizations/SpeakerMining_V3-Approach.drawio.png)
 
-## Execution And Notebook Order
+The documentation can be found here:
+* [documentation/README.md](documentation/README.md)
 
-- [documentation/workflow.md](documentation/workflow.md)
+To jump right into the Implemtation and Workflow Notebooks, see
+* [documentation/workflow.md](documentation/workflow.md)
 
 ## Background
 

@@ -2,6 +2,10 @@
 
 This is the authoritative source for execution order and phase ownership rules.
 
+## Visual Overview
+
+![SpeakerMining V3 Approach](visualizations/SpeakerMining_V3-Approach.drawio.png)
+
 ## Execution Style
 
 1. Notebook-first execution.
