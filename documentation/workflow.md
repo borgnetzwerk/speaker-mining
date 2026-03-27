@@ -8,18 +8,21 @@ This is the authoritative source for execution order and phase ownership rules.
 2. No CLI is required for normal operation.
 3. Process modules under `speakermining/src/process` are invoked by notebooks and should stay orchestration-focused.
 
-Default notebook order:
+Active notebook implementation order:
 
 1. `speakermining/src/process/notebooks/10_mention_detection.ipynb`
 2. `speakermining/src/process/notebooks/20_candidate_generation_wikibase.ipynb`
 3. `speakermining/src/process/notebooks/21_candidate_generation_wikidata.ipynb`
-4. `speakermining/src/process/notebooks/22_candidate_generation_fernsehserien_de.ipynb`
-5. `speakermining/src/process/notebooks/23_candidate_generation_other.ipynb`
-6. `speakermining/src/process/notebooks/30_entity_disambiguation.ipynb`
-7. `speakermining/src/process/notebooks/31_entity_deduplication.ipynb`
-8. `speakermining/src/process/notebooks/40_link_prediction.ipynb`
 
-Historical notebook (not default workflow):
+Placeholder notebooks (not implemented yet):
+
+1. `speakermining/src/process/notebooks/22_candidate_generation_fernsehserien_de.ipynb`
+2. `speakermining/src/process/notebooks/23_candidate_generation_other.ipynb`
+3. `speakermining/src/process/notebooks/30_entity_disambiguation.ipynb`
+4. `speakermining/src/process/notebooks/31_entity_deduplication.ipynb`
+5. `speakermining/src/process/notebooks/40_link_prediction.ipynb`
+
+Historical notebook (legacy placeholder):
 
 - `speakermining/src/process/notebooks/21_candidate_generation_wikidata_old.ipynb`
 

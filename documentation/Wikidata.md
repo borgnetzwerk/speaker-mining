@@ -30,6 +30,14 @@ For output contracts, see [contracts.md](contracts.md).
 
 All outbound requests should clearly identify the calling program.
 
+Recommended User-Agent disclosure format:
+
+`<client name>/<version> (<contact information>) <library/framework name>/<version> [<library name>/<version> ...]`
+
+Example:
+
+`speaker-mining/0.1 (https://github.com/borgnetzwerk/speaker-mining) python/3.11 urllib/3.11`
+
 1. Send a descriptive User-Agent that includes project/program identity.
 2. Include a contact channel (for example repository URL or maintainer contact).
 3. Where supported by the endpoint, include a tool/application identifier parameter.

@@ -6,10 +6,13 @@ for storing and retrieving Wikidata query results.
 from __future__ import annotations
 
 import json
+import random
 import re
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import pandas as pd
@@ -17,7 +20,12 @@ import pandas as pd
 
 WIKIDATA_API_BASE = "https://www.wikidata.org/wiki/Special:EntityData"
 WIKIDATA_SPARQL_ENDPOINT = "https://query.wikidata.org/sparql"
-USER_AGENT = "speaker-mining/0.1 (candidate-generation)"
+_PYTHON_VERSION = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+USER_AGENT = (
+	"speaker-mining/0.1 "
+	"(https://github.com/borgnetzwerk/speaker-mining) "
+	f"python/{_PYTHON_VERSION} urllib/{_PYTHON_VERSION}"
+)
 
 
 _REQUEST_CONTEXT: dict[str, float | int] | None = None
@@ -123,41 +131,69 @@ def _atomic_write_df(path: Path, df: pd.DataFrame) -> None:
 	tmp_path.replace(path)
 
 
-def _http_get_json(url: str, accept: str = "application/json", timeout: int = 30) -> dict:
+def _http_get_json(
+	url: str,
+	accept: str = "application/json",
+	timeout: int = 30,
+	max_retries: int = 4,
+	backoff_base_seconds: float = 1.0,
+) -> dict:
 	"""Fetch JSON from HTTP endpoint with User-Agent.
 	
 	Args:
 		url: Full URL to fetch.
 		accept: Accept header value.
 		timeout: Request timeout in seconds. Default 30.
+		max_retries: Maximum retry attempts for transient/service-load errors.
+		backoff_base_seconds: Base delay for exponential backoff.
 	
 	Returns:
 		Parsed JSON response.
 	
 	Raises:
-		urllib.error.URLError: If request fails.
+		urllib.error.URLError: If request fails after retries.
 		RuntimeError: If configured per-run query budget is exhausted.
 	"""
 	global _REQUEST_CONTEXT
-	if _REQUEST_CONTEXT is not None:
-		max_queries = int(_REQUEST_CONTEXT.get("max_queries_per_run", 0))
-		used_queries = int(_REQUEST_CONTEXT.get("network_queries", 0))
-		if max_queries > 0 and used_queries >= max_queries:
-			raise RuntimeError("Network query budget hit")
+	for attempt in range(max_retries + 1):
+		if _REQUEST_CONTEXT is not None:
+			max_queries = int(_REQUEST_CONTEXT.get("max_queries_per_run", 0))
+			used_queries = int(_REQUEST_CONTEXT.get("network_queries", 0))
+			if max_queries > 0 and used_queries >= max_queries:
+				raise RuntimeError("Network query budget hit")
 
-		delay_seconds = float(_REQUEST_CONTEXT.get("query_delay_seconds", 0.0))
-		last_query_time = float(_REQUEST_CONTEXT.get("last_query_time", 0.0))
-		now = time.time()
-		time_since_last = now - last_query_time
-		if time_since_last < delay_seconds:
-			time.sleep(delay_seconds - time_since_last)
-		_REQUEST_CONTEXT["last_query_time"] = time.time()
-		_REQUEST_CONTEXT["network_queries"] = used_queries + 1
+			delay_seconds = float(_REQUEST_CONTEXT.get("query_delay_seconds", 0.0))
+			last_query_time = float(_REQUEST_CONTEXT.get("last_query_time", 0.0))
+			now = time.time()
+			time_since_last = now - last_query_time
+			if time_since_last < delay_seconds:
+				time.sleep(delay_seconds - time_since_last)
+			_REQUEST_CONTEXT["last_query_time"] = time.time()
+			_REQUEST_CONTEXT["network_queries"] = used_queries + 1
 
-	req = Request(url, headers={"Accept": accept, "User-Agent": USER_AGENT})
-	with urlopen(req, timeout=timeout) as response:
-		payload = response.read().decode("utf-8")
-	return json.loads(payload)
+		try:
+			req = Request(url, headers={"Accept": accept, "User-Agent": USER_AGENT})
+			with urlopen(req, timeout=timeout) as response:
+				payload = response.read().decode("utf-8")
+			return json.loads(payload)
+		except (HTTPError, URLError) as exc:
+			if attempt >= max_retries:
+				raise
+
+			# Retry only transient/service-load failures with exponential backoff + jitter.
+			retriable = True
+			if isinstance(exc, HTTPError):
+				status_code = int(getattr(exc, "code", 0) or 0)
+				retriable = status_code in {429, 500, 502, 503, 504}
+
+			if not retriable:
+				raise
+
+			sleep_seconds = (backoff_base_seconds * (2 ** attempt)) + random.uniform(0.0, 0.25)
+			time.sleep(sleep_seconds)
+
+	# Defensive fallback (unreachable under normal flow)
+	raise RuntimeError("HTTP request loop exited unexpectedly")
 
 
 def _raw_record_path(raw_dir: Path, query_type: str, key: str, stamp: datetime) -> Path:
