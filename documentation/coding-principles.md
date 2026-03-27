@@ -20,7 +20,7 @@ Governance reference model:
 ## Notebook Principles
 
 1. Notebooks orchestrate; core transformation logic lives in `speakermining/src/process` modules.
-2. Use deterministic path discovery (`find_repo_root`) and explicit imports.
+2. Each notebook must include a self-contained setup cell with deterministic repository-root discovery and import-path setup.
 3. Add one markdown cell per major step with input/output intent.
 4. Persist key tables at stable checkpoints, not only at notebook end.
 5. Keep temporary exploratory cells separate from production cells.
