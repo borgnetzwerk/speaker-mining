@@ -203,6 +203,10 @@ __marimo__/
 .streamlit/secrets.toml
 
 # BorgNetzwerk Speaker Mining specific ignores
+
+# Local configuration files
+.contact-info.json
+
 data/*/*
 # data/items/*
 # !data/items/example.* #Except for example file

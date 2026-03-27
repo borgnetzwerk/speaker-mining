@@ -28,19 +28,54 @@ For output contracts, see [contracts.md](contracts.md).
 
 ## Required Request Identification
 
-All outbound requests should clearly identify the calling program.
+All outbound requests should clearly identify the calling program and include valid contact information per Wikimedia service policies.
 
-Recommended User-Agent disclosure format:
+### Contact Information Setup (Required)
 
-`<client name>/<version> (<contact information>) <library/framework name>/<version> [<library name>/<version> ...]`
+Contact information must be provided in a local `.contact-info.json` file in the repository root. This file is git-ignored and must be created locally by each user or deployment.
 
-Example:
+**Setup Steps:**
 
-`speaker-mining/0.1 (https://github.com/borgnetzwerk/speaker-mining) python/3.11 urllib/3.11`
+1. Copy the template file to your repository root:
+   ```
+   cp .contact-info.json.example .contact-info.json
+   ```
 
-1. Send a descriptive User-Agent that includes project/program identity.
-2. Include a contact channel (for example repository URL or maintainer contact).
-3. Where supported by the endpoint, include a tool/application identifier parameter.
+2. Edit `.contact-info.json` and fill in your contact information:
+   ```json
+   {
+     "email": "your.email@example.com",
+     "name": "Your Name (optional)"
+   }
+   ```
+
+3. The system will automatically load this information and include it in all outgoing requests. If the file is missing or invalid, the Wikidata module will fail with a helpful error message.
+
+**Why This Matters:**
+
+Wikimedia services require valid contact information so that if your requests cause issues, they can reach you directly. This is not optional and demonstrates good citizenship in the open data community.
+
+### User-Agent Format
+
+The system automatically builds the User-Agent header with the format:
+
+`<client name>/<version> (<contact info>) <library/framework name>/<version> [<library name>/<version> ...]`
+
+**Example with contact info loaded:**
+
+`speaker-mining/0.1 (jane.doe@example.com) python/3.11 urllib/3.11`
+
+Or with optional name included:
+
+`speaker-mining/0.1 (jane.doe@example.com (Jane Doe)) python/3.11 urllib/3.11`
+
+Load this information lazily from `contact_loader.py` at import time. The module will raise a descriptive error if the contact file is missing or invalid, forcing users to set it up before any Wikidata queries can execute.
+
+All requests should:
+
+1. Include a descriptive User-Agent with contact information (automatically set by the framework).
+2. Not send repeated requests for the same query within 365 days (see caching section).
+3. Respect request pacing and load-shedding signals.
 4. Log request metadata with each cache artifact:
 	- endpoint,
 	- normalized query,

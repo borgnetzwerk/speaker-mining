@@ -17,15 +17,27 @@ from urllib.request import Request, urlopen
 
 import pandas as pd
 
+from .contact_loader import load_contact_info, format_contact_info_for_user_agent
+
 
 WIKIDATA_API_BASE = "https://www.wikidata.org/wiki/Special:EntityData"
 WIKIDATA_SPARQL_ENDPOINT = "https://query.wikidata.org/sparql"
 _PYTHON_VERSION = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-USER_AGENT = (
-	"speaker-mining/0.1 "
-	"(https://github.com/borgnetzwerk/speaker-mining) "
-	f"python/{_PYTHON_VERSION} urllib/{_PYTHON_VERSION}"
-)
+
+# Load contact information and build User-Agent with contact disclosure
+try:
+	_CONTACT_INFO = load_contact_info()
+	_CONTACT_STRING = format_contact_info_for_user_agent(_CONTACT_INFO)
+	USER_AGENT = (
+		"speaker-mining/0.1 "
+		f"({_CONTACT_STRING}) "
+		f"python/{_PYTHON_VERSION} urllib/{_PYTHON_VERSION}"
+	)
+except (FileNotFoundError, ValueError) as exc:
+	# Re-raise with additional context about where contact file should be
+	import sys as _sys
+	_sys.stderr.write(f"\nERROR: Failed to initialize Wikidata contact information:\n{exc}\n")
+	raise
 
 
 _REQUEST_CONTEXT: dict[str, float | int] | None = None
