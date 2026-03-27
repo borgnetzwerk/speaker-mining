@@ -10,9 +10,11 @@ This is the authoritative source for execution order and phase ownership rules.
 
 Active notebook implementation order:
 
-1. `speakermining/src/process/notebooks/10_mention_detection.ipynb`
-2. `speakermining/src/process/notebooks/20_candidate_generation_wikibase.ipynb`
-3. `speakermining/src/process/notebooks/21_candidate_generation_wikidata.ipynb`
+1. `speakermining/src/process/notebooks/10_text_extraction.ipynb` (optional pre-phase; only needed when source PDFs must be converted to text dumps)
+2. `speakermining/src/process/notebooks/10_mention_detection.ipynb`
+3. `speakermining/src/process/notebooks/19_analysis.ipynb` (optional lightweight inspection of Phase 1 outputs)
+4. `speakermining/src/process/notebooks/20_candidate_generation_wikibase.ipynb`
+5. `speakermining/src/process/notebooks/21_candidate_generation_wikidata.ipynb`
 
 Placeholder notebooks (not implemented yet):
 
@@ -27,6 +29,12 @@ Historical notebook (legacy placeholder):
 - `speakermining/src/process/notebooks/21_candidate_generation_wikidata_old.ipynb`
 
 ## Phase Scope
+
+### Pre-Phase: Text Extraction (Optional)
+
+Converts raw archive PDFs into canonical text dump files in `data/01_input/zdf_archive`.
+
+This pre-phase is optional and should be skipped when `*.pdf_episodes.txt` files already exist.
 
 ### Phase 1: Mention Detection
 

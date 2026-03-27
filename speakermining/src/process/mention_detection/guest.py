@@ -20,7 +20,12 @@ def _normalize_ws(text: str) -> str:
 
 
 def _extract_infos_sections(infos: str) -> list[str]:
-	"""Return candidate guest-list sections anchored on host+mit patterns."""
+	"""Return candidate guest-list sections from infos text.
+
+	Primary mode uses host+mit anchors.
+	Fallback mode is conservative and only activates for Studiogast/Studiogästen cues
+	when no primary anchor is found.
+	"""
 	text = _normalize_ws(infos)
 	if not text:
 		return []
@@ -31,7 +36,8 @@ def _extract_infos_sections(infos: str) -> list[str]:
 	)
 	matches = list(anchor_pattern.finditer(text))
 	if not matches:
-		return []
+		fallback_sections = _extract_studiogast_sections(text)
+		return fallback_sections
 
 	sections: list[str] = []
 	for idx, match in enumerate(matches):
@@ -44,6 +50,29 @@ def _extract_infos_sections(infos: str) -> list[str]:
 		segment = segment.strip(" .,;")
 		if segment:
 			sections.append(segment)
+
+	return sections
+
+
+def _extract_studiogast_sections(text: str) -> list[str]:
+	"""Conservative fallback extraction for Studiogast/Studiogästen phrasing."""
+	cue_pattern = re.compile(
+		r"\b(?:den\s+)?(?:Studiogast|Studiogäste|Studiogästen|Studiogasts)\b",
+		flags=re.IGNORECASE,
+	)
+
+	sections: list[str] = []
+	for cue_match in cue_pattern.finditer(text):
+		segment = text[cue_match.end() :]
+		segment = re.split(r"\b(?:Thema(?:n)?|Schwerpunktthemen?)\s*:", segment, maxsplit=1, flags=re.IGNORECASE)[0]
+		segment = re.split(r"\bJugendeignung\b", segment, maxsplit=1, flags=re.IGNORECASE)[0]
+		segment = re.split(r"\(O-Ton\)", segment, maxsplit=1, flags=re.IGNORECASE)[0]
+		segment = segment.strip(" .,;")
+
+		# Keep fallback strict: only return segments that still contain parenthetical pairs.
+		if segment and "(" in segment and ")" in segment:
+			sections.append(segment)
+			break
 
 	return sections
 

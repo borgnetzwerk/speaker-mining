@@ -9,6 +9,10 @@ def _episode_marker_pattern() -> re.Pattern[str]:
     return re.compile(r"^--- EPISODE\s+\d+", flags=re.IGNORECASE)
 
 
+def _pdf_page_counter_pattern() -> re.Pattern[str]:
+    return re.compile(r"Seite\s+(\d+)\s+von\s+(\d+)", flags=re.IGNORECASE)
+
+
 def split_episode_text_dump(raw_text: str) -> List[str]:
     """Split a pre-exported text dump into raw episode blocks."""
     lines = raw_text.splitlines()
@@ -81,3 +85,70 @@ def extract_text_from_pdf(pdf_path: str | Path) -> List[str]:
             if text:
                 pages.append(text)
     return pages
+
+
+def assemble_episode_blocks_from_pdf(pdf_path: str | Path) -> List[str]:
+    """Assemble full episode blocks from one PDF using page counters.
+
+    This is an optional fallback for repositories that only have raw PDFs.
+    The primary workflow still prefers pre-exported ``.pdf_episodes.txt`` files.
+    """
+    page_counter_pattern = _pdf_page_counter_pattern()
+    pages = extract_text_from_pdf(pdf_path)
+
+    episodes: list[str] = []
+    current_episode_parts: list[str] = []
+
+    for page_text in pages:
+        matches = page_counter_pattern.findall(page_text)
+        if not matches:
+            # Keep unmatched pages only if we are already inside an episode.
+            if current_episode_parts:
+                current_episode_parts.append(page_text)
+            continue
+
+        current_page_num, total_pages = map(int, matches[-1])
+
+        if current_page_num == 1:
+            if current_episode_parts:
+                episodes.append("\n".join(current_episode_parts).strip())
+            current_episode_parts = [page_text]
+        else:
+            if not current_episode_parts:
+                current_episode_parts = [page_text]
+            else:
+                current_episode_parts.append(page_text)
+
+        if current_page_num == total_pages and current_episode_parts:
+            episodes.append("\n".join(current_episode_parts).strip())
+            current_episode_parts = []
+
+    if current_episode_parts:
+        episodes.append("\n".join(current_episode_parts).strip())
+
+    return [episode for episode in episodes if episode]
+
+
+def write_episode_text_dump(episode_blocks: Iterable[str], path: str | Path) -> Path:
+    """Persist episode blocks in the repository's canonical text-dump format."""
+    out_path = Path(path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with out_path.open("w", encoding="utf-8") as handle:
+        for idx, episode in enumerate(episode_blocks, start=1):
+            handle.write(f"--- EPISODE {idx} ---\n\n")
+            handle.write(str(episode).strip())
+            handle.write("\n\n" + "=" * 50 + "\n\n")
+
+    return out_path
+
+
+def convert_pdf_to_episode_text_dump(
+    pdf_path: str | Path,
+    output_path: str | Path | None = None,
+) -> Path:
+    """Convert one archive PDF to a ``.pdf_episodes.txt`` dump file."""
+    source = Path(pdf_path)
+    target = Path(output_path) if output_path else source.with_name(f"{source.name}_episodes.txt")
+    episode_blocks = assemble_episode_blocks_from_pdf(source)
+    return write_episode_text_dump(episode_blocks, target)

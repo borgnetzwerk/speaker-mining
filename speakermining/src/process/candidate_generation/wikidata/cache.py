@@ -30,7 +30,7 @@ try:
 	_CONTACT_STRING = format_contact_info_for_user_agent(_CONTACT_INFO)
 	USER_AGENT = (
 		"speaker-mining/0.1 "
-		f"({_CONTACT_STRING}) "
+		f"(https://github.com/borgnetzwerk/speaker-mining; {_CONTACT_STRING}) "
 		f"python/{_PYTHON_VERSION} urllib/{_PYTHON_VERSION}"
 	)
 except (FileNotFoundError, ValueError) as exc:
