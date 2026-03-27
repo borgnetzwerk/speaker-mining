@@ -1,34 +1,56 @@
-# Speaker Mining Documentation
+# Documentation Hub
 
-This is the documentation landing page for the repository.
+This folder is the contributor handbook for the repository.
 
-Use this page to navigate focused documentation.
+Use this as the single place to understand how the repository works, what standards to follow, and what needs work next.
 
-## Quick Overview
+## Read In This Order
 
-The repository implements a notebook-first Speaker Mining pipeline with strict phase ownership:
+1. [repository-overview.md](repository-overview.md)
+2. [workflow.md](workflow.md)
+3. [contracts.md](contracts.md)
+4. [coding-principles.md](coding-principles.md)
+5. [open-tasks.md](open-tasks.md)
+6. [findings.md](findings.md)
+7. [context/README.md](context/README.md)
 
-1. mention detection
-2. candidate generation
-3. entity disambiguation (manual decisions)
-4. entity deduplication (manual decisions)
-5. link prediction
+## Scope Of This Documentation
 
-## Documentation Map
+- Explain the end-to-end architecture and phase boundaries.
+- Document executable workflow and phase ownership.
+- Keep output contracts aligned with actual generated CSVs.
+- Provide clear contributor rules for notebooks and process modules.
+- Track all open and solved work in one maintained location.
+- Preserve technical findings in one aggregated findings document.
 
-### Background and Context
+## Authoritative Sources By Topic
 
-* [background.md](background.md): project lineage, related work, and scientific context
+- Workflow execution order and phase ownership: [workflow.md](workflow.md)
+- Architecture and module map: [repository-overview.md](repository-overview.md)
+- Output file contracts and schema headers: [contracts.md](contracts.md)
+- Contributor standards and change discipline: [coding-principles.md](coding-principles.md)
+- Open and solved work items: [open-tasks.md](open-tasks.md)
+- Research and evidence notes: [findings.md](findings.md)
 
-### Workflow and Governance
+## Tracking Model
 
-* [workflow.md](workflow.md): phase order, ownership rules, manual checkpoints, source priority, and matching policy
+- There is one unified work item type in [open-tasks.md](open-tasks.md).
+- Items are sorted by priority (`high`, `medium`, `low`) and solved items are listed at the end.
 
-### Data Contracts
+Use the inline template at the top of [open-tasks.md](open-tasks.md) for new entries.
 
-* [contracts.md](contracts.md): phase outputs, required columns, and contract config locations
+## Maintenance Rules
 
-### Visuals and Additional Assets
+- If notebook order, output schema, or process modules change, update `repository-overview.md`, `workflow.md`, and `contracts.md` in the same PR.
+- If a bug, gap, or improvement is discovered, add one entry to `open-tasks.md`.
+- Keep `findings.md` as the aggregated evidence reference.
+- When mentioning a governed topic in any other document, link to its authoritative file instead of copying long operational lists.
 
-* [visualizations](visualizations)
-* [OpenRefine](OpenRefine)
+## Historical Context
+
+- [background.md](background.md)
+
+## Supporting Assets
+
+- [visualizations](visualizations)
+- [OpenRefine](OpenRefine)

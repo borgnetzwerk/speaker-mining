@@ -1,89 +1,73 @@
 # Data Contracts
 
-Contract-level names and columns are defined in phase config modules.
+This document describes current output contracts based on active notebooks and generated CSV headers.
 
-## Contract Source Files
+## Canonical Contract Sources
 
-1. speakermining/src/process/mention_detection/config.py
-2. speakermining/src/process/candidate_generation/config.py
-3. speakermining/src/process/entity_disambiguation/config.py
-4. speakermining/src/process/entity_deduplication/config.py
+1. `speakermining/src/process/mention_detection/config.py`
+2. candidate-generation module functions in `speakermining/src/process/candidate_generation/*.py`
+3. actual generated CSV headers in `data/*`
 
 ## Phase Output Locations
 
-1. data/10_mention_detection/
-2. data/20_canidate_generation/
-3. data/30_entity_disambiguation/
-4. data/31_entity_deduplication/
-5. data/40_link_prediction/
+1. `data/10_mention_detection/`
+2. `data/20_candidate_generation/`
+3. `data/30_entity_disambiguation/`
+4. `data/31_entity_deduplication/`
+5. `data/40_link_prediction/`
 
-## Required Outputs by Phase
+## Phase 1: Mention Detection (`data/10_mention_detection`)
 
-### P1 mention detection
+### Primary outputs
 
-Files:
+1. `episodes.csv`
+2. `publications.csv`
+3. `seasons.csv`
+4. `persons.csv`
+5. `topics.csv`
 
-1. episodes.csv
-2. persons.csv
-3. institutions.csv
-4. topics.csv
-5. seasons.csv
+### Duplicate reports
 
-Core columns:
+1. `duplicates_episodes.csv`
+2. `duplicates_publications.csv`
+3. `duplicates_seasons.csv`
+4. `duplicates_persons.csv`
+5. `duplicates_topics.csv`
 
-1. episodes.csv: episode_id, sendungstitel, publikationsdatum, dauer, season, staffel, folge, folgennr, infos
-2. persons.csv: mention_id, episode_id, name, beschreibung, source_text
-3. institutions.csv: mention_id, episode_id, institution, source_text
-4. topics.csv: mention_id, episode_id, topic, source_text
-5. seasons.csv: season_id, season_label, start_time, end_time, episode_count
+### Core columns
 
-### P2 candidate generation
+1. `episodes.csv`: `episode_id`, `sendungstitel`, `publikation_id`, `publikationsdatum`, `dauer`, `archivnummer`, `prod_nr_beitrag`, `zeit_tc_start`, `zeit_tc_end`, `season`, `staffel`, `folge`, `folgennr`, `infos`
+2. `publications.csv`: `publikation_id`, `episode_id`, `publication_index`, `date`, `time`, `duration`, `program`, `prod_nr_sendung`, `prod_nr_secondary`, `is_primary`, `raw_line`
+3. `seasons.csv`: `season_id`, `season_label`, `start_time`, `end_time`, `episode_count`
+4. `persons.csv`: `mention_id`, `episode_id`, `name`, `beschreibung`, `source_text`, `source_context`, `parsing_rule`, `confidence`, `confidence_note`
+5. `topics.csv`: `mention_id`, `episode_id`, `topic`, `source_text`, `source_context`, `parsing_rule`, `confidence`, `confidence_note`
 
-Files:
+Note: `institutions.csv` is not currently produced by active Phase 1 workflow.
 
-1. candidates.csv
-2. links.csv
-3. cache/*.csv
+## Phase 2: Candidate Generation (`data/20_candidate_generation`)
 
-Core columns:
+### Current outputs
 
-1. candidates.csv: mention_id, mention_label, candidate_id, candidate_label, source, score, context
-2. links.csv: src_candidate_id, property, value, target_candidate_id, source
+1. `classes.csv`
+2. `properties.csv`
+3. `broadcasting_programs.csv`
+4. `seasons.csv`
+5. `episodes.csv`
+6. `person_duplicates_for_phase1_feedback.csv`
+7. `candidates.csv`
 
-### P3.1 entity disambiguation
+### Core columns
 
-Files:
+1. `classes.csv`: `name`, `alias`, `wikibase_id`, `wikidata_id`
+2. `properties.csv`: `name`, `wikibase_id`, `wikidata_id`, `data_type`
+3. `broadcasting_programs.csv`: `name`, `wikibase_id`, `wikidata_id`, `fernsehserien_de_id`
+4. `seasons.csv`: `season_id`, `season_label`, `start_time`, `end_time`, `episode_count`, `season_label_chunk1`, `season_label_chunk2`
+5. `episodes.csv`: reduced episode keys plus `publication_*`, `guest_*`, and `topic_*` wide columns
+6. `person_duplicates_for_phase1_feedback.csv`: `mention_id`, `episode_id`, `name`, `name_cleaned`, `beschreibung`, `kept_mention_id`, `kept_beschreibung`, `duplicate_reason`, `sendungstitel`, `season`
+7. `candidates.csv`: `mention_id`, `mention_type`, `mention_label`, `candidate_id`, `candidate_label`, `source`, `context`
 
-1. similarity.csv
-2. recommendations.csv
-3. selections.csv (manual required)
+## Phase 3/4
 
-Core columns:
+These phases are present in workflow structure but no stable, repository-wide schema contract is documented yet from generated files in this repository state.
 
-1. similarity.csv: mention_id, candidate_id, score, method, explanation
-2. recommendations.csv: mention_id, recommended_candidate_id, confidence, reasons
-3. selections.csv: mention_id, selected_candidate_id, decision, reason, reviewer, reviewed_at
-
-### P3.2 entity deduplication
-
-Files:
-
-1. similarity.csv
-2. recommendations.csv
-3. selections.csv (manual required)
-
-Core columns:
-
-1. similarity.csv: entity_id_left, entity_id_right, score, method, explanation
-2. recommendations.csv: entity_id_left, entity_id_right, recommended_action, confidence, reasons
-3. selections.csv: entity_id_left, entity_id_right, decision, merged_entity_id, reason, reviewer, reviewed_at
-
-### P4 link prediction
-
-Files:
-
-1. rel.csv
-
-Core columns:
-
-1. rel.csv: source_id, property, target_id, confidence, reason
+When Phase 3/4 schemas are finalized, extend this document and add explicit headers for each produced file.

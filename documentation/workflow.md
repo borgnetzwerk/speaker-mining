@@ -1,64 +1,81 @@
 # Workflow
 
+This is the authoritative source for execution order and phase ownership rules.
+
 ## Execution Style
 
 1. Notebook-first execution.
 2. No CLI is required for normal operation.
-3. Phase notebooks are the primary entry points.
+3. Process modules under `speakermining/src/process` are invoked by notebooks and should stay orchestration-focused.
 
-Notebook order:
+Default notebook order:
 
-1. speakermining/src/process/notebooks/10_mention_detection.ipynb
-2. speakermining/src/process/notebooks/20_candidate_generation.ipynb
-3. speakermining/src/process/notebooks/30_entity_disambiguation.ipynb
-4. speakermining/src/process/notebooks/31_entity_deduplication.ipynb
-5. speakermining/src/process/notebooks/40_link_prediction.ipynb
+1. `speakermining/src/process/notebooks/10_mention_detection.ipynb`
+2. `speakermining/src/process/notebooks/20_candidate_generation_wikibase.ipynb`
+3. `speakermining/src/process/notebooks/21_candidate_generation_wikidata.ipynb`
+4. `speakermining/src/process/notebooks/22_candidate_generation_fernsehserien_de.ipynb`
+5. `speakermining/src/process/notebooks/23_candidate_generation_other.ipynb`
+6. `speakermining/src/process/notebooks/30_entity_disambiguation.ipynb`
+7. `speakermining/src/process/notebooks/31_entity_deduplication.ipynb`
+8. `speakermining/src/process/notebooks/40_link_prediction.ipynb`
 
-## Phase 1 Scope: Mention Detection
+Historical notebook (not default workflow):
 
-Phase 1 extracts clearly identifiable mentions from text archives:
+- `speakermining/src/process/notebooks/21_candidate_generation_wikidata_old.ipynb`
 
-- **Seasons**: Broadcast seasons
-- **Episodes**: Broadcast episodes with metadata and full interview context
-- **Publications**: Broadcast publication metadata  
-- **Persons/Guests**: Identified guest names with role descriptions
-- **Topics**: Discussed topics in episodes
+## Phase Scope
 
-**Deferred to Phase 3 (Semantic Disambiguation)**:
+### Phase 1: Mention Detection
 
-- **Institutions**: Institution extraction is deferred to Phase 3 (entity_disambiguation) when richer context from Wikidata becomes available. Code for institution extraction is preserved in candidate_generation for future use.
-- **Occupations/Roles/Positions**: Role disambiguation is handled downstream during entity reconciliation.
+Extracts from text archives in `data/01_input` and writes to `data/10_mention_detection`:
+
+- Episodes
+- Publications
+- Seasons
+- Persons/Guests
+- Topics
+
+Institutions are currently documented as deferred from active Phase 1 outputs.
+
+### Phase 2: Candidate Generation
+
+Loads setup and Phase 1 outputs, then creates lookup/context tables and candidate tables under `data/20_candidate_generation`.
+
+### Phase 3.1: Entity Disambiguation
+
+Manual decisions over candidate entities in `data/30_entity_disambiguation`.
+
+### Phase 3.2: Entity Deduplication
+
+Manual decisions over duplicate entity records in `data/31_entity_deduplication`.
+
+### Phase 4: Link Prediction
+
+Final relation-level outputs in `data/40_link_prediction`.
 
 ## Phase Ownership Rules
 
-Each phase reads upstream data and writes only inside its own phase folder.
+Each phase reads upstream data and writes only inside its owned folder:
 
-1. P1 writes only to data/10_mention_detection/
-2. P2 writes only to data/20_canidate_generation/
-3. P3.1 writes only to data/30_entity_disambiguation/
-4. P3.2 writes only to data/31_entity_deduplication/
-5. P4 writes only to data/40_link_prediction/
+1. P1 writes only to `data/10_mention_detection/`
+2. P2 writes only to `data/20_candidate_generation/`
+3. P3.1 writes only to `data/30_entity_disambiguation/`
+4. P3.2 writes only to `data/31_entity_deduplication/`
+5. P4 writes only to `data/40_link_prediction/`
 
-## Coupling Rules
+## Human-In-The-Loop Policy
 
-1. Prefer low coupling over reuse.
-2. Cross-phase imports are forbidden by policy.
-3. Helper duplication is acceptable when it avoids tight dependencies.
-
-## Human-in-the-loop Policy
-
-1. Entity disambiguation is manual-only.
-2. Entity deduplication is manual-only.
-3. Without explicit human decisions, downstream processing must not proceed.
-4. Decisions are backed up to avoid repeated review.
+1. Entity disambiguation is manual.
+2. Entity deduplication is manual.
+3. Downstream phases must not treat unresolved manual decisions as final truth.
 
 ## Candidate Source Priority
 
 1. Local Wikibase
 2. Wikidata
-3. Other sources (for example fernsehserien.de, YouTube)
+3. Fernsehserien and other sources
 
 ## Matching Policy
 
 1. Precision-first defaults.
-2. Recall expansion is future work.
+2. Recall expansion is acceptable only when confidence and traceability fields are maintained.
