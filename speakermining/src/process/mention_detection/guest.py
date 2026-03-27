@@ -82,6 +82,25 @@ _NAME_PATTERN = re.compile(
 	r"(?:[A-ZÄÖÜ][A-ZÄÖÜß-]+(?:\s+[A-ZÄÖÜ][A-ZÄÖÜß-]+)*|[A-ZÄÖÜ][a-zäöüß]+(?:-[A-ZÄÖÜ][a-zäöüß]+)?)\b"
 )
 
+_MONONYM_PATTERN = re.compile(r"\b[A-ZÄÖÜ][A-ZÄÖÜß-]{3,}\b")
+
+_SURNAME_PRIMARY_NAME_PATTERN = re.compile(
+	r"\b(?:[A-ZÄÖÜ][a-zäöüß]+|[A-ZÄÖÜ]\.)(?:\s+(?:[A-ZÄÖÜ][a-zäöüß]+|[A-ZÄÖÜ]\.))*\s+"
+	r"[A-ZÄÖÜ][A-ZÄÖÜß-]+(?:\s+[A-ZÄÖÜ][A-ZÄÖÜß-]+)*\b"
+)
+
+_MONONYM_STOPWORDS = {
+	"LANZ",
+	"OTON",
+	"STUDIOGAST",
+	"STUDIOGÄSTE",
+	"STUDIOGÄSTEN",
+	"STUDIOGASTS",
+	"THEMEN",
+	"THEMA",
+	"SCHWERPUNKTTHEMEN",
+}
+
 _RELATION_CUE_PATTERN = re.compile(
 	r"\b(?:ehefrau|ehemann|mutter|vater|tochter|sohn|bruder|schwester|"
 	r"zwillingsbruder|freundin|freund|deren|dessen|seine|ihr|ihre|ihrer|ihrem)\b",
@@ -96,6 +115,7 @@ _GROUP_DESC_PATTERN = re.compile(
 
 def _clean_name(raw_name: str) -> str:
 	name = _normalize_ws(raw_name).strip(" ,.;:")
+	name = re.sub(r'\s+"[^"]+"\s+', " ", name)
 	prefix_pattern = (
 		r"^(?:den|dem|die|der|des|mit|und|sowie|den\s+Studiogästen|den\s+Studiogast|"
 		r"Studiogästen|Studiogäste|Studiogast|Studiogasts|seine|seiner|ihre|ihrer|ihrem|"
@@ -125,17 +145,38 @@ def _is_plausible_person_name(name: str) -> bool:
 	return True
 
 
+def _is_plausible_mononym(name: str) -> bool:
+	token = (name or "").strip().upper()
+	if not token or token in _MONONYM_STOPWORDS:
+		return False
+	if len(token) < 4:
+		return False
+	if "THEMA" in token:
+		return False
+	return token.isupper()
+
+
 def _is_group_description(desc: str) -> bool:
 	return bool(_GROUP_DESC_PATTERN.search(desc or ""))
 
 
-def _candidate_names_with_spans(raw_names: str) -> list[tuple[str, int, int]]:
-	items: list[tuple[str, int, int]] = []
+def _candidate_names_with_spans(raw_names: str) -> list[tuple[str, int, int, str]]:
+	items: list[tuple[str, int, int, str]] = []
 	for m in _NAME_PATTERN.finditer(raw_names):
 		name = _clean_name(m.group(0))
 		if not _is_plausible_person_name(name):
 			continue
-		items.append((name, m.start(), m.end()))
+		items.append((name, m.start(), m.end(), "surname_name"))
+
+	if items:
+		return items
+
+	for m in _MONONYM_PATTERN.finditer(raw_names):
+		name = _clean_name(m.group(0))
+		if not _is_plausible_mononym(name):
+			continue
+		items.append((name, m.start(), m.end(), "mononym"))
+
 	return items
 
 
@@ -154,7 +195,7 @@ def _rule_rows_for_block(
 	group_desc = _is_group_description(desc)
 	multi = len(candidates) > 1
 
-	for idx, (name, start, _end) in enumerate(candidates):
+	for idx, (name, start, _end, name_kind) in enumerate(candidates):
 		is_last = idx == len(candidates) - 1
 		left_window = raw_names[max(0, start - 40) : start]
 		has_relation_cue = bool(_RELATION_CUE_PATTERN.search(left_window))
@@ -163,6 +204,11 @@ def _rule_rows_for_block(
 		parsing_rule = "single_parenthetical"
 		confidence = 0.95
 		confidence_note = "single name directly tied to parenthetical description"
+
+		if name_kind == "mononym":
+			parsing_rule = "single_parenthetical_mononym"
+			confidence = 0.62
+			confidence_note = "single-token stage or artist name tied to parenthetical description"
 
 		if not multi:
 			beschreibung = desc
@@ -200,14 +246,101 @@ def _rule_rows_for_block(
 	return rows
 
 
+def _trim_section_tail(segment: str) -> str:
+	segment = re.split(r"\bThema(?:n)?\s*:\s*", segment, maxsplit=1, flags=re.IGNORECASE)[0]
+	segment = re.split(r"\bSchwerpunktthemen?\s*:\s*", segment, maxsplit=1, flags=re.IGNORECASE)[0]
+	segment = re.split(r"\(O-Ton\)", segment, maxsplit=1, flags=re.IGNORECASE)[0]
+	return segment.strip(" .,;")
+
+
+def _strip_leading_timecodes(text: str) -> str:
+	return re.sub(
+		r"^\d{1,2}:\d{2}:\d{2}\s*-\s*\d{1,2}:\d{2}:\d{2}\s+\d{2,3}'\d{2}\s+",
+		"",
+		text,
+	)
+
+
+def _extract_opening_guest_sections(text: str) -> list[str]:
+	sections: list[str] = []
+	opening = _strip_leading_timecodes(text)
+
+	opening_patterns = [
+		r"^(?:O-Ton\s+)?(?:Interview(?:\s+und\s+Diskussion)?\s+)?(?:Mark\w*\s+)?LANZ(?:\s*\([^)]+\))?\s+mit\s+",
+		r"^(?:O-Ton\s+)?Interview(?:\s+und\s+Diskussion)?\s+",
+		r"^(?:O-Ton\s+)?(?:den\s+)?Studiogästen?\s+",
+		r"^(?:O-Ton\s+)?(?:dem\s+)?Studiogast\s+",
+	]
+	for pattern in opening_patterns:
+		m = re.match(pattern, opening, flags=re.IGNORECASE)
+		if not m:
+			continue
+		segment = opening[m.end() :].strip(" .,;")
+		segment = _trim_section_tail(segment)
+		if segment:
+			sections.append(segment)
+			return sections
+
+	# Last-resort fallback: preserve precision by requiring surname-style names plus parenthetical descriptors.
+	if _SURNAME_PRIMARY_NAME_PATTERN.search(opening) and re.search(r"\([^)]+\)", opening):
+		segment = _trim_section_tail(opening)
+		if segment:
+			sections.append(segment)
+
+	return sections
+
+
+def _extract_surname_fallback_rows(episode_id: str, section: str) -> list[dict[str, str]]:
+	lead = _strip_leading_timecodes(section)
+	lead = re.split(r"\s+über\s+", lead, maxsplit=1, flags=re.IGNORECASE)[0]
+	lead = lead.split(";", 1)[0].strip(" .,;")
+
+	candidates = [_clean_name(m.group(0)) for m in _SURNAME_PRIMARY_NAME_PATTERN.finditer(lead)]
+	if not candidates:
+		return []
+
+	# Keep first occurrence order and avoid duplicate rows for repeated names.
+	seen: set[str] = set()
+	rows: list[dict[str, str]] = []
+	for name in candidates:
+		if not _is_plausible_person_name(name) or name in seen:
+			continue
+		seen.add(name)
+		rows.append(
+			{
+				"mention_id": _mention_id(episode_id, name, ""),
+				"episode_id": episode_id,
+				"name": name,
+				"beschreibung": "",
+				"source_text": lead,
+				"source_context": section,
+				"parsing_rule": "surname_primary_no_parenthetical",
+				"confidence": "0.68",
+				"confidence_note": "name identified via uppercase surname pattern without local descriptor",
+			}
+		)
+
+	return rows
+
+
 def _extract_person_rows_from_infos(episode_id: str, infos: str) -> list[dict[str, str]]:
 	rows: list[dict[str, str]] = []
-	for section in _extract_infos_sections(infos):
+	sections = _extract_infos_sections(infos)
+	if not sections:
+		sections = _extract_opening_guest_sections(_normalize_ws(infos))
+
+	for section in sections:
+		section_rows: list[dict[str, str]] = []
 		for m in re.finditer(r"([^)]+?)\(([^)]+)\)", section):
 			raw_names = _normalize_ws(m.group(1)).strip(" ,;")
 			desc = _normalize_ws(m.group(2))
 			block_text = f"{raw_names} ({desc})"
-			rows.extend(_rule_rows_for_block(episode_id, raw_names, desc, block_text, section))
+			section_rows.extend(_rule_rows_for_block(episode_id, raw_names, desc, block_text, section))
+
+		if not section_rows:
+			section_rows.extend(_extract_surname_fallback_rows(episode_id, section))
+
+		rows.extend(section_rows)
 
 	return rows
 

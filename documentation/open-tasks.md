@@ -33,6 +33,30 @@ Copy this block when adding a new item.
   2. dedup behavior is documented in `workflow.md` and `contracts.md` if schema changes.
   3. known overlap case is reproducible and covered.
 
+### TODO-008: Resolve Remaining Guest Extraction Misses (13 Episodes)
+
+- Priority: high
+- Status: open
+- Area: parsing
+- Summary: 13 episodes still have no extracted guests although at least some `infos` texts still contain guest-relevant signals.
+- Evidence: `data/10_mention_detection/episodes_without_person_mentions.csv`, `documentation/context/mention-detection-guest-diagnostics-2026-03-27.md`.
+- Definition of done:
+  1. each of the 13 remaining episodes is triaged with explicit reason (`extractable_with_rules` vs `not_extractable_from_infos`).
+  2. parser rules are extended for extractable cases and reduce the unresolved count.
+  3. `episodes_without_person_mentions.csv` and diagnostics context are regenerated and documented.
+
+### TODO-009: Fix Episode Text Parsing Gap For EPISODE 363
+
+- Priority: high
+- Status: open
+- Area: ingestion
+- Summary: text-to-episode parsing in `11_mention_detection.ipynb` (via phase modules) drops at least EPISODE 363 infos although source archive text contains it.
+- Evidence: `speakermining/src/process/notebooks/11_mention_detection.ipynb`, `data/01_input/zdf_archive/Markus Lanz_2011-2015.pdf_episodes.txt`.
+- Definition of done:
+  1. root cause for EPISODE 363 infos loss is identified in episode parsing logic.
+  2. parsing fix preserves infos text for EPISODE 363 and does not regress neighboring episodes.
+  3. validation cell or reproducible check is added and results are documented in findings/context.
+
 ## Medium Priority
 
 ### TODO-002: Normalize name variants with umlaut/ss expansion
@@ -70,6 +94,18 @@ Copy this block when adding a new item.
   1. schema includes a mention category field.
   2. extraction logic and validation cells are updated.
   3. downstream assumptions are adjusted.
+
+### TODO-010: Reconstruct Split Family Names Across Description Blocks
+
+- Priority: medium
+- Status: open
+- Area: parsing
+- Summary: some guest strings split given names into description text while surname appears once in the lead (for example `Familie EWERDWALBESLOH (Walter, Corinna und Sohn Leon, ...)`), requiring reconstruction of full person names.
+- Evidence: mention-detection guest parsing examples in `episodes.infos` and parser logic in `speakermining/src/process/mention_detection/guest.py`.
+- Definition of done:
+  1. parser detects family/group patterns with shared surname and reconstructs full names (for example `Walter EWERDWALBESLOH`, `Corinna EWERDWALBESLOH`, `Leon EWERDWALBESLOH`).
+  2. reconstructed rows are tagged with dedicated parsing rules and conservative confidence.
+  3. validation examples are added to analysis context and checked for false-positive drift.
 
 ### [ID]: Identify clusters of potential misspellings 
 
@@ -168,3 +204,15 @@ Copy this block when adding a new item.
   1. template appears at top of this file.
   2. no separate templates are required.
   3. documentation hub points contributors here.
+
+### TODO-904: Stabilize Guest Detection For Anchor And Name Variants
+
+- Priority: high
+- Status: solved
+- Area: parsing
+- Summary: guest extraction missed episodes when host-anchor phrasing varied or when names appeared as mononyms or surname-primary blocks without parenthetical descriptors.
+- Evidence: `data/10_mention_detection/episodes_without_person_mentions.csv`, `documentation/context/mention-detection-guest-diagnostics-2026-03-27.md`.
+- Definition of done:
+  1. parser supports broader interview-opening section detection beyond strict `Mark... LANZ ... mit`.
+  2. surname-primary guest extraction fallback exists for non-parenthetical guest list lead segments.
+  3. mention-detection conventions are documented in dedicated documentation.

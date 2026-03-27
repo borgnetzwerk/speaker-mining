@@ -59,3 +59,20 @@ The following former one-line notes were represented in the tracker and then arc
   - Related tracker item: `TODO-006`.
 - Merge identification concept for role/occupation/position/institution.
   - Related tracker item: `TODO-007`.
+
+## F-007: Guest Detection Miss Patterns In Episode Infos
+
+- Observation: episodes without extracted guests cluster into a small set of parser miss patterns.
+- Root causes identified on the exported miss list (`episodes_without_person_mentions.csv`):
+  - no anchor/cue hit
+  - anchor hit but no parenthetical guest pairs
+  - missing infos text
+  - mononym or quoted-name edge cases
+- Primary identifier convention confirmed: guest names are first and foremost identified via uppercase surname patterns (including umlaut and eszett forms).
+- Impact: rows with valid guest names can be dropped when host-anchor phrasing differs (`Interview LANZ mit`, `Interview <guest list>`) or when descriptor parentheses are absent.
+- Resolution implemented:
+  - broader opening section extraction for `Interview ...` and `Studiogast` starts
+  - surname-primary fallback extraction when no parenthetical block is present
+  - support for mononym/artist-name parenthetical rows and quoted nickname normalization
+- Post-change quick validation against the same 31-row miss list: 18 episodes now produce person rows; 13 remain unresolved (mostly documentary summaries or missing infos).
+- Context snapshot: `documentation/context/mention-detection-guest-diagnostics-2026-03-27.md`.

@@ -24,6 +24,8 @@ Governance reference model:
 3. Add one markdown cell per major step with input/output intent.
 4. Persist key tables at stable checkpoints, not only at notebook end.
 5. Keep temporary exploratory cells separate from production cells.
+6. Do not hardcode display-only row limits in notebooks (for example `.head(10)` before `display(...)`) unless explicitly required by the task.
+7. Always expose real DataFrames to notebook viewers so sorting/filtering/search can operate on full data.
 
 ## Process Module Principles
 
@@ -31,6 +33,7 @@ Governance reference model:
 2. Prefer explicit schemas and column selection over implicit DataFrame assumptions.
 3. Include confidence and parsing metadata for heuristic extraction logic.
 4. Add helper functions for deduplication/reporting instead of ad hoc notebook logic.
+5. Keep presentation concerns out of process modules: no hardcoded preview slices, sample limits, or UI-specific output shaping.
 
 ## Data Contract Principles
 

@@ -9,10 +9,11 @@ Use this as the single place to understand how the repository works, what standa
 1. [repository-overview.md](repository-overview.md)
 2. [workflow.md](workflow.md)
 3. [contracts.md](contracts.md)
-4. [coding-principles.md](coding-principles.md)
-5. [open-tasks.md](open-tasks.md)
-6. [findings.md](findings.md)
-7. [context/README.md](context/README.md)
+4. [mention-detection.md](mention-detection.md)
+5. [coding-principles.md](coding-principles.md)
+6. [open-tasks.md](open-tasks.md)
+7. [findings.md](findings.md)
+8. [context/README.md](context/README.md)
 
 ## Scope Of This Documentation
 
@@ -28,6 +29,7 @@ Use this as the single place to understand how the repository works, what standa
 - Workflow execution order and phase ownership: [workflow.md](workflow.md)
 - Architecture and module map: [repository-overview.md](repository-overview.md)
 - Output file contracts and schema headers: [contracts.md](contracts.md)
+- Mention detection conventions and parsing rules: [mention-detection.md](mention-detection.md)
 - Contributor standards and change discipline: [coding-principles.md](coding-principles.md)
 - Open and solved work items: [open-tasks.md](open-tasks.md)
 - Research and evidence notes: [findings.md](findings.md)
