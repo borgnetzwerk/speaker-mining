@@ -11,6 +11,30 @@ from pathlib import Path
 import pandas as pd
 
 
+def _read_csv_or_empty(path: Path) -> pd.DataFrame:
+	"""Read a CSV file and return an empty DataFrame when it does not exist."""
+	if not path.exists():
+		return pd.DataFrame()
+	return pd.read_csv(path)
+
+
+def load_setup_context(root: str | Path) -> dict[str, pd.DataFrame]:
+	"""Load Phase 2 setup CSVs from data/00_setup.
+	
+	Args:
+		root: Repository root path.
+	
+	Returns:
+		Mapping with keys: classes, properties, broadcasting_programs.
+	"""
+	base = Path(root) / "data" / "00_setup"
+	return {
+		"classes": _read_csv_or_empty(base / "classes.csv"),
+		"properties": _read_csv_or_empty(base / "properties.csv"),
+		"broadcasting_programs": _read_csv_or_empty(base / "broadcasting_programs.csv"),
+	}
+
+
 def load_broadcasting_program_seeds(root: str | Path) -> list[dict[str, str]]:
 	"""Load broadcasting program seed entities from setup data.
 	

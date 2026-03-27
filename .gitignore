@@ -212,3 +212,8 @@ documentation/visualizations/*.drawio.xml
 documentation/visualizations/*Ps.drawio.pdf
 speakermining/src/config/main.json
 documentation/findings/*
+
+# Ignore for now
+speakermining/src/process/candidate_generation/INSTITUTION_EXTRACTION_DEFERRED.md
+speakermining/src/process/candidate_generation/institution_extraction_deferred.py
+speakermining/src/process/notebooks/21_candidate_generation_wikidata_old.ipynb
