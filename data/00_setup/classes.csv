@@ -1,8 +1,10 @@
-name,alias,wikibase_id,wikidata_id
-human,person,,Q5
-episode,episode,,Q1983062
-broadcasting program,show,,Q11578774
-series of creative works,season,,Q7725310
-role,position,,Q214339
-occupation,occupation,,Q12737077
-property that may violate privacy,,Q44601380,item
+wikibase_id,filename,label,description,alias,label_de,description_de,alias_de,wikidata_id,fernsehserien_de_id
+,persons,person,,,,,,Q215627,
+,organizations,organization,,,,,,Q43229,
+,roles,role,,,,,,Q214339,
+,episodes,episode,,,,,,Q1983062,
+,series,series of creative works,,,,,,Q7725310,
+,broadcasting_programs,broadcasting program,,,,,,Q11578774,
+,topics,topic,,,,,,Q26256810,
+,entities,entity,,,,,,Q35120,
+,privacy_properties,property that may violate privacy,,,,,,Q44601380,

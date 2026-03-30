@@ -1,2 +1,16 @@
-name,wikibase_id,wikidata_id,fernsehserien_de_id
-Markus Lanz,,Q1499182,markus-lanz
+wikibase_id,filename,label,description,alias,label_de,description_de,alias_de,wikidata_id,fernsehserien_de_id
+,markus_lanz,Markus Lanz,,,,,,Q1499182,markus-lanz
+,hart_aber_fair,Hart aber fair,,,,,,Q1587023,hart-aber-fair
+,maischberger,Maischberger,,,,,,Q1330010,maischberger-ard
+,maybrit_illner,Maybrit Illner,,,,,,Q1914407,maybrit-illner
+,caren_miosga,Caren Miosga,,,,,,Q122961070,caren-miosga
+,scobel,scobel,,,,,,Q2260420,scobel
+,phoenix_runde,Phoenix Runde,,,,,,Q996534,phoenix-runde
+,unbouble,Unbouble,,,,,,,NONE
+,startalk,StarTalk,,,,,,Q18003196,startalk
+,couchwissen,couchwissen,,,,,,,couchwissen
+,wtf_talk,WTF talk,,,,,,,NONE
+,lanz_und_precht,Lanz und Precht,,,,,,Q121339233,NONE
+,precht,Precht,,,,,,Q15840908,precht
+,der_internationale_frueshoppen,Der Internationale Frühschoppen,,,,,,Q1194569,internationaler-fruehschoppen
+,presseclub,Presseclub,,,,,,Q2108918,presseclub

@@ -71,3 +71,60 @@ Note: `institutions.csv` is not currently produced by active Phase 1 workflow.
 These phases are present in workflow structure but no stable, repository-wide schema contract is documented yet from generated files in this repository state.
 
 When Phase 3/4 schemas are finalized, extend this document and add explicit headers for each produced file.
+
+## Phase 2 Wikidata Graph Store (Provisional New Contract)
+
+This section describes the provisional contract for the new graph-oriented
+Wikidata store.
+
+Current development path:
+
+1. `data/20_candidate_generation/wikidata/new/`
+
+Final target path after rollout:
+
+1. `data/20_candidate_generation/wikidata/`
+
+After rollout, old Wikidata artifacts are replaced by the new structure.
+
+### Naming convention
+
+Canonical spelling is `organizations`.
+
+### Provisional required artifacts
+
+Top-level:
+
+1. `classes.csv`
+2. `triples.csv`
+3. `summary.json`
+4. `query_inventory.csv`
+5. `raw_queries/` (append-only remote query events)
+
+Class partitions (`<class_filename>` from setup classes):
+
+1. `classes/<class_filename>.csv`
+2. `classes/<class_filename>.json`
+3. `instances/<class_filename>.csv`
+4. `instances/<class_filename>.json`
+
+Properties:
+
+1. `properties/properties.csv`
+2. `properties/properties.json`
+
+### Provisional schemas
+
+1. `classes.csv`: `wikibase_id`, `filename`, `label`, `description`, `alias`, `label_de`, `description_de`, `alias_de`, `wikidata_id`, `fernsehserien_de_id`
+2. `triples.csv`: `subject`, `predicate`, `object`, `more_info_path`
+3. `classes/<class_filename>.csv`: `ID`, `label`, `description`, `alias`, `label_de`, `description_de`, `alias_de`, `path`
+4. `instances/<class_filename>.csv`: `ID`, `label`, `description`, `alias`, `label_de`, `description_de`, `alias_de`, `path`
+5. `properties/properties.csv`: `ID`, `label`, `description`, `alias`, `label_de`, `description_de`, `alias_de`, `path`
+
+JSON files are the richer source of truth; CSV files are overview/index outputs.
+
+### Compatibility note
+
+How the new graph store will feed final candidate-generation exports for
+downstream phases is intentionally not fixed yet and remains an iterative design
+step.
