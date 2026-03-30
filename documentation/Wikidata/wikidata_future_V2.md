@@ -1,46 +1,91 @@
 # Future Wikidata Workflow (Production Spec)
 
-This document defines the new comprehensive graph workflow that starts from
-seed broadcasting programs and discovers all relevant connected Wikidata data
-under deterministic, cache-first, and policy-compliant controls.
+This document defines the new comprehensive graph workflow that starts from seed
+broadcasting programs and discovers relevant connected Wikidata data under
+deterministic, cache-first, and policy-compliant controls.
 
 ## Scope and migration target
 
-Current development happens in:
+Current development path:
 
 - data/20_candidate_generation/wikidata/new
 
-Final target location (after rollout) is:
+Final target path after rollout:
 
 - data/20_candidate_generation/wikidata
 
 After rollout, the old Wikidata structure is removed and replaced by the new
 graph-oriented structure.
 
-## Naming freeze
+## Normative vocabulary
 
-The canonical spelling is organizations.
+- discovered node: a node ID (QID or PID) observed in fetched data and persisted
+  with a discovery snapshot.
+- expanded node: a discovered QID whose neighbors are actively fetched.
+- seed instance: a QID from data/00_setup/broadcasting_programs.csv that is an
+   instance of broadcasting program (Q11578774); only these seed instances are
+   root expansion starts.
+- exportable node: any discovered node included in persisted output artifacts.
+- direct link: an item-to-item edge where A references B or B references A,
+  regardless of property.
+- class node: an entity with at least one P279 statement.
+- stale cache entry: a cached record older than cache_max_age_days.
+
+## Policy constraints
+
+### Naming freeze
+
+Canonical spelling is organizations.
 
 All class and instance artifacts must use organizations (not organisations).
 
-## Data model
+### Cache and query event policy
+
+Query means cache-first lookup, then network only when cache is missing or
+stale.
+
+Raw query results are append-only event records, one file per remote reply.
+Number of raw query files equals number of remote replies received.
+
+Each raw record must include:
+
+- endpoint
+- normalized query text (or canonical request descriptor)
+- query hash
+- timestamp UTC
+- source process step
+- response payload
+
+Long-term storage may move to an event-sourced database with equivalent
+properties (append safety, reconstructability, flexible payload shape).
+
+## Data model and artifacts
 
 JSON is the source of truth for rich payloads. CSV files are redundant overview
 and indexing tables derived from JSON and raw query events.
 
-### Core classes file
+### Input sources
 
-The core class index is loaded from data/00_setup/classes.csv and uses this
-schema:
+- data/00_setup/classes.csv
+- data/00_setup/broadcasting_programs.csv
+
+Seed loading rule:
+
+- Only rows with a valid wikidata_id matching ^Q[1-9][0-9]*$ are seed instances.
+- Rows with NONE, blanks, or non-QID placeholders are skipped and recorded in
+   run diagnostics.
+- Classes are never used as a seed.
+
+Core classes schema:
 
 wikibase_id,filename,label,description,alias,label_de,description_de,alias_de,wikidata_id,fernsehserien_de_id
 
-Seed broadcasting programs are loaded from data/00_setup/broadcasting_programs.csv.
+### Bootstrap requirement
 
-### Required folder and file bootstrap
-
-A run must be able to start from an empty data directory and create all
+A run must be able to start from an empty target output path and create all
 required folders and files automatically.
+
+This does not apply to setup input files in data/00_setup.
 
 Required folders:
 
@@ -68,32 +113,13 @@ Required properties pair:
 - properties/properties.csv
 - properties/properties.json
 
-## Cache and query event policy
+## Node storage model
 
-Query means cache-first lookup, then network only if entry is missing or stale.
+### Discovered and stored nodes
 
-Raw query results are append-only event records, one file per remote reply.
-Number of raw query files equals number of remote replies received.
+Default: every found node is discovered and stored immediately.
 
-Each raw record must include:
-
-- endpoint
-- normalized query text (or canonical request descriptor)
-- query hash
-- timestamp UTC
-- source process step
-- response payload
-
-Long-term storage may move to an event-sourced database with equivalent
-properties (append safety, reconstructability, and flexible payload shape).
-
-## Node types and relevance policy
-
-### Discoverable nodes
-
-Default: every found node is discoverable.
-
-When a node is discovered, store basic context only:
+When an entity node is discovered (but not yet expanded), store basic fields only:
 
 - label (en, de)
 - description (en, de)
@@ -101,7 +127,7 @@ When a node is discovered, store basic context only:
 - instance of (P31)
 - subclass of (P279)
 
-For properties (PID), store:
+When a property node is discovered (but not yet expanded), store basic fields:
 
 - label (en, de)
 - description (en, de)
@@ -109,52 +135,50 @@ For properties (PID), store:
 - instance of (P31)
 - subproperty of (P1647)
 
-### Expandable nodes
+All discovered nodes are persisted and never re-queried without an explicit stale override.
 
-Expandable nodes are a subset of discovered nodes allowed to recurse into
+### Expanded nodes
+
+Expanded nodes are discovered QIDs whose relationships have been recursively explored.
+
+Expansion on item A means:
+
+1. Fetch all properties for A beyond basic context (outlinks).
+2. Collect newly discovered IDs from outlinks.
+3. Fetch all links referencing A (inlinks).
+4. Collect newly discovered IDs from inlinks.
+5. Store the expanded payload (all fetched properties and relationships).
+6. Evaluate discovered IDs against the expandable target rule.
+
+Expanded nodes overwrite their discovered-only records with complete payloads.
+
+## Expansion predicates and graph semantics
+
+### Edge domain
+
+Expansion graph edges are item-to-item only.
+
+Item outlink edge:
+
+- A --P*--> B, where A and B are QIDs and P* is any property PID.
+
+Item inlink edge:
+
+- X --P*--> A, where X and A are QIDs and P* is any property PID.
+
+Literal/time/quantity/string values are persisted as node attributes, not queue
 neighbors.
-
-Expansion on instance A means:
-
-1. Fetch all properties beyond the basic context fields for A (outlinks of A).
-2. Collect all newly discovered IDs from those outlinks.
-3. Fetch all links that reference A (inlinks to A).
-4. Collect all newly discovered IDs from those inlinks.
-5. Evaluate discovered IDs against expansion predicates.
-
-### Exportable nodes
-
-Every discovered node is exportable.
-
-Rule: always export everything fetched so known nodes are never queried again
-without an explicit stale/override reason.
-
-## Expansion predicates
-
-### Edge families used during expansion
-
-This workflow currently treats all properties as valid edges for discovery and
-direct-link checks.
-
-Edge family 1, outlinks:
-
-- A --P*--> B, where A and B are item QIDs and P* is any property PID.
-
-Edge family 2, inlinks:
-
-- X --P*--> A, where A and X are item QIDs and P* is any property PID.
 
 No property allowlist is enforced in this version. Property blacklisting may be
 added later after empirical analysis.
 
-### Direct link definition (unambiguous)
+### Direct link definition
 
-Two items A and B have a direct link if at least one claim exists where:
+Two items A and B have a direct link if at least one stored item-to-item edge
+exists where:
 
 - subject = A and object = B, or
-- subject = B and object = A,
-
-with any property PID.
+- subject = B and object = A.
 
 Property identity does not affect direct-link validity in this version.
 
@@ -162,89 +186,218 @@ Property identity does not affect direct-link validity in this version.
 
 A node N is expandable if either condition holds:
 
-1. N is one of the listed broadcasting program seeds, or
-2. N has a direct link to at least one listed broadcasting program seed and N is
-    instance of one of the core classes from data/00_setup/classes.csv.
+1. N is one of the listed seed instances from
+   data/00_setup/broadcasting_programs.csv.
+2. N has a direct link to at least one listed seed instance and N is
+   instance of one of the core classes in data/00_setup/classes.csv.
 
 Additional guard:
 
-- inlinks to class nodes are discovered but never used for expansion recursion.
+- inlinks to class nodes are discovered and persisted, but never used for
+  expansion recursion.
 
-## Deterministic controls
+#### Expandability decision table
 
-The workflow must expose and enforce these controls:
-
-- per_node_outlink_cap
-- per_node_inlink_cap
-- class_node_inlink_expansion_ban (true by default)
-- per_seed_query_budget
-- total_query_budget
-- max_depth_by_node_type
-
-Recommended depth policy:
-
-- broadcasting_program: configurable, default 3
-- episode/series/person/organization/topic/role: configurable, default 2
-- class nodes: configurable, default 1
-- properties: configurable, default 0 for expansion
+1. Class: expandable = no 
+2. Seed node: expandable = yes.
+3. Non-seed, no direct link to any seed: expandable = no.
+4. Non-seed, direct link to seed, but P31 not in core classes: expandable = no.
+5. Non-seed, direct link to seed, and P31 in core classes: expandable = yes.
 
 ### Canonical queue ordering
 
 For reproducible reruns:
 
-1. Seeds are enqueued in ascending canonical QID order.
-2. For each expanded node, candidate neighbors are deduplicated and sorted by
-    canonical QID before enqueue.
-3. Queue mode is FIFO BFS.
-4. Tie-breaking always uses canonical QID lexical order.
+1. Seed instances (valid QIDs only) are enqueued in the exact order they appear
+   in data/00_setup/broadcasting_programs.csv (not sorted by QID).
+2. Each seed is expanded fully before the next seed is processed.
+3. Per expanded node, candidate neighbors are deduplicated, canonicalized, sorted by QID,
+   then enqueued.
+4. Within each seed's expansion, queue discipline is FIFO BFS.
+5. Tie-breaking uses lexical QID order.
+
+### Stop conditions and precedence
+
+If multiple stop conditions become true, apply this precedence order:
+
+1. total_query_budget exhausted.
+2. current seed per_seed_query_budget exhausted.
+3. queue exhausted.
+4. candidate neighbors pruned by per-node caps (continue if queue still non-empty).
+
+Run summary should record both final stop reason and active limit counters.
 
 ## Class and instance discovery policy
 
-Class detection rule:
+Class detection:
 
-- If an entity has any P279 statement, treat it as class-capable and track as a
-   class candidate.
+- if entity has any P279 statement, treat as class-capable and track as class
+  candidate.
 
-Instance detection rule:
+Instance detection:
 
-- If no P279 statements are present, treat as instance and classify via P31
-   paths.
+- if no P279 statements exist, treat as instance and classify via P31 paths.
 
 Path resolution:
 
-- For discovered classes, run BFS over subclass relations to find shortest path
-   to any core class.
-- Persist the resolved path in class and instance overview rows.
-- If no path is found, keep path blank.
-- Use seen-set cycle protection during path BFS to avoid loops and duplicate
-   branch exploration.
+- for discovered classes, run BFS over subclass relations to shortest path to a
+  core class.
+- persist resolved path in class and instance overview rows.
+- if no path is found, keep path blank.
+- use seen-set cycle protection during path BFS.
+
+## Materialization and dedup policy
+
+Materialization rebuilds CSV views from persisted node and triple events.
+
+Node table dedup:
+
+- Dedup key: ID
+- For nodes discovered multiple times: keep all timestamps, merge all observed fields.
+- When a discovered node is later expanded, merge expansion payload fields into existing record.
+
+Triple table dedup:
+
+- Dedup key: (subject, predicate, object)
+- Immutable facts keep first observed timestamp.
+
+Query inventory dedup:
+
+- Dedup key: query hash + endpoint
+- Keep latest successful response and timestamp.
+
+Materialization outputs:
+
+- classes.csv and partition csv/json files (deduplicated node records per class)
+- instances.csv and partition csv/json files (deduplicated node records per class)
+- triples.csv (deduplicated relationship records)
+- summary.json (run metadata)
+- query_inventory.csv (query log)
 
 ## End-to-end execution outline
 
-### Step 1, graph setup
+### Step 1: graph setup
 
-1. Load classes and broadcasting program seeds from data/00_setup.
-2. Create missing folders/files for the full target schema.
-3. Ensure core class rows are present in entities/class bootstrap outputs.
-4. Backfill missing labels/descriptions/aliases from cached entity payloads.
+1. Load classes and seed instances from data/00_setup.
+2. Create missing folders/files for target schema.
+3. Ensure core class rows exist in bootstrap outputs.
+4. Backfill missing labels/descriptions/aliases from cache or query as needed.
 
-### Step 2, seed expansion
+### Step 2: seed expansion
 
-1. Initialize BFS queue from all seed QIDs using canonical ordering.
-2. Expand queue under budgets, node-type depth limits, and degree caps.
-3. For each expansion, process outlinks and inlinks per rules above.
-4. Store all discovery payloads and update class/instance/property tables.
-5. Continue until queue empty or budget limit reached.
+For each broadcasting program in data/00_setup/broadcasting_programs.csv (in order):
 
-### Step 3, materialization
+1. If wikidata_id is not a valid QID, skip row and record skip reason.
+2. Initialize BFS queue with the current seed instance QID.
+3. Expand queue under budgets and degree caps.
+4. For each expanded node, process outlinks and inlinks under edge-domain rules.
+5. Discover and store new nodes (basic fields for discovered-only, full payload for expanded).
+6. Persist triples (item-to-item relationships).
+7. Continue until stop condition is reached (seed budget, total budget, or queue exhausted).
+8. After seed is complete or budget limit is reached, proceed to materialization checkpoint.
+
+### Step 3: materialization checkpoints
+
+Materialization occurs at three trigger points:
+
+**After each seed broadcasting program instance completes:**
 
 1. Rebuild CSV indices from JSON/event sources.
 2. Rebuild triples.csv from persisted relationship events.
-3. Update summary.json and query_inventory.csv.
+3. Update summary.json with per-seed statistics and cumulative totals.
+4. Update query_inventory.csv.
+5. Output human-readable summary: nodes discovered, expanded, queries used, stop reason.
+
+**When network query limit is hit:**
+
+1. Perform same materialization as above.
+2. Record stop reason (per_seed_budget or total_query_budget exhausted).
+3. Output is ready for human review and decision to resume or stop.
+
+**Final materialization (all seeds processed or run terminated):**
+
+1. Perform same materialization as above.
+2. Record final stop reason and complete run statistics.
+3. Output includes total nodes by type, total triples, total queries, time elapsed.
+
+## Checkpoint policy
+
+Each materialization produces a timestamped checkpoint at the target output path
+(data/20_candidate_generation/wikidata).
+
+### Checkpoint safety rules
+
+1. Each checkpoint is self-contained: all CSV files, JSON files, and raw query
+   events are independently readable and reconstructable from that point forward.
+
+2. Checkpoints are never deleted or overwritten during a run. If a run is resumed
+   or restarted at the same output path, a new checkpoint is appended (new
+   folder or suffix).
+
+3. Partial checkpoints (incomplete after a crash) are marked with a `_incomplete`
+   flag in the checkpoint manifest so they can be identified during recovery.
+
+4. Checkpoint metadata includes:
+
+   - run_id (UUID or timestamp-based identifier)
+   - start_timestamp (UTC when this run started)
+   - latest_checkpoint_timestamp (UTC of last materialized state)
+   - stop_reason (one of: seed_complete, per_seed_budget_exhausted,
+     total_query_budget_exhausted, user_interrupted, crash_recovery)
+   - seeds_completed (count)
+   - seeds_remaining (count)
+   - total_nodes_discovered (count by type)
+   - total_nodes_expanded (count by type)
+   - total_queries (count)
+
+### Resume and rollback semantics
+
+On resume or restart after interruption:
+
+1. Read latest checkpoint metadata.
+2. If run_id and output path match: continue from last seed + 1.
+3. If run_id differs or recovery mode is manual: create new run_id and decide
+   whether to:
+   - **Append**: continue from last completed seed
+   - **Restart**: clear target path and start over
+   - **Revert**: discard latest checkpoint and resume from second-to-last
+
+4. Node cache (discovered records) is never invalidated between checkpoints in
+   the same run_id. Expansion cache (expanded payloads) is similarly immutable.
+
+5. Any query already recorded in query_inventory.csv is never re-issued; edges
+   are synced from cache.
+
+## Worked examples
+
+### Example A: direct-link truth table
+
+1. A -> B exists: direct link = true.
+2. B -> A exists: direct link = true.
+3. A <-> B both directions exist: direct link = true.
+4. A -> literal only: direct link = false.
+5. A -> B -> C exists, but no A -> C or C -> A: no direct AC link, only an indirect link over one hop: B
+
+### Example B: reproducible neighbor ordering
+
+Discovered neighbors before normalization: Q1499182, Q42, Q100, Q42.
+
+After canonicalization, dedup, sort: Q42, Q100, Q1499182.
+
+Queue receives neighbors exactly in that order.
+
+### Example C: one seed expansion trace
+
+1. Seed Q1499182 is dequeued and expanded.
+2. Outlinks produce new nodes Q56418119 and Q56418136.
+3. Inlinks produce QID set including Q56418119.
+4. Combined candidate set is deduped and sorted.
+5. Each candidate is checked against expandable target rule.
+6. Eligible nodes are enqueued; ineligible nodes remain discovered-only.
 
 ## Notes for later iterations
 
-- Property blacklists/allowlists are intentionally out of scope for this
-   version.
-- Candidate-generation export schema for downstream phases is intentionally not
-   finalized yet and may iterate after graph-store stabilization.
+- property blacklists/allowlists are intentionally out of scope for this
+  version.
+- final candidate-generation export schema for downstream phases is intentionally
+  not fixed yet and may iterate after graph-store stabilization.
