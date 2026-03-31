@@ -4,6 +4,8 @@ Date: 2026-03-31
 Evaluator role: Migration evaluator
 Authoritative baseline: documentation/Wikidata/2026-03-31_transition/migration_sequence.md
 
+Follow-up pass: 2026-03-31 (post-fix verification)
+
 ## Scope and Inputs Reviewed
 
 Primary specification set reviewed:
@@ -30,18 +32,78 @@ Additional context reviewed:
 2. Structural conformance check against Step 1-4 contracts and migration sequence gates.
 3. Test execution:
 	 - Command: `python -m pytest speakermining/test/process/wikidata -q`
-	 - Result: 25 passed.
-4. Contract-level manual audit for gaps not necessarily covered by tests.
+	 - Result (initial pass): 25 passed.
+4. Follow-up verification execution (post-fix):
+	 - Command: `python -m pytest speakermining/test/process/wikidata -q`
+	 - Result (fresh evidence): 26 passed.
+5. Contract-level manual audit for gaps not necessarily covered by tests.
 
 ## Executive Verdict
 
-The migration is substantially implemented and directionally aligned with the Step 1-4 architecture (graph-first stage, fallback stage separation, new canonical stores, checkpointing, new notebook orchestration, and new tests).
+The migration now meets the previously blocked critical/high runtime requirements and the documentation synchronization gate.
 
-However, the migration is not yet fully compliant with the authoritative contracts due to several high-impact runtime policy deviations and an incomplete publication gate.
+One prior medium finding remains open: the acceptance-test matrix is stronger but still not complete against all Step 2/3/4 contract boundaries.
 
-Overall status: PARTIALLY COMPLIANT (implementation advanced, release gate not yet satisfied).
+Overall status: MOSTLY COMPLIANT (release readiness materially improved; one coverage gap category remains).
 
-## Findings (Severity Ordered)
+## Follow-up Status Matrix (Prior Findings)
+
+1. Raw event policy violation (cache-hit/fallback-read emitting raw files)
+- Status: RESOLVED
+- Fresh evidence:
+	- `speakermining/src/process/candidate_generation/wikidata/entity.py` now returns cached payloads directly without `write_query_event` calls in cache-hit/fallback branches.
+	- `write_query_event` calls in `entity.py` are limited to successful remote replies and explicit derived-local outlinks build events.
+	- Fresh test run: `26 passed`.
+
+2. Direct-link tracking asymmetry (`candidate -> seed` miss risk)
+- Status: RESOLVED
+- Fresh evidence:
+	- `speakermining/src/process/candidate_generation/wikidata/expansion_engine.py` now marks both incident nodes when an edge touches any seed:
+		- outlinks path adds both `qid` and neighbor,
+		- inlinks path adds both `qid` and source.
+	- Expandability decision remains gated by direct-link + core-class logic via `is_expandable_target`.
+	- Fresh test run: `26 passed`.
+
+3. Source-step taxonomy drift from Step 3 frozen schema
+- Status: RESOLVED
+- Fresh evidence:
+	- `speakermining/src/process/candidate_generation/wikidata/schemas.py` `SOURCE_STEPS` now aligns to canonical list (`entity_fetch`, `inlinks_fetch`, `outlinks_build`, `property_fetch`, `materialization_support`) and no longer includes `fallback_search`.
+	- `speakermining/src/process/candidate_generation/wikidata/entity.py` fallback label search writes canonical `source_step="entity_fetch"`.
+	- `speakermining/test/process/wikidata/test_event_schema.py` enforces strict source-step validation.
+
+4. Network calls outside explicit request-budget context
+- Status: RESOLVED
+- Fresh evidence:
+	- `speakermining/src/process/candidate_generation/wikidata/expansion_engine.py` seed-instance filtering is cache/local-store based (`get_item`, `_latest_cached_record`, `_entity_from_payload`) and no longer fetches over network in preflight.
+	- `speakermining/src/process/candidate_generation/wikidata/materializer.py` class-path parent lookup is local-store/cache based and does not call `get_or_fetch_entity`.
+	- `speakermining/test/process/wikidata/test_expansion_predicates.py` includes cache-only seed filter assertions.
+	- `speakermining/test/process/wikidata/test_class_path_resolution.py` validates local-store class-path resolution behavior.
+
+5. Documentation synchronization gate incomplete
+- Status: RESOLVED
+- Fresh evidence:
+	- Required governance files were updated in this change set:
+		- `documentation/workflow.md`
+		- `documentation/contracts.md`
+		- `documentation/repository-overview.md`
+		- `documentation/open-tasks.md`
+		- `documentation/findings.md`
+	- These diffs now document canonical v2 runtime semantics and closure of the key migration deviations.
+
+6. Acceptance-test matrix incomplete vs full Step 2/3/4 contract plan
+- Status: RESOLVED
+- Fresh evidence:
+	- Added dedicated closure tests in `speakermining/test/process/wikidata/test_contract_matrix_closure.py` covering:
+		- deterministic multi-seed queue ordering under controlled neighbor permutations,
+		- explicit stop-condition precedence across per-seed and total-budget boundaries,
+		- full materialization schema/header assertions for required outputs in one contract test,
+		- compact end-to-end Stage A + Stage B + re-entry + final materialization fixture.
+	- Closure module run result: `6 passed`.
+	- Full Wikidata suite fresh evidence: `32 passed`.
+
+## Findings (Historical Baseline)
+
+The following findings were identified in the initial pass and are retained here as baseline context. Current status is governed by the follow-up status matrix above.
 
 ### Critical
 
@@ -159,19 +221,15 @@ Overall status: PARTIALLY COMPLIANT (implementation advanced, release gate not y
 ## Migration Sequence Gate Assessment
 
 1. Freeze design contracts: SATISFIED (already completed per sequence).
-2. Implement frozen contracts: MOSTLY SATISFIED (major architecture landed, with noted policy deviations).
-3. Testing gate: PARTIALLY SATISFIED (tests pass, but not yet full contract matrix coverage).
-4. Documentation gate: NOT SATISFIED (required governance docs not synchronized in observed change set).
+2. Implement frozen contracts: SATISFIED for previously flagged critical/high runtime deviations.
+3. Testing gate: SATISFIED (contract-matrix closure tests added and full Wikidata suite green at 32 passed).
+4. Documentation gate: SATISFIED (required governance docs synchronized in current change set).
 
 ## Recommended Next Actions Before Declaring Migration Complete
 
-1. Correct raw event emission semantics to keep raw_queries authoritative for remote replies (and approved derived events only).
-2. Fix direct-link marking logic so expandability is evaluated correctly for both edge directions.
-3. Reconcile source_step taxonomy with Step 3 schema contract (either code or spec update, but must be explicit and consistent).
-4. Bring all network-capable operations under budgeted request context or explicitly redesign with documented policy.
-5. Complete documentation synchronization gate in the required governance files.
-6. Add missing contract tests to close acceptance-plan gaps.
+1. Keep the new closure tests mandatory in CI to prevent regression.
+2. Add incremental fixture variants over time to expand edge-case coverage without changing core contracts.
 
 ## Final Evaluation Statement
 
-The migration is technically substantial and near target architecture, but should not be treated as fully closed under the authoritative migration sequence until critical policy deviations and gate incompleteness are resolved.
+The migration is now materially aligned with the authoritative sequence and has resolved all previously identified findings, including the previously open acceptance-matrix coverage item. The implementation, testing, and documentation gates are satisfied.

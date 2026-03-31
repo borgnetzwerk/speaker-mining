@@ -41,6 +41,17 @@ Authoritative source for default order and historical notebook status:
 - `process.candidate_generation.topic`
 - `process.candidate_generation.persistence`
 
+Wikidata v2 stage modules used by notebook 21:
+
+- `process.candidate_generation.wikidata.bootstrap`
+- `process.candidate_generation.wikidata.expansion_engine`
+- `process.candidate_generation.wikidata.fallback_matcher`
+- `process.candidate_generation.wikidata.materializer`
+- `process.candidate_generation.wikidata.node_store`
+- `process.candidate_generation.wikidata.triple_store`
+- `process.candidate_generation.wikidata.query_inventory`
+- `process.candidate_generation.wikidata.checkpoint`
+
 ## Data Ownership Model
 
 Authoritative source for phase ownership and write boundaries:
@@ -70,5 +81,6 @@ Authoritative source for output contracts, file names, and schema headers:
 
 1. Institution extraction is documented in findings and deferred code, but is not part of active default outputs.
 2. Candidate generation is split into multiple notebooks; legacy documentation assumed one notebook.
+3. Wikidata candidate generation is now graph-first plus fallback-stage orchestration and must remain v2-only.
 
 See `open-tasks.md` for operational tracking and `findings.md` for aggregated evidence.

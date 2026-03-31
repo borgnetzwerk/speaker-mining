@@ -90,6 +90,24 @@ Each phase reads upstream data and writes only inside its owned folder:
 2. Wikidata
 3. Fernsehserien and other sources
 
+## Wikidata v2 Execution Contract
+
+The active Wikidata workflow in `21_candidate_generation_wikidata.ipynb` is canonical v2-only.
+
+Execution sequence:
+
+1. Bootstrap required v2 artifacts under `data/20_candidate_generation/wikidata/`.
+2. Stage A graph-first expansion (seed-order deterministic, checkpointed resume).
+3. Build unresolved target handoff.
+4. Stage B fallback string matching only for unresolved targets.
+5. Re-check fallback discoveries against graph expandability and re-enter eligible QIDs.
+6. Materialize deterministic artifacts (`instances.csv`, `classes.csv`, `properties.csv`, `triples.csv`, `query_inventory.csv`, `summary.json`).
+
+Policy guardrails:
+
+1. Raw query events in `raw_queries/` represent remote replies (plus explicitly derived local graph events), not cache-hit telemetry.
+2. Legacy/pre-v2 compatibility logic is out of scope for runtime code.
+
 ## Matching Policy
 
 1. Precision-first defaults.

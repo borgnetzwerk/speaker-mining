@@ -76,3 +76,13 @@ The following former one-line notes were represented in the tracker and then arc
   - support for mononym/artist-name parenthetical rows and quoted nickname normalization
 - Post-change quick validation against the same 31-row miss list: 18 episodes now produce person rows; 13 remain unresolved (mostly documentary summaries or missing infos).
 - Context snapshot: `documentation/context/mention-detection-guest-diagnostics-2026-03-27.md`.
+
+## F-008: Wikidata v2 Migration Contract Deviations (Closed)
+
+- Observation: migration evaluation identified contract deviations in raw-event semantics, direct-link tracking, source-step taxonomy, and budget-boundary behavior.
+- Resolution implemented:
+  - cache-hit/fallback reads no longer emit raw event files,
+  - source-step usage aligns with frozen canonical taxonomy,
+  - direct-link marking is symmetric for seed-touching edges,
+  - seed filtering and materialization path resolution are cache-only (no unbounded network calls).
+- Validation: `python -m pytest speakermining/test/process/wikidata -q` passes.

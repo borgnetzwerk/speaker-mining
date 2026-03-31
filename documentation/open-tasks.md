@@ -157,6 +157,42 @@ Copy this block when adding a new item.
 
 ## Solved
 
+### TODO-902: Enforce v2 raw-event emission semantics
+
+- Priority: high
+- Status: solved
+- Area: contracts
+- Summary: cache-hit and fallback-read paths created extra raw event files and violated one-file-per-reply semantics.
+- Evidence: `speakermining/src/process/candidate_generation/wikidata/entity.py`, `speakermining/src/process/candidate_generation/wikidata/event_log.py`.
+- Definition of done:
+  1. only network replies (and explicit derived-local graph events) create raw event files.
+  2. cache-hit/fallback reads no longer emit raw events.
+  3. wikidata test suite remains green.
+
+### TODO-903: Fix symmetric direct-link tracking in graph expansion
+
+- Priority: high
+- Status: solved
+- Area: modeling
+- Summary: direct-link marking in expansion could miss the currently expanded node when an edge touched a seed.
+- Evidence: `speakermining/src/process/candidate_generation/wikidata/expansion_engine.py`.
+- Definition of done:
+  1. direct-link set updates both incident items for seed-touching edges.
+  2. expansion eligibility checks use corrected direct-link state.
+  3. wikidata test suite remains green.
+
+### TODO-904: Remove unbounded network from seed-filter/materialization preflight
+
+- Priority: high
+- Status: solved
+- Area: workflow
+- Summary: seed filtering and class-path resolution could trigger network calls outside explicit request-budget context.
+- Evidence: `speakermining/src/process/candidate_generation/wikidata/expansion_engine.py`, `speakermining/src/process/candidate_generation/wikidata/materializer.py`.
+- Definition of done:
+  1. seed filtering runs cache-only.
+  2. materialization path resolution runs against node store and cached entity events only.
+  3. wikidata test suite remains green.
+
 ### TODO-900: Correct candidate-generation notebook links in root README
 
 - Priority: high

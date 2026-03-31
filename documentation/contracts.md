@@ -72,26 +72,20 @@ These phases are present in workflow structure but no stable, repository-wide sc
 
 When Phase 3/4 schemas are finalized, extend this document and add explicit headers for each produced file.
 
-## Phase 2 Wikidata Graph Store (Provisional New Contract)
+## Phase 2 Wikidata Graph Store (Canonical v2 Contract)
 
-This section describes the provisional contract for the new graph-oriented
+This section describes the active canonical v2 contract for the graph-oriented
 Wikidata store.
 
-Current development path:
-
-1. `data/20_candidate_generation/wikidata/new/`
-
-Final target path after rollout:
+Canonical target path:
 
 1. `data/20_candidate_generation/wikidata/`
-
-After rollout, old Wikidata artifacts are replaced by the new structure.
 
 ### Naming convention
 
 Canonical spelling is `organizations`.
 
-### Provisional required artifacts
+### Required artifacts
 
 Top-level:
 
@@ -113,7 +107,7 @@ Properties:
 1. `properties/properties.csv`
 2. `properties/properties.json`
 
-### Provisional schemas
+### Core schemas
 
 1. `classes.csv`: `wikibase_id`, `filename`, `label`, `description`, `alias`, `label_de`, `description_de`, `alias_de`, `wikidata_id`, `fernsehserien_de_id`
 2. `triples.csv`: `subject`, `predicate`, `object`, `more_info_path`
@@ -123,8 +117,9 @@ Properties:
 
 JSON files are the richer source of truth; CSV files are overview/index outputs.
 
-### Compatibility note
+### Runtime semantics
 
-How the new graph store will feed final candidate-generation exports for
-downstream phases is intentionally not fixed yet and remains an iterative design
-step.
+1. Raw query events are canonical v2 envelopes with deterministic `query_hash` and `timestamp_utc` fields.
+2. Raw event files are append-only and represent remote replies (plus explicit derived-local graph events).
+3. Cache-hit and fallback-read telemetry do not create raw event files.
+4. Seed filtering and materialization path resolution run cache-first without uncapped network fetches.
