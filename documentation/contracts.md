@@ -90,30 +90,48 @@ Canonical spelling is `organizations`.
 Top-level:
 
 1. `classes.csv`
-2. `triples.csv`
-3. `summary.json`
-4. `query_inventory.csv`
-5. `raw_queries/` (append-only remote query events)
-
-Class partitions (`<class_filename>` from setup classes):
-
-1. `classes/<class_filename>.csv`
-2. `classes/<class_filename>.json`
-3. `instances/<class_filename>.csv`
-4. `instances/<class_filename>.json`
-
-Properties:
-
-1. `properties/properties.csv`
-2. `properties/properties.json`
+2. `instances.csv`
+3. `properties.csv`
+4. `aliases_en.csv`
+5. `aliases_de.csv`
+6. `triples.csv`
+7. `query_inventory.csv`
+8. `summary.json`
+9. `entities.json`
+10. `properties.json`
+11. `triple_events.json`
+12. `core_classes.csv` (runtime snapshot from setup classes input)
+13. `broadcasting_programs.csv` (runtime snapshot from setup seed input)
+14. `graph_stage_resolved_targets.csv`
+15. `graph_stage_unresolved_targets.csv`
+16. `fallback_stage_candidates.csv`
+17. `fallback_stage_eligible_for_expansion.csv`
+18. `fallback_stage_ineligible.csv`
+19. `raw_queries/` (append-only event files)
+20. `checkpoints/` (append-only checkpoint manifests)
+21. `archive/` (checkpoint archive snapshots)
 
 ### Core schemas
 
-1. `classes.csv`: `wikibase_id`, `filename`, `label`, `description`, `alias`, `label_de`, `description_de`, `alias_de`, `wikidata_id`, `fernsehserien_de_id`
-2. `triples.csv`: `subject`, `predicate`, `object`, `more_info_path`
-3. `classes/<class_filename>.csv`: `ID`, `label`, `description`, `alias`, `label_de`, `description_de`, `alias_de`, `path`
-4. `instances/<class_filename>.csv`: `ID`, `label`, `description`, `alias`, `label_de`, `description_de`, `alias_de`, `path`
-5. `properties/properties.csv`: `ID`, `label`, `description`, `alias`, `label_de`, `description_de`, `alias_de`, `path`
+1. `classes.csv`: `id`, `label_en`, `label_de`, `description_en`, `description_de`, `alias_en`, `alias_de`, `path_to_core_class`, `subclass_of_core_class`, `discovered_count`, `expanded_count`
+2. `instances.csv`: `id`, `class_id`, `class_filename`, `label_en`, `label_de`, `description_en`, `description_de`, `alias_en`, `alias_de`, `path_to_core_class`, `subclass_of_core_class`, `discovered_at_utc`, `expanded_at_utc`
+3. `properties.csv`: `id`, `label_en`, `label_de`, `description_en`, `description_de`, `alias_en`, `alias_de`
+4. `aliases_en.csv`: `alias`, `qid`
+5. `aliases_de.csv`: `alias`, `qid`
+6. `triples.csv`: `subject`, `predicate`, `object`, `discovered_at_utc`, `source_query_file`
+7. `query_inventory.csv`: `endpoint`, `query_hash`, `normalized_query`, `key`, `status`, `timestamp_utc`, `source_step`
+8. `graph_stage_resolved_targets.csv`: `mention_id`, `mention_type`, `mention_label`, `candidate_id`, `candidate_label`, `source`, `context`
+9. `graph_stage_unresolved_targets.csv`: `mention_id`, `mention_type`, `mention_label`, `context`
+10. `fallback_stage_candidates.csv`: `mention_id`, `mention_type`, `mention_label`, `candidate_id`, `candidate_label`, `source`, `context`
+11. `fallback_stage_eligible_for_expansion.csv`: `candidate_id`
+12. `fallback_stage_ineligible.csv`: `candidate_id`
+
+JSON stores:
+
+1. `entities.json`: top-level object with key `entities`
+2. `properties.json`: top-level object with key `properties`
+3. `triple_events.json`: list of triple-event records
+4. `summary.json`: run summary object with current stage and row counters
 
 JSON files are the richer source of truth; CSV files are overview/index outputs.
 

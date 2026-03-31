@@ -6,7 +6,7 @@ from Wikidata, falling back to network requests when cache is stale or empty.
 from __future__ import annotations
 
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from .cache import (
 	WIKIDATA_API_BASE,
@@ -14,10 +14,10 @@ from .cache import (
 	_entity_from_payload,
 	_http_get_json,
 	_latest_cached_record,
-	_write_raw_query_record,
 )
-from .common import canonical_qid
-from .inlinks import build_inlinks_query, parse_inlinks_results
+from .event_log import write_query_event
+from .common import canonical_pid, canonical_qid
+from .inlinks import build_inlinks_query
 from .outlinks import extract_outlinks
 
 
@@ -52,7 +52,51 @@ def get_or_fetch_entity(
 	url = f"{WIKIDATA_API_BASE}/{qid}.json"
 	try:
 		payload = _http_get_json(url, timeout=timeout)
-		_write_raw_query_record(root, "entity", qid, payload, source="wikidata_api")
+		write_query_event(
+			root,
+			endpoint="wikidata_api",
+			normalized_query=f"entity:{qid}",
+			source_step="entity_fetch",
+			status="success",
+			key=qid,
+			payload=payload,
+			http_status=200,
+			error=None,
+		)
+		return payload
+	except Exception:
+		if cached:
+			return cached[0].get("payload", {})
+		raise
+
+
+def get_or_fetch_property(
+	root: Path | str,
+	pid: str,
+	cache_max_age_days: int,
+	timeout: int = 30,
+) -> dict:
+	"""Fetch a property document, using cache-first behavior."""
+	root = Path(root)
+	pid = canonical_pid(pid)
+	cached = _latest_cached_record(root, "property", pid)
+	if cached and cached[1] <= cache_max_age_days:
+		return cached[0].get("payload", {})
+
+	url = f"{WIKIDATA_API_BASE}/{pid}.json"
+	try:
+		payload = _http_get_json(url, timeout=timeout)
+		write_query_event(
+			root,
+			endpoint="wikidata_api",
+			normalized_query=f"property:{pid}",
+			source_step="property_fetch",
+			status="success",
+			key=pid,
+			payload=payload,
+			http_status=200,
+			error=None,
+		)
 		return payload
 	except Exception:
 		if cached:
@@ -65,6 +109,7 @@ def get_or_fetch_inlinks(
 	qid: str,
 	cache_max_age_days: int,
 	inlinks_limit: int,
+	offset: int = 0,
 	timeout: int = 30,
 ) -> dict:
 	"""Fetch inlinks for an entity, using cache when available.
@@ -87,17 +132,28 @@ def get_or_fetch_inlinks(
 	"""
 	root = Path(root)
 	qid = canonical_qid(qid)
-	cache_key = f"{qid}_limit{int(inlinks_limit)}"
+	offset = max(0, int(offset))
+	cache_key = f"{qid}_limit{int(inlinks_limit)}_offset{offset}"
 	cached = _latest_cached_record(root, "inlinks", cache_key)
 	if cached and cached[1] <= cache_max_age_days:
 		return cached[0].get("payload", {})
 
-	query = build_inlinks_query(qid, inlinks_limit)
+	query = build_inlinks_query(qid, limit=inlinks_limit, offset=offset)
 	encoded_query = quote(query, safe="")
 	url = f"{WIKIDATA_SPARQL_ENDPOINT}?format=json&query={encoded_query}"
 	try:
 		payload = _http_get_json(url, accept="application/sparql-results+json", timeout=timeout)
-		_write_raw_query_record(root, "inlinks", cache_key, payload, source="wikidata_sparql")
+		write_query_event(
+			root,
+			endpoint="wikidata_sparql",
+			normalized_query=f"inlinks:target={qid};page_size={int(inlinks_limit)};offset={offset};order=source_prop",
+			source_step="inlinks_fetch",
+			status="success",
+			key=cache_key,
+			payload=payload,
+			http_status=200,
+			error=None,
+		)
 		return payload
 	except Exception:
 		if cached:
@@ -132,5 +188,68 @@ def get_or_build_outlinks(
 
 	entity_doc = _entity_from_payload(entity_payload, qid)
 	outlinks_payload = extract_outlinks(qid, entity_doc)
-	_write_raw_query_record(root, "outlinks", qid, outlinks_payload, source="derived_from_entity")
+	write_query_event(
+		root,
+		endpoint="derived_local",
+		normalized_query=f"outlinks_from_entity:{qid}",
+		source_step="outlinks_build",
+		status="success",
+		key=qid,
+		payload=outlinks_payload,
+		http_status=None,
+		error=None,
+	)
 	return outlinks_payload
+
+
+def get_or_search_entities_by_label(
+	root: Path | str,
+	label: str,
+	cache_max_age_days: int,
+	*,
+	language: str = "de",
+	limit: int = 10,
+	timeout: int = 30,
+) -> dict:
+	"""Search entities by label via wbsearchentities, with cache-first behavior.
+
+	The fallback stage uses this to discover candidates that are not yet present in
+	the discovered node store.
+	"""
+	root = Path(root)
+	query = str(label or "").strip()
+	language = str(language or "de").strip().lower() or "de"
+	limit = max(1, int(limit))
+	cache_key = f"{language}|{limit}|{query}"
+
+	cached = _latest_cached_record(root, "label_search", cache_key)
+	if cached and cached[1] <= cache_max_age_days:
+		return cached[0].get("payload", {})
+
+	params = {
+		"action": "wbsearchentities",
+		"format": "json",
+		"language": language,
+		"type": "item",
+		"limit": str(limit),
+		"search": query,
+	}
+	url = f"https://www.wikidata.org/w/api.php?{urlencode(params)}"
+	try:
+		payload = _http_get_json(url, timeout=timeout)
+		write_query_event(
+			root,
+			endpoint="wikidata_api",
+			normalized_query=f"wbsearchentities:language={language};limit={limit};search={query}",
+			source_step="entity_fetch",
+			status="success",
+			key=cache_key,
+			payload=payload,
+			http_status=200,
+			error=None,
+		)
+		return payload
+	except Exception:
+		if cached:
+			return cached[0].get("payload", {})
+		raise

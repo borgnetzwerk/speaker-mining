@@ -8,7 +8,7 @@ from __future__ import annotations
 from .common import pid_from_uri, qid_from_uri
 
 
-def build_inlinks_query(qid: str, limit: int = 200) -> str:
+def build_inlinks_query(qid: str, *, limit: int = 200, offset: int = 0) -> str:
 	"""Build a SPARQL query to find entities that reference a given Q-ID.
 	
 	Constructs a SPARQL query that finds all entity-to-entity relationships
@@ -17,18 +17,22 @@ def build_inlinks_query(qid: str, limit: int = 200) -> str:
 	Args:
 		qid: Target entity Q-ID (canonical form).
 		limit: Maximum number of inlink results (default 200).
+		offset: Deterministic pagination offset.
 	
 	Returns:
 		SPARQL query string (ready for URL encoding and execution).
 	"""
 	safe_limit = max(1, int(limit))
+	safe_offset = max(0, int(offset))
 	return f"""
 SELECT ?source ?prop WHERE {{
   ?source ?prop wd:{qid} .
   FILTER(STRSTARTS(STR(?source), STR(wd:)))
   FILTER(STRSTARTS(STR(?prop), STR(wdt:)))
 }}
+ORDER BY ?source ?prop
 LIMIT {safe_limit}
+OFFSET {safe_offset}
 """.strip()
 
 

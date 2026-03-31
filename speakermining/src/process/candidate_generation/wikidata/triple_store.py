@@ -1,0 +1,81 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from .cache import _atomic_write_text
+from .common import canonical_pid, canonical_qid
+from .schemas import build_artifact_paths
+
+
+def _load_events(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    return payload if isinstance(payload, list) else []
+
+
+def record_item_edges(
+    repo_root: Path,
+    subject_qid: str,
+    edges: list[dict],
+    discovered_at_utc: str,
+    source_query_file: str,
+) -> None:
+    paths = build_artifact_paths(Path(repo_root))
+    subject_qid = canonical_qid(subject_qid)
+    if not subject_qid:
+        return
+
+    events = _load_events(paths.triples_events_json)
+    for edge in edges:
+        pid = canonical_pid(edge.get("pid", ""))
+        obj = canonical_qid(edge.get("to_qid", edge.get("object", "")))
+        if not pid or not obj:
+            continue
+        events.append(
+            {
+                "subject": subject_qid,
+                "predicate": pid,
+                "object": obj,
+                "discovered_at_utc": discovered_at_utc,
+                "source_query_file": source_query_file,
+            }
+        )
+
+    _atomic_write_text(paths.triples_events_json, json.dumps(events, ensure_ascii=False, indent=2))
+
+
+def iter_unique_triples(repo_root: Path):
+    paths = build_artifact_paths(Path(repo_root))
+    events = _load_events(paths.triples_events_json)
+    dedup: dict[tuple[str, str, str], dict] = {}
+    for event in events:
+        key = (event.get("subject", ""), event.get("predicate", ""), event.get("object", ""))
+        if key not in dedup:
+            dedup[key] = event
+    for key in sorted(dedup):
+        yield dedup[key]
+
+
+def has_direct_link_to_any_seed(repo_root: Path, candidate_qid: str, seed_qids: set[str]) -> bool:
+    candidate = canonical_qid(candidate_qid)
+    seeds = {canonical_qid(qid) for qid in (seed_qids or set()) if canonical_qid(qid)}
+    if not candidate or not seeds:
+        return False
+    if candidate in seeds:
+        return True
+
+    for triple in iter_unique_triples(repo_root):
+        subj = canonical_qid(triple.get("subject", ""))
+        obj = canonical_qid(triple.get("object", ""))
+        if not subj or not obj:
+            continue
+        if subj == candidate and obj in seeds:
+            return True
+        if obj == candidate and subj in seeds:
+            return True
+    return False

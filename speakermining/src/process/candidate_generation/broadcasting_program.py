@@ -57,7 +57,7 @@ def load_broadcasting_program_seeds(root: str | Path) -> list[dict[str, str]]:
 	if df.empty:
 		return []
 
-	for col in ["name", "wikidata_id", "wikibase_id", "fernsehserien_de_id"]:
+	for col in ["label", "name", "wikidata_id", "wikibase_id", "fernsehserien_de_id"]:
 		if col not in df.columns:
 			df[col] = ""
 
@@ -65,7 +65,7 @@ def load_broadcasting_program_seeds(root: str | Path) -> list[dict[str, str]]:
 	for _, row in df.iterrows():
 		records.append(
 			{
-				"name": str(row.get("name", "") or ""),
+				"name": str(row.get("label", row.get("name", "")) or ""),
 				"wikidata_id": str(row.get("wikidata_id", "") or ""),
 				"wikibase_id": str(row.get("wikibase_id", "") or ""),
 				"fernsehserien_de_id": str(row.get("fernsehserien_de_id", "") or ""),

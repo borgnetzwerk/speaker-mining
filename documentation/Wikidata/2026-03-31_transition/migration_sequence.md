@@ -23,7 +23,11 @@ Policy note:
 	- graph-authoritative candidate discovery plus fallback-only unresolved matching.
 - Remove deprecated development-era contracts/artifacts where they conflict with the new model (including obsolete candidates.csv-era assumptions). Backward compatibility is not required for this migration.
 
-1. Validate and publish as one gated change set
+1. Validate and publish as one gated change set (completed 2026-03-31)
 - Testing gate (mandatory): add and run contract-level tests for artifact existence, schema headers, determinism, resume behavior, canonical event schema, paging continuity, and graph/fallback stage separation.
 - Documentation gate (same change set): synchronize workflow.md, contracts.md, repository-overview.md, open-tasks.md, and findings.md per documentation governance in `README.md`.
 - Ship only when both gates pass.
+- Completion evidence:
+	- `documentation/contracts.md` synchronized to canonical Option B runtime artifacts and CSV header contracts.
+	- Docs-contract smoke test added: `speakermining/test/process/wikidata/test_docs_contract_smoke.py`.
+	- Validation command: `python -m pytest speakermining/test/process/wikidata -q`.

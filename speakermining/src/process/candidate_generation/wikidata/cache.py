@@ -40,23 +40,39 @@ except (FileNotFoundError, ValueError) as exc:
 	raise
 
 
-_REQUEST_CONTEXT: dict[str, float | int] | None = None
+_REQUEST_CONTEXT: dict[str, float | int | str] | None = None
 
 
-def begin_request_context(max_queries_per_run: int, query_delay_seconds: float) -> None:
+def begin_request_context(
+	*,
+	budget_remaining: int,
+	query_delay_seconds: float,
+	progress_every_calls: int = 50,
+	context_label: str = "wikidata",
+) -> None:
 	"""Initialize process-local HTTP request budget and delay context.
 
 	Args:
-		max_queries_per_run: Maximum allowed network requests for this run.
+		budget_remaining: Maximum allowed network requests for this run.
 			Use 0 for unlimited.
 		query_delay_seconds: Minimum delay between network requests.
+		progress_every_calls: Emit progress output after this many calls.
+			Set 0 to disable progress output.
+		context_label: Human-readable stage label for progress output.
 	"""
 	global _REQUEST_CONTEXT
+	budget_remaining = int(budget_remaining)
+	if budget_remaining < 0:
+		raise ValueError("budget_remaining must be >= 0")
+	progress_every_calls = max(0, int(progress_every_calls))
+	context_label = str(context_label or "wikidata").strip() or "wikidata"
 	_REQUEST_CONTEXT = {
-		"max_queries_per_run": int(max_queries_per_run),
+		"budget_remaining": budget_remaining,
 		"query_delay_seconds": float(query_delay_seconds),
 		"network_queries": 0,
 		"last_query_time": 0.0,
+		"progress_every_calls": progress_every_calls,
+		"context_label": context_label,
 	}
 
 
@@ -167,21 +183,36 @@ def _http_get_json(
 		RuntimeError: If configured per-run query budget is exhausted.
 	"""
 	global _REQUEST_CONTEXT
-	for attempt in range(max_retries + 1):
-		if _REQUEST_CONTEXT is not None:
-			max_queries = int(_REQUEST_CONTEXT.get("max_queries_per_run", 0))
-			used_queries = int(_REQUEST_CONTEXT.get("network_queries", 0))
-			if max_queries > 0 and used_queries >= max_queries:
-				raise RuntimeError("Network query budget hit")
+	if _REQUEST_CONTEXT is None:
+		raise RuntimeError(
+			"Network request guard rails not initialized: begin_request_context must be called with explicit budget_remaining"
+		)
 
-			delay_seconds = float(_REQUEST_CONTEXT.get("query_delay_seconds", 0.0))
-			last_query_time = float(_REQUEST_CONTEXT.get("last_query_time", 0.0))
-			now = time.time()
-			time_since_last = now - last_query_time
-			if time_since_last < delay_seconds:
-				time.sleep(delay_seconds - time_since_last)
-			_REQUEST_CONTEXT["last_query_time"] = time.time()
-			_REQUEST_CONTEXT["network_queries"] = used_queries + 1
+	for attempt in range(max_retries + 1):
+		max_queries = int(_REQUEST_CONTEXT.get("budget_remaining", 0))
+		used_queries = int(_REQUEST_CONTEXT.get("network_queries", 0))
+		if max_queries > 0 and used_queries >= max_queries:
+			raise RuntimeError("Network query budget hit")
+
+		delay_seconds = float(_REQUEST_CONTEXT.get("query_delay_seconds", 0.0))
+		last_query_time = float(_REQUEST_CONTEXT.get("last_query_time", 0.0))
+		now = time.time()
+		time_since_last = now - last_query_time
+		if time_since_last < delay_seconds:
+			time.sleep(delay_seconds - time_since_last)
+
+		queries_after_this_call = used_queries + 1
+		_REQUEST_CONTEXT["last_query_time"] = time.time()
+		_REQUEST_CONTEXT["network_queries"] = queries_after_this_call
+
+		progress_every = int(_REQUEST_CONTEXT.get("progress_every_calls", 0) or 0)
+		if progress_every > 0 and queries_after_this_call % progress_every == 0:
+			context_label = str(_REQUEST_CONTEXT.get("context_label", "wikidata") or "wikidata")
+			budget_label = "unlimited" if max_queries <= 0 else str(max_queries)
+			print(
+				f"[{context_label}] Network calls used: {queries_after_this_call} / {budget_label}",
+				flush=True,
+			)
 
 		try:
 			req = Request(url, headers={"Accept": accept, "User-Agent": USER_AGENT})
@@ -228,32 +259,44 @@ def _raw_record_path(raw_dir: Path, query_type: str, key: str, stamp: datetime) 
 
 
 def _write_raw_query_record(root: Path, query_type: str, key: str, payload: dict, source: str) -> Path:
-	"""Write a raw query result to cache.
-	
-	Creates a timestamped JSON record containing the query metadata and response payload.
-	Used for cache-first design: one file per query result.
-	
-	Args:
-		root: Repository root path.
-		query_type: Type of query (entity, inlinks, outlinks, candidate_match).
-		key: Query identifier (Q-ID, cache key, mention_id, etc.).
-		payload: Response payload (API response or derived data).
-		source: Source of payload (wikidata_api, wikidata_sparql, derived_from_entity, matching_scan).
-	
-	Returns:
-		Path to created file.
+	"""Compatibility wrapper that emits only canonical v2 query events.
+
+	This function writes canonical raw event records only.
 	"""
-	stamp = _now_utc()
-	record = {
-		"query_type": query_type,
-		"key": key,
-		"requested_at_utc": _iso_utc(stamp),
-		"source": source,
-		"payload": payload,
-	}
-	path = _raw_record_path(_raw_dir(root), query_type, key, stamp)
-	_atomic_write_text(path, json.dumps(record, ensure_ascii=False, indent=2))
-	return path
+	from .event_log import write_query_event
+
+	query_type = str(query_type or "").strip().lower()
+	endpoint = "derived_local"
+	source_step = "materialization_support"
+	normalized_query = f"derived:{query_type}:{key}"
+
+	if query_type == "entity":
+		endpoint = "wikidata_api"
+		source_step = "entity_fetch"
+		normalized_query = f"entity:{key}"
+	elif query_type == "property":
+		endpoint = "wikidata_api"
+		source_step = "property_fetch"
+		normalized_query = f"property:{key}"
+	elif query_type == "inlinks":
+		endpoint = "wikidata_sparql"
+		source_step = "inlinks_fetch"
+		normalized_query = f"inlinks:{key}"
+	elif query_type == "outlinks":
+		source_step = "outlinks_build"
+		normalized_query = f"outlinks_from_entity:{key}"
+
+	return write_query_event(
+		root,
+		endpoint=endpoint,
+		normalized_query=normalized_query,
+		source_step=source_step,
+		status="success",
+		key=key,
+		payload=payload if isinstance(payload, dict) else {},
+		http_status=200 if endpoint != "derived_local" else None,
+		error=None,
+	)
 
 
 def _load_raw_record(path: Path) -> dict | None:
@@ -283,16 +326,29 @@ def _latest_cached_record(root: Path, query_type: str, key: str) -> tuple[dict, 
 		key: Query key to search for (Q-ID, cache key, etc.).
 	
 	Returns:
-		Tuple of (record_dict, age_days) where age_days is computed from requested_at_utc,
+		Tuple of (record_dict, age_days) where age_days is computed from timestamp_utc,
 		or None if no matching file exists or all matches are unparseable.
 	"""
-	pattern = f"*__{_safe_token(query_type)}__{_safe_token(key)}.json"
-	files = sorted(_raw_dir(root).glob(pattern), reverse=True)
+	mapping = {
+		"entity": "entity_fetch",
+		"property": "property_fetch",
+		"inlinks": "inlinks_fetch",
+		"outlinks": "outlinks_build",
+		"label_search": "entity_fetch",
+	}
+	step = mapping.get(str(query_type or "").strip().lower(), "")
+	files = sorted(_raw_dir(root).glob("*.json"), reverse=True)
 	for path in files:
 		record = _load_raw_record(path)
 		if not record:
 			continue
-		ts = record.get("requested_at_utc", "")
+		if record.get("event_version") != "v2":
+			continue
+		if record.get("source_step") != step:
+			continue
+		if str(record.get("key", "")) != str(key):
+			continue
+		ts = record.get("timestamp_utc", "")
 		try:
 			dt = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
 		except Exception:

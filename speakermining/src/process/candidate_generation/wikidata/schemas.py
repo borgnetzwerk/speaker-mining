@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+
+STOP_REASONS = {
+    "seed_complete",
+    "per_seed_budget_exhausted",
+    "total_query_budget_exhausted",
+    "queue_exhausted",
+    "user_interrupted",
+    "crash_recovery",
+}
+
+
+SOURCE_STEPS = {
+    "entity_fetch",
+    "inlinks_fetch",
+    "outlinks_build",
+    "property_fetch",
+    "materialization_support",
+}
+
+
+@dataclass(frozen=True)
+class ArtifactPaths:
+    root: Path
+    wikidata_dir: Path
+    raw_queries_dir: Path
+    checkpoints_dir: Path
+    archive_dir: Path
+    classes_csv: Path
+    instances_csv: Path
+    properties_csv: Path
+    aliases_en_csv: Path
+    aliases_de_csv: Path
+    triples_csv: Path
+    entities_json: Path
+    properties_json: Path
+    triples_events_json: Path
+    query_inventory_csv: Path
+    summary_json: Path
+    core_classes_csv: Path
+    broadcasting_programs_csv: Path
+    graph_stage_resolved_targets_csv: Path
+    graph_stage_unresolved_targets_csv: Path
+    fallback_stage_candidates_csv: Path
+    fallback_stage_eligible_for_expansion_csv: Path
+    fallback_stage_ineligible_csv: Path
+
+
+def canonical_class_filename(name: str) -> str:
+    token = str(name or "").strip().lower().replace(" ", "_")
+    if token == "organisations":
+        raise ValueError("Use canonical class filename 'organizations', not 'organisations'.")
+    return token
+
+
+def build_artifact_paths(repo_root: Path) -> ArtifactPaths:
+    repo_root = Path(repo_root)
+    wikidata_dir = repo_root / "data" / "20_candidate_generation" / "wikidata"
+    return ArtifactPaths(
+        root=repo_root,
+        wikidata_dir=wikidata_dir,
+        raw_queries_dir=wikidata_dir / "raw_queries",
+        checkpoints_dir=wikidata_dir / "checkpoints",
+        archive_dir=wikidata_dir / "archive",
+        classes_csv=wikidata_dir / "classes.csv",
+        instances_csv=wikidata_dir / "instances.csv",
+        properties_csv=wikidata_dir / "properties.csv",
+        aliases_en_csv=wikidata_dir / "aliases_en.csv",
+        aliases_de_csv=wikidata_dir / "aliases_de.csv",
+        triples_csv=wikidata_dir / "triples.csv",
+        entities_json=wikidata_dir / "entities.json",
+        properties_json=wikidata_dir / "properties.json",
+        triples_events_json=wikidata_dir / "triple_events.json",
+        query_inventory_csv=wikidata_dir / "query_inventory.csv",
+        summary_json=wikidata_dir / "summary.json",
+        core_classes_csv=wikidata_dir / "core_classes.csv",
+        broadcasting_programs_csv=wikidata_dir / "broadcasting_programs.csv",
+        graph_stage_resolved_targets_csv=wikidata_dir / "graph_stage_resolved_targets.csv",
+        graph_stage_unresolved_targets_csv=wikidata_dir / "graph_stage_unresolved_targets.csv",
+        fallback_stage_candidates_csv=wikidata_dir / "fallback_stage_candidates.csv",
+        fallback_stage_eligible_for_expansion_csv=wikidata_dir / "fallback_stage_eligible_for_expansion.csv",
+        fallback_stage_ineligible_csv=wikidata_dir / "fallback_stage_ineligible.csv",
+    )
