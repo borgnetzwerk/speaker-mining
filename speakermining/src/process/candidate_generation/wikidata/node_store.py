@@ -67,11 +67,15 @@ def upsert_discovered_item(repo_root: Path, qid: str, entity_doc: dict, discover
 
     current = store["entities"].get(qid, {})
     minimal = _entity_minimal(entity_doc)
-    # Keep previously expanded payload authoritative when rediscovering a node.
-    merged = {**minimal, **current}
+    # Refresh core discovery fields while preserving expansion metadata.
+    merged = {**current, **minimal}
     merged["id"] = qid
     merged["discovered_at_utc"] = current.get("discovered_at_utc") or discovered_at_utc
     merged["discovered_at_utc_history"] = _append_unique_timestamp(current, "discovered_at_utc_history", discovered_at_utc)
+    if "expanded_at_utc" in current:
+        merged["expanded_at_utc"] = current.get("expanded_at_utc")
+    if "expanded_at_utc_history" in current:
+        merged["expanded_at_utc_history"] = list(current.get("expanded_at_utc_history", []) or [])
     merged.setdefault("expanded_at_utc", None)
     store["entities"][qid] = merged
     _atomic_write_text(paths.entities_json, json.dumps(store, ensure_ascii=False, indent=2))

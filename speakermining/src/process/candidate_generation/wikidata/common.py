@@ -36,6 +36,24 @@ def normalize_text(value: str) -> str:
     return text.strip()
 
 
+def normalize_query_budget(value: int | str | None) -> int:
+    """Normalize query budget values with strict semantics.
+
+    Semantics:
+    -1 => unlimited network queries
+     0 => no network queries allowed
+    >0 => finite budget
+
+    Any value < -1 is invalid and raises ValueError.
+    """
+    if value is None:
+        return 0
+    budget = int(value)
+    if budget < -1:
+        raise ValueError("query budget must be -1 (unlimited), 0, or a positive integer")
+    return budget
+
+
 def canonical_qid(value: str) -> str:
     """
     Extract and validate a Wikidata entity Q-ID.

@@ -18,6 +18,7 @@ from urllib.request import Request, urlopen
 import pandas as pd
 
 from .contact_loader import load_contact_info, format_contact_info_for_user_agent
+from .common import normalize_query_budget
 
 
 WIKIDATA_API_BASE = "https://www.wikidata.org/wiki/Special:EntityData"
@@ -54,16 +55,14 @@ def begin_request_context(
 
 	Args:
 		budget_remaining: Maximum allowed network requests for this run.
-			Use 0 for unlimited.
+			Use -1 for unlimited.
 		query_delay_seconds: Minimum delay between network requests.
 		progress_every_calls: Emit progress output after this many calls.
 			Set 0 to disable progress output.
 		context_label: Human-readable stage label for progress output.
 	"""
 	global _REQUEST_CONTEXT
-	budget_remaining = int(budget_remaining)
-	if budget_remaining < 0:
-		raise ValueError("budget_remaining must be >= 0")
+	budget_remaining = normalize_query_budget(budget_remaining)
 	progress_every_calls = max(0, int(progress_every_calls))
 	context_label = str(context_label or "wikidata").strip() or "wikidata"
 	_REQUEST_CONTEXT = {
@@ -189,9 +188,9 @@ def _http_get_json(
 		)
 
 	for attempt in range(max_retries + 1):
-		max_queries = int(_REQUEST_CONTEXT.get("budget_remaining", 0))
+		max_queries = normalize_query_budget(_REQUEST_CONTEXT.get("budget_remaining", 0))
 		used_queries = int(_REQUEST_CONTEXT.get("network_queries", 0))
-		if max_queries > 0 and used_queries >= max_queries:
+		if max_queries >= 0 and used_queries >= max_queries:
 			raise RuntimeError("Network query budget hit")
 
 		delay_seconds = float(_REQUEST_CONTEXT.get("query_delay_seconds", 0.0))
@@ -208,7 +207,7 @@ def _http_get_json(
 		progress_every = int(_REQUEST_CONTEXT.get("progress_every_calls", 0) or 0)
 		if progress_every > 0 and queries_after_this_call % progress_every == 0:
 			context_label = str(_REQUEST_CONTEXT.get("context_label", "wikidata") or "wikidata")
-			budget_label = "unlimited" if max_queries <= 0 else str(max_queries)
+			budget_label = "unlimited" if max_queries == -1 else str(max_queries)
 			print(
 				f"[{context_label}] Network calls used: {queries_after_this_call} / {budget_label}",
 				flush=True,

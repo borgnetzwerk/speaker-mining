@@ -21,7 +21,7 @@ from .checkpoint import (
     restore_checkpoint_snapshot,
     write_checkpoint_manifest,
 )
-from .common import canonical_qid, iter_entity_texts, normalize_text, pick_entity_label
+from .common import canonical_qid, iter_entity_texts, normalize_query_budget, normalize_text, pick_entity_label
 from .entity import get_or_build_outlinks, get_or_fetch_entity, get_or_fetch_inlinks, get_or_fetch_property
 from .inlinks import parse_inlinks_results
 from .materializer import materialize_checkpoint, materialize_final
@@ -78,6 +78,75 @@ def _entity_p31_core_match(entity_doc: dict, core_class_qids: set[str]) -> bool:
     if not core_class_qids:
         return False
     return bool(_claim_qids(entity_doc, "P31") & core_class_qids)
+
+
+def _record_outlinks_for_discovered_item(
+    repo_root: Path,
+    *,
+    qid: str,
+    entity_payload: dict,
+    cache_max_age_days: int,
+    discovered_at_utc: str,
+    source_query_file: str,
+) -> dict:
+    outlinks_payload = get_or_build_outlinks(
+        repo_root,
+        qid,
+        entity_payload,
+        cache_max_age_days,
+    )
+    record_item_edges(
+        repo_root,
+        qid,
+        outlinks_payload.get("edges", []),
+        discovered_at_utc=discovered_at_utc,
+        source_query_file=source_query_file,
+    )
+    return outlinks_payload
+
+
+def _discover_class_chain_for_entity(
+    repo_root: Path,
+    *,
+    entity_doc: dict,
+    discovered_qids: set[str],
+    config: ExpansionConfig,
+    source_query_file: str,
+) -> None:
+    class_queue = deque(sorted(_claim_qids(entity_doc, "P31") | _claim_qids(entity_doc, "P279")))
+    seen_class_qids: set[str] = set()
+
+    while class_queue:
+        class_qid = canonical_qid(class_queue.popleft())
+        if not class_qid or class_qid in seen_class_qids:
+            continue
+        seen_class_qids.add(class_qid)
+
+        class_payload = get_or_fetch_entity(
+            repo_root,
+            class_qid,
+            config.cache_max_age_days,
+            timeout=config.query_timeout_seconds,
+        )
+        class_doc = class_payload.get("entities", {}).get(class_qid, {})
+        if not isinstance(class_doc, dict) or not class_doc:
+            continue
+
+        class_timestamp = _iso_now()
+        upsert_discovered_item(repo_root, class_qid, class_doc, class_timestamp)
+        discovered_qids.add(class_qid)
+        _record_outlinks_for_discovered_item(
+            repo_root,
+            qid=class_qid,
+            entity_payload=class_payload,
+            cache_max_age_days=config.cache_max_age_days,
+            discovered_at_utc=class_timestamp,
+            source_query_file=source_query_file,
+        )
+
+        for parent_qid in sorted(_claim_qids(class_doc, "P279")):
+            if parent_qid and parent_qid not in seen_class_qids:
+                class_queue.append(parent_qid)
 
 
 def is_expandable_target(
@@ -212,13 +281,16 @@ def run_seed_expansion(
             "inlinks_cursor": None,
         }
 
-    per_seed_budget = int(config.per_seed_query_budget or 0)
-    if total_budget_remaining > 0 and per_seed_budget > 0:
-        seed_budget = min(per_seed_budget, total_budget_remaining)
-    elif total_budget_remaining > 0:
+    per_seed_budget = normalize_query_budget(config.per_seed_query_budget)
+    total_budget_remaining = normalize_query_budget(total_budget_remaining)
+    if per_seed_budget == 0 or total_budget_remaining == 0:
+        seed_budget = 0
+    elif per_seed_budget == -1:
         seed_budget = total_budget_remaining
-    else:
+    elif total_budget_remaining == -1:
         seed_budget = per_seed_budget
+    else:
+        seed_budget = min(per_seed_budget, total_budget_remaining)
 
     begin_request_context(
         budget_remaining=seed_budget,
@@ -258,16 +330,19 @@ def run_seed_expansion(
                 discovered_qids.add(qid)
                 expanded_qids.add(qid)
 
-                outlinks_payload = get_or_build_outlinks(
+                _discover_class_chain_for_entity(
                     repo_root,
-                    qid,
-                    entity_payload,
-                    config.cache_max_age_days,
+                    entity_doc=entity_doc,
+                    discovered_qids=discovered_qids,
+                    config=config,
+                    source_query_file="derived_local_outlinks_class_chain",
                 )
-                record_item_edges(
+
+                outlinks_payload = _record_outlinks_for_discovered_item(
                     repo_root,
-                    qid,
-                    outlinks_payload.get("edges", []),
+                    qid=qid,
+                    entity_payload=entity_payload,
+                    cache_max_age_days=config.cache_max_age_days,
                     discovered_at_utc=timestamp_utc,
                     source_query_file="derived_local_outlinks",
                 )
@@ -364,6 +439,22 @@ def run_seed_expansion(
                     upsert_discovered_item(repo_root, candidate_qid, candidate_doc, _iso_now())
                     discovered_qids.add(candidate_qid)
 
+                    _record_outlinks_for_discovered_item(
+                        repo_root,
+                        qid=candidate_qid,
+                        entity_payload=candidate_payload,
+                        cache_max_age_days=config.cache_max_age_days,
+                        discovered_at_utc=_iso_now(),
+                        source_query_file="derived_local_outlinks_discovered_candidate",
+                    )
+                    _discover_class_chain_for_entity(
+                        repo_root,
+                        entity_doc=candidate_doc,
+                        discovered_qids=discovered_qids,
+                        config=config,
+                        source_query_file="derived_local_outlinks_class_chain",
+                    )
+
                     has_direct = candidate_qid in direct_link_to_seed
 
                     can_expand = is_expandable_target(
@@ -385,6 +476,10 @@ def run_seed_expansion(
                 break
     finally:
         network_queries = int(end_request_context())
+
+    # Distinguish a fully processed seed frontier from other completion cases.
+    if stop_reason == "seed_complete" and not queue:
+        stop_reason = "queue_exhausted"
 
     return {
         "seed_qid": seed_qid,
@@ -431,7 +526,7 @@ def _filter_seed_instances_by_broadcasting_program(
         return entity_doc or None
 
     begin_request_context(
-        budget_remaining=int(request_budget_remaining),
+        budget_remaining=normalize_query_budget(request_budget_remaining),
         query_delay_seconds=float(query_delay_seconds),
         progress_every_calls=int(network_progress_every),
         context_label="seed_filter:class_prefetch",
@@ -547,7 +642,7 @@ def run_graph_expansion_stage(
         for row in class_rows
         if canonical_qid(row.get("wikidata_id", ""))
     }
-    prefilter_budget_remaining = int(config.total_query_budget or 0)
+    prefilter_budget_remaining = normalize_query_budget(config.total_query_budget)
     seeds, skipped_non_instance, prefilter_network_queries = _filter_seed_instances_by_broadcasting_program(
         repo_root,
         seeds=seeds,
@@ -589,7 +684,7 @@ def run_graph_expansion_stage(
     }
     class_scope_hints = {k: {qid for qid in v if qid} for k, v in class_scope_hints.items()}
 
-    total_budget_remaining = int(config.total_query_budget or 0)
+    total_budget_remaining = normalize_query_budget(config.total_query_budget)
     if total_budget_remaining > 0:
         total_budget_remaining = max(0, total_budget_remaining - int(prefilter_network_queries))
     discovered_candidates: list[dict] = []
@@ -607,6 +702,7 @@ def run_graph_expansion_stage(
 
     # Execute seed-by-seed in CSV order.
     seeds_done = 0
+    seeds_processed_this_run = 0
     start_seed_index = 0
     resume_cursor = None
     if resume_info["mode"] == "append" and resume_info["has_checkpoint"]:
@@ -620,6 +716,10 @@ def run_graph_expansion_stage(
 
     seeds_done = start_seed_index
     for local_seed_offset, seed in enumerate(seeds[start_seed_index:]):
+        if total_budget_remaining == 0:
+            last_stop_reason = "total_query_budget_exhausted"
+            break
+        seeds_processed_this_run += 1
         seed_index = start_seed_index + local_seed_offset
         seed_qid = canonical_qid(seed.get("wikidata_id", ""))
         seed_t0 = perf_counter()
@@ -696,11 +796,11 @@ def run_graph_expansion_stage(
         }
 
         if last_stop_reason in {"per_seed_budget_exhausted", "total_query_budget_exhausted"}:
-            if total_budget_remaining == 0 and int(config.total_query_budget or 0) > 0:
+            if total_budget_remaining == 0 and normalize_query_budget(config.total_query_budget) >= 0:
                 last_stop_reason = "total_query_budget_exhausted"
             break
 
-        if total_budget_remaining == 0 and int(config.total_query_budget or 0) > 0:
+        if total_budget_remaining == 0 and normalize_query_budget(config.total_query_budget) >= 0:
             last_stop_reason = "total_query_budget_exhausted"
             break
 
@@ -726,6 +826,23 @@ def run_graph_expansion_stage(
     )
     unresolved_targets = [t for t in targets if t.get("mention_id") not in resolved_target_ids]
     _write_graph_stage_handoff(repo_root, discovered_candidates, unresolved_targets)
+
+    if seeds_processed_this_run > 0:
+        final_checkpoint_ts = _iso_now()
+        final_manifest = CheckpointManifest(
+            run_id=run_id,
+            start_timestamp=start_timestamp,
+            latest_checkpoint_timestamp=final_checkpoint_ts,
+            stop_reason=last_stop_reason,
+            seeds_completed=seeds_done,
+            seeds_remaining=max(0, len(seed_qids) - seeds_done),
+            total_nodes_discovered={"items": int(len(newly_discovered_qids))},
+            total_nodes_expanded={"items": int(len(expanded_qids))},
+            total_queries=total_queries_used,
+            inlinks_cursor=last_cursor,
+            incomplete=(last_stop_reason == "crash_recovery"),
+        )
+        write_checkpoint_manifest(repo_root, final_manifest)
 
     checkpoint_stats["start_seed_index"] = int(start_seed_index)
     checkpoint_stats["seed_count"] = int(len(seeds))

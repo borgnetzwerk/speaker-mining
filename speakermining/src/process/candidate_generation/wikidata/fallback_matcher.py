@@ -9,7 +9,7 @@ import pandas as pd
 
 from .cache import _atomic_write_df
 from .cache import begin_request_context, end_request_context
-from .common import canonical_qid, normalize_text, pick_entity_label
+from .common import canonical_qid, normalize_query_budget, normalize_text, pick_entity_label
 from .entity import get_or_fetch_entity, get_or_search_entities_by_label
 from .node_store import iter_items
 from .node_store import upsert_discovered_item
@@ -126,7 +126,9 @@ def run_fallback_string_matching_stage(
     search_limit = int(config.get("fallback_search_limit", 10))
     search_languages = config.get("fallback_search_languages", ["de", "en"])
     has_explicit_budget = "network_budget_remaining" in config or "max_queries_per_run" in config
-    search_query_budget = int(config.get("network_budget_remaining", config.get("max_queries_per_run", 0)) or 0)
+    search_query_budget = normalize_query_budget(
+        config.get("network_budget_remaining", config.get("max_queries_per_run", 0))
+    )
     query_delay_seconds = float(config.get("query_delay_seconds", 1.0) or 0.0)
     progress_every_calls = int(config.get("network_progress_every", 50) or 0)
     if not isinstance(search_languages, list) or not search_languages:
@@ -140,7 +142,7 @@ def run_fallback_string_matching_stage(
         enabled_mention_types = {"person"}
     budget_label = "unlimited"
     if has_explicit_budget:
-        budget_label = str(max(0, search_query_budget))
+        budget_label = "unlimited" if search_query_budget == -1 else str(search_query_budget)
     print(
         (
             f"[fallback_stage] config: budget={budget_label} "
@@ -151,7 +153,7 @@ def run_fallback_string_matching_stage(
     )
 
     searched_labels: set[str] = set()
-    endpoint_budget_exhausted = bool(has_explicit_budget and search_query_budget <= 0)
+    endpoint_budget_exhausted = bool(has_explicit_budget and search_query_budget == 0)
     if endpoint_budget_exhausted:
         print("[fallback_stage] Endpoint search disabled because explicit network budget is 0", flush=True)
 

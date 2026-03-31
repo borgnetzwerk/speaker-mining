@@ -123,8 +123,8 @@ def test_deterministic_multi_seed_queue_ordering_with_neighbor_permutations(tmp_
     config = ExpansionConfig(
         max_depth=1,
         max_nodes=20,
-        total_query_budget=0,
-        per_seed_query_budget=0,
+        total_query_budget=-1,
+        per_seed_query_budget=-1,
         max_neighbors_per_node=20,
     )
     run_graph_expansion_stage(
