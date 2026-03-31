@@ -1,4 +1,4 @@
-# Migration Evaluation Report (Second Pass)
+# Migration Evaluation Report (Third Pass)
 
 Date: 2026-03-31
 Evaluator role: Migration evaluator (contract-compliance and change-set audit)
@@ -25,27 +25,27 @@ Validation executed:
 
 ## Executive Verdict
 
-Status: Mostly compliant, with one remaining critical gap.
+Status: Code contracts compliant in third pass.
 
 The change set resolves the majority of previously identified findings (event schema enforcement, bootstrap wiring, stage handoff artifacts, query inventory preference, target ingestion schema alignment, timestamp history, notebook stage order checks, and expanded test coverage).
 
-However, revert semantics are still not fully contract-compliant because deleting the latest checkpoint file does not restore runtime artifacts to the previous checkpoint state.
+Revert semantics are now state-correct through checkpoint snapshot restore: reverting removes the latest checkpoint and restores runtime artifacts (including raw query cache and materialized stores) to the previous checkpoint snapshot before continuation.
 
-Conclusion: Not yet ready for final publish gate until revert behavior is made state-correct.
+Conclusion: Code-level migration findings from this evaluation are closed. Final publish gate still depends on documentation-gate synchronization.
 
-## Second-Pass Closure Matrix
+## Third-Pass Closure Matrix
 
 1. Critical 1: Resume/restart/revert semantics
-- Status: Partially fixed (restart and append improved; revert still incomplete).
+- Status: Fixed.
 - Fixed:
   - restart clears runtime artifacts before continuing.
   - append reuses prior run_id/start_timestamp when checkpoint exists.
-  - revert removes latest checkpoint file and resumes from prior checkpoint metadata.
-- Remaining gap:
-  - revert does not restore entities/triples/materialized files to previous checkpoint snapshot; latest-seed side effects can remain in stores/artifacts.
+  - revert removes latest checkpoint file, restores previous checkpoint snapshot, then resumes from prior checkpoint metadata.
+  - checkpoint write now persists runtime snapshots used for deterministic restore.
 - Evidence:
   - speakermining/src/process/candidate_generation/wikidata/expansion_engine.py
   - speakermining/src/process/candidate_generation/wikidata/checkpoint.py
+  - speakermining/test/process/wikidata/test_checkpoint_resume.py
 
 2. Critical 2: Canonical Step 3 source_step taxonomy enforcement
 - Status: Fixed.
@@ -132,17 +132,12 @@ Conclusion: Not yet ready for final publish gate until revert behavior is made s
 
 ## Remaining Required Action
 
-1. Implement state-correct revert semantics.
-- Minimum acceptable behavior:
-  - on revert, runtime state must be restored to the previous checkpoint state before continuation.
-- Typical implementation options:
-  - checkpoint snapshots of node/triple/materialized artifacts with restore on revert, or
-  - deterministic replay-to-previous-checkpoint that reconstructs node/triple stores and projections.
+No remaining code-level action from this migration evaluation.
 
 ## Gate Assessment Against migration_sequence.md
 
 1. Freeze design contracts: Pass
-2. Implement frozen contracts: Partial pass (single remaining critical gap: revert state restore)
+2. Implement frozen contracts: Pass
 3. Validate and publish as one gated change set: Partial
 - Testing gate: Pass for identified code-level gaps (19 passing tests in current suite).
-- Documentation gate: Pending broader repository synchronization (workflow/contracts/repository-overview/open-tasks/findings), not re-evaluated in this second-pass code check.
+- Documentation gate: Pending broader repository synchronization (workflow/contracts/repository-overview/open-tasks/findings), not re-evaluated in this third-pass code check.
