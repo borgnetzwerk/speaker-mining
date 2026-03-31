@@ -51,7 +51,7 @@ The production spec is strong and internally coherent, but the current implement
 - Current queue initializes all seeds at once, so BFS interleaves seed-level traversal by depth: `bfs_expansion.py`.
 
 3. Required graph artifacts are not produced by current pipeline.
-- Spec requires triples.csv, class and instance csv/json partitions, properties json/csv, and materialization from node/triple events: `wikidata_future_V2.md`.
+- Spec requires `triples.csv`, class and instance csv/json partitions, properties json/csv, and materialization from node/triple events: `wikidata_future_V2.md`.
 - Current aggregate rebuild only regenerates candidates, candidate_index, query_inventory, summary: `aggregates.py`.
 
 4. Query event schema does not meet spec/policy metadata requirements.
@@ -99,32 +99,3 @@ You currently optimize for candidate discovery under strict API budget, while th
 
 2. New folder appears incomplete relative to spec.
 - Some expected json partition files are missing in current tree (for example many classes and instances json pairs), while spec requires full csv/json pairs per core class.
-
-### Recommended Migration Sequence
-1. Implement a canonical event schema first.
-- Add endpoint, normalized query descriptor, query hash, process step, status.
-- Keep existing raw files readable; add a versioned schema adapter.
-- 
-
-2. Separate graph expansion engine from candidate matching.
-- Expansion eligibility must follow direct-link plus core-class rule.
-- Candidate matching should consume materialized graph snapshots, not control traversal.
-
-3. Implement node and triple stores with deterministic materialization.
-- Persist discovered-only vs expanded payload states.
-- Build triples.csv from event-level edge facts with dedup key subject,predicate,object.
-
-4. Add checkpoint manifests and resume logic.
-- Include run_id, stop_reason, seed progress counters, incomplete markers.
-
-5. Only then align notebook orchestration.
-- Notebook should call deterministic run API and display checkpoint summaries.
-- Keep existing candidates.csv contract stable during transition.
-
-6. Update authoritative docs together in one change set.
-- Keep workflow.md, contracts.md, and repository-overview.md synchronized per doc governance: README.md.
-
-### Testing and Risk
-There are no visible tests covering the current Wikidata modules in the test tree, which makes this migration high-risk without staged contract tests. Add contract-level tests for artifact existence, schema headers, determinism, and resume behavior before replacing current pipeline.
-
-If you want, I can produce a concrete implementation blueprint next: module-by-module target APIs, event schemas, and acceptance tests mapped to each production-spec section.
