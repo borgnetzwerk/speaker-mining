@@ -1,36 +1,25 @@
 ### Migration Sequence
-1. Revise required graph artifacts
-- Identify if the Spec required graph artifacts are all truly required and modelled usefully. There is likely potential to further increase the modelling: `triples.csv`, class and instance csv/json partitions, properties json/csv, and materialization from node/triple events (`wikidata_future_V2.md`).
-- The goal is to make the data sourced from all query responses more flexible and extensively detailed (.json) as well as structured and easy to look up (.csv). Potentially, only one json is required (entities.json) - but this may cause issues depending on filesize, particularly in the case of file corruption, requiring rebuild from query responses.
-- Pros and cons of different approaches should be identified, weighed and brought to a final decision. 
+1. Freeze design contracts (completed)
+- Finalize graph artifact model and storage decision (Option B), including node-level discovered/expanded fields and derived CSV projections.
+- Finalize module-level implementation blueprint, including node/triple stores, checkpoint manifests, resume semantics, and notebook orchestration contract.
+- Finalize canonical v2 raw event schema and legacy raw archive/remove policy.
+- Finalize strict separation of graph-first expansion and fallback string matching.
+- Design artifacts already produced:
+	- `documentation/Wikidata/2026-03-31_transition/step_1_graph_artifacts_design.md`
+	- `documentation/Wikidata/2026-03-31_transition/step_2_implementation_blueprint.md`
+	- `documentation/Wikidata/2026-03-31_transition/step_3_canonical_event_schema.md`
+	- `documentation/Wikidata/2026-03-31_transition/step_4_separate_graph_expansion_from_candidate_matching.md`
 
-1. Produce a concrete implementation blueprint
-- module-by-module target APIs, event schemas, and acceptance tests mapped to each production-spec section.
-- Output artifact: `documentation/Wikidata/2026-03-31_transition/step_2_implementation_blueprint.md`
+1. Implement frozen contracts (single rollout phase)
+- Implement the Step 1-4 contracts in code as one coherent migration wave:
+	- consolidated node and property stores,
+	- triple event persistence and deterministic triples.csv materialization,
+	- checkpoint manifests and deterministic resume (including inlinks cursor state),
+	- notebook-orchestrated deterministic stage execution,
+	- graph-authoritative candidate discovery plus fallback-only unresolved matching.
+- Remove deprecated development-era contracts/artifacts where they conflict with the new model (including obsolete candidates.csv-era assumptions). Backward compatibility is not required for this migration.
 
-1. Implement a canonical event schema.
-- Add endpoint, normalized query descriptor, query hash, process step, status.
-- Archive existing raw files; There is no need for versioning or schema adapters, dump them in an `archive` folder, they will be backed up outside of the repository and then deleted from the archive folder.
-- Output artifact: `documentation/Wikidata/2026-03-31_transition/step_3_canonical_event_schema.md`
-
-1. Separate graph expansion engine from candidate matching.
-- The first and authoritative candidate discovery is the graph expansion. Expansion eligibility must follow direct-link plus core-class rule. It directly retrieves the knowledge a source has already connected to the broadcasting program. Since this works with direct links only and has no literal matching, it produces much less stress on the Wikidata services and should be exhausted before any other step.  
-- The second step would then be string-based candidate matching, only for those entries that could not be discovered from graph expansion. Any such newly discovered candidates should also be checked for expansion eligibility. The string-based candidate matching should consider the instance-of-property to the known core classes where possible, to narrow down the scope within Wikidata that will be searched.
-- Output artifact: `documentation/Wikidata/2026-03-31_transition/step_4_separate_graph_expansion_from_candidate_matching.md`
-
-1. Implement node and triple stores with deterministic materialization.
-- Persist discovered and expanded state as node-level fields in unified stores.
-- Build triples.csv from event-level edge facts with dedup key subject,predicate,object. Keep in mind that triples.csv is a redundant lookup table and does not fully represent statements (qualifiers and references remain in JSON/event payloads).
-
-1. Add checkpoint manifests and resume logic.
-- Include run_id, stop_reason, seed progress counters, incomplete markers, and inlinks paging cursor state for deterministic resume.
-
-1. Only then align notebook orchestration.
-- Notebook remains the orchestrator and executes the deterministic stage sequence in dedicated markdown/code cell pairs while displaying checkpoint summaries.
-- Archive existing candidates.csv contract or similar deprecated files and concepts - we are still in development, the pipeline was never used outside of debugging, we can completely disregard backwards compatibility. The most important goal is to establish a new and improved Wikidata candidate generation.
-
-1. Update authoritative docs together in one change set.
-- Keep workflow.md, contracts.md, repository-overview.md, open-tasks.md, and findings.md synchronized per doc governance: `README.md`.
-
-1. Implement Testing structure
-There are no visible tests covering the current Wikidata modules in the test tree. Add contract-level tests for artifact existence, schema headers, determinism, resume behavior, event schema, paging continuity, and graph/fallback stage separation.
+1. Validate and publish as one gated change set
+- Testing gate (mandatory): add and run contract-level tests for artifact existence, schema headers, determinism, resume behavior, canonical event schema, paging continuity, and graph/fallback stage separation.
+- Documentation gate (same change set): synchronize workflow.md, contracts.md, repository-overview.md, open-tasks.md, and findings.md per documentation governance in `README.md`.
+- Ship only when both gates pass.
