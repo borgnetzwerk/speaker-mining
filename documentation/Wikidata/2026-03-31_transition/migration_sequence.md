@@ -1,4 +1,8 @@
 ### Migration Sequence
+Policy note:
+- Legacy data cleanup was completed manually. No data from before v2 remains or should ever be considered.
+- Future coding must follow `documentation/Wikidata/2026-03-31_transition/v2_only_policy.md` and must not reintroduce pre-v2 compatibility paths.
+
 1. Freeze design contracts (completed)
 - Finalize graph artifact model and storage decision (Option B), including node-level discovered/expanded fields and derived CSV projections.
 - Finalize module-level implementation blueprint, including node/triple stores, checkpoint manifests, resume semantics, and notebook orchestration contract.
