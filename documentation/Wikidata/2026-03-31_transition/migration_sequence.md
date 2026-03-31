@@ -19,18 +19,18 @@
 - Output artifact: `documentation/Wikidata/2026-03-31_transition/step_4_separate_graph_expansion_from_candidate_matching.md`
 
 1. Implement node and triple stores with deterministic materialization.
-- Persist discovered-only vs expanded payload states.
-- Build triples.csv from event-level edge facts with dedup key subject,predicate,object. Keep in mind that the triples.csv is just a redundant lookup-table and does not fully represent statements (which can also have qualifiers and references). Any .csv information is always a redundant, easy-to-look-up layer used to ease access of the complex data stored in e.g., JSON.
+- Persist discovered and expanded state as node-level fields in unified stores.
+- Build triples.csv from event-level edge facts with dedup key subject,predicate,object. Keep in mind that triples.csv is a redundant lookup table and does not fully represent statements (qualifiers and references remain in JSON/event payloads).
 
 1. Add checkpoint manifests and resume logic.
-- Include run_id, stop_reason, seed progress counters, incomplete markers.
+- Include run_id, stop_reason, seed progress counters, incomplete markers, and inlinks paging cursor state for deterministic resume.
 
 1. Only then align notebook orchestration.
-- Notebook should call deterministic run API and display checkpoint summaries.
+- Notebook remains the orchestrator and executes the deterministic stage sequence in dedicated markdown/code cell pairs while displaying checkpoint summaries.
 - Archive existing candidates.csv contract or similar deprecated files and concepts - we are still in development, the pipeline was never used outside of debugging, we can completely disregard backwards compatibility. The most important goal is to establish a new and improved Wikidata candidate generation.
 
 1. Update authoritative docs together in one change set.
-- Keep workflow.md, contracts.md, and repository-overview.md synchronized per doc governance: `README.md`.
+- Keep workflow.md, contracts.md, repository-overview.md, open-tasks.md, and findings.md synchronized per doc governance: `README.md`.
 
 1. Implement Testing structure
-There are no visible tests covering the current Wikidata modules in the test tree. Add contract-level tests for artifact existence, schema headers, determinism, and resume behavior.
+There are no visible tests covering the current Wikidata modules in the test tree. Add contract-level tests for artifact existence, schema headers, determinism, resume behavior, event schema, paging continuity, and graph/fallback stage separation.
