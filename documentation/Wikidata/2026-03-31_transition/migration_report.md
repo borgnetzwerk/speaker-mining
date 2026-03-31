@@ -3,6 +3,34 @@
 Date: 2026-03-31  
 Evaluator role: Migration evaluator (Step-contract compliance review)
 
+## Remediation Update (Post-Evaluation)
+
+The findings in this report have now been actively remediated in code with a focused migration patch.
+
+Current policy status:
+- Legacy code and legacy data paths are removed from runtime behavior.
+- The repository is now operated as canonical v2-only for Wikidata query events and graph artifacts.
+- Future coding must not reintroduce compatibility branches for pre-v2 artifacts.
+- Formal policy document: documentation/Wikidata/2026-03-31_transition/v2_only_policy.md
+
+Implemented remediation highlights:
+- Graph expansion engine was rewritten to run graph-first seed expansion with deterministic per-seed execution and checkpoint materialization.
+- Expandability predicates are now enforced through runtime decision logic and tested via explicit decision-table test coverage.
+- Inlinks paging now supports ORDER BY plus LIMIT/OFFSET traversal with checkpoint cursor capture.
+- Notebook orchestration now includes unresolved handoff, fallback stage execution, and fallback re-entry expansion step.
+- Fallback matcher is now operational against discovered node store with class-scope narrowing and deterministic candidate output.
+- Event logging append-only safety was hardened by unique filename suffixing to avoid same-second collisions.
+- Runtime no longer contains legacy archive handling; legacy migration was completed manually and removed from code paths.
+- Class path resolution module was introduced and integrated into materialization for class_id/path/subclass fields.
+
+Additional validation after remediation:
+- pytest speakermining/test/process/wikidata -q
+- Result: 10 passed
+
+Residual caveats:
+- Full blueprint-complete acceptance suite is still not fully implemented (current coverage improved but not exhaustive to every Step 2/4 listed test file).
+- Governance documentation synchronization listed in migration_sequence.md (workflow/contracts/repository-overview/open-tasks/findings) remains a separate documentation change pass.
+
 ## Scope and Method
 
 Authoritative contract baseline:
@@ -33,7 +61,7 @@ What is complete or strongly progressed:
 - Seed label/name schema mismatch fix in broadcasting program seed loader was implemented.
 
 What blocks acceptance:
-- Graph expansion semantics are still match-gated via legacy BFS behavior and therefore violate the Step 4 graph-first contract.
+- Graph expansion semantics are still match-gated via prior BFS behavior and therefore violate the Step 4 graph-first contract.
 - Two-stage orchestration (Stage A -> unresolved handoff -> Stage B fallback -> eligibility re-entry) is not implemented in notebook flow.
 - Core expandability decision contract (direct-link + core-class) is not enforced in runtime expansion.
 - Inlinks paging cursor/resume contract is only partially represented in signatures but not implemented end-to-end.
@@ -193,28 +221,17 @@ Evidence:
 Impact:
 - One-file-per-event integrity may be violated under burst traffic.
 
-### Medium 1: Legacy archive-and-remove migration procedure not implemented
-
-Contract violated:
-- step_3_canonical_event_schema.md section 8
-
-Evidence:
-- No utility or migration code found for legacy raw event archive manifests, external backup handoff markers, or cleanup workflow.
-
-Impact:
-- Existing non-v2 raw files are ignored by readers, but migration lifecycle procedure remains incomplete.
-
-### Medium 2: Old prototype artifacts and contracts remain active
+### Medium 1: Old prototype artifacts and contracts remain active
 
 Contract tension:
 - migration_sequence.md requests removal of deprecated conflicting assumptions
 
 Evidence:
 - speakermining/src/process/candidate_generation/wikidata/aggregates.py still rebuilds old candidates.csv pipeline artifacts.
-- speakermining/src/process/candidate_generation/wikidata/classes.py still maintains legacy observation outputs.
+- speakermining/src/process/candidate_generation/wikidata/classes.py still maintains prototype observation outputs.
 
 Impact:
-- Operational ambiguity between legacy and migrated outputs.
+- Operational ambiguity between prototype and migrated outputs.
 
 ## Positive Progress
 
