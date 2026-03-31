@@ -6,7 +6,7 @@ Policy note:
 1. Freeze design contracts (completed)
 - Finalize graph artifact model and storage decision (Option B), including node-level discovered/expanded fields and derived CSV projections.
 - Finalize module-level implementation blueprint, including node/triple stores, checkpoint manifests, resume semantics, and notebook orchestration contract.
-- Finalize canonical v2 raw event schema and legacy raw archive/remove policy.
+- Finalize canonical v2 raw event schema under v2-only runtime policy (legacy cleanup handled operationally, outside runtime code).
 - Finalize strict separation of graph-first expansion and fallback string matching.
 - Design artifacts already produced:
 	- `documentation/Wikidata/2026-03-31_transition/step_1_graph_artifacts_design.md`

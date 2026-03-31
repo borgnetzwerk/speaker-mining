@@ -201,7 +201,7 @@ def read_query_event(path: Path) -> dict: ...
 
 Key decision:
 - One file per network reply, append-only.
-- No schema adapters for old files; archive and delete legacy files as migration step.
+- No schema adapters for old files; legacy cleanup is operationally complete outside runtime code.
 
 ## 4.5 entity.py (refactor)
 
@@ -558,7 +558,7 @@ Decisions finalized in this blueprint:
 - Step 1 Option B remains authoritative.
 - Runtime lookups are in-memory, persisted at checkpoints.
 - Checkpoint manifests are append-only and include incomplete marker.
-- No backward compatibility adapters for old raw schema; archive then remove legacy files.
+- No backward compatibility adapters for old raw schema; legacy cleanup remains operational and outside runtime code.
 
 Open items requiring confirmation before implementation starts:
 ### 1. Inlinks chunking strategy details at SPARQL level (offset pagination strategy constraints).

@@ -2,7 +2,7 @@
 
 Date: 2026-03-31
 Status: Design and implementation contract
-Scope: Canonical raw query event schema, normalization rules, hashing rules, process-step and status taxonomy, and legacy raw-file archive procedure
+Scope: Canonical raw query event schema, normalization rules, hashing rules, process-step and status taxonomy, under v2-only runtime policy
 
 ---
 
@@ -14,11 +14,8 @@ Step 3 defines the authoritative event envelope for every Wikidata network respo
 - checkpoint/resume can continue safely,
 - materialization can rebuild artifacts from raw events without ambiguity.
 
-This step also defines the migration handling for existing legacy raw files:
-- no schema adapters,
-- move to archive,
-- external backup,
-- archive cleanup after backup.
+Legacy raw-file cleanup was completed manually before v2-only policy formalization.
+Runtime code and tests in this step must not implement archive utilities, schema adapters, or compatibility readers.
 
 ---
 
@@ -283,42 +280,23 @@ Retry and resume behavior:
 
 ---
 
-## 8. Legacy Raw Files: Archive and Cleanup Procedure
+## 8. Legacy Raw Files: Operational Status
 
 Policy decision:
 - No version adapters.
 - No schema translation layer.
-- Legacy files are removed from active runtime immediately after archive handoff.
+- Legacy cleanup is an operational concern that is already complete and remains outside runtime code.
 
-## 8.1 Scope of legacy files
+## 8.1 Scope Note
 
-Legacy directory:
-- data/20_candidate_generation/wikidata/raw_queries
+Legacy detection remains a historical migration concern only; runtime behavior is canonical v2-only.
 
-Legacy detection rule:
-- any record not containing event_version=v2 is legacy
+## 8.2 Implementation Rule
 
-## 8.2 Archive procedure
-
-1. Create archive directory:
-- data/20_candidate_generation/wikidata/archive/raw_queries_legacy_YYYYMMDDTHHMMSSZ
-
-2. Move legacy raw files into archive directory.
-
-3. Write archive manifest file in the archive directory:
-- archive_manifest.json containing:
-  - archived_at_utc
-  - source_directory
-  - files_archived_count
-  - sample_file_names
-  - reason: schema_migration_step_3
-
-4. Perform external backup of archive directory outside repository.
-
-5. After backup confirmation, delete archived legacy files from repository archive folder.
+Do not implement archive utilities, migration commands, or runtime branches for pre-v2 raw files.
 
 Operational note:
-- external backup is an operational action and intentionally outside git history.
+- legacy cleanup and any external backup procedures are operational actions and intentionally outside git history and runtime code.
 
 ## 8.3 Non-goals
 
@@ -355,9 +333,6 @@ Required tests:
 7. test_inlinks_retry_failure_writes_incomplete_checkpoint
 - verifies crash-recovery checkpoint behavior
 
-8. test_archive_legacy_raw_files_without_adapters
-- verifies legacy files are archived and not consumed by v2 readers
-
 ---
 
 ## 10. Implementation Action Plan
@@ -366,9 +341,8 @@ Required tests:
 2. Refactor cache.py and entity.py to emit v2 events for network and derived operations.
 3. Implement deterministic normalized_query builders in one shared helper location.
 4. Implement query inventory dedup by query_hash + endpoint with latest success rule.
-5. Implement legacy archive utility command for Step 3 migration execution.
-6. Run Step 3 acceptance tests.
-7. Update step outputs in migration_sequence.md.
+5. Run Step 3 acceptance tests.
+6. Update step outputs in migration_sequence.md.
 
 ---
 
@@ -378,7 +352,7 @@ Decisions made in Step 3:
 - Canonical event envelope is frozen at v2.
 - query_hash formula is fixed to md5(endpoint + "|" + normalized_query).
 - Inlinks paging contract is fully parameterized.
-- Legacy raw files are archive-and-remove, with no adapter layer.
+- Legacy cleanup is operationally complete; runtime remains v2-only with no adapter layer.
 
 ---
 
@@ -388,5 +362,4 @@ Step 3 is complete when:
 1. All newly emitted raw query records conform to the v2 schema contract.
 2. Inlinks paging behavior matches frozen parameters and resume cursor semantics.
 3. query_inventory dedup operates on query_hash + endpoint and keeps latest success.
-4. Legacy raw files are archived, externally backed up, and removed from active repository archive folder.
-5. Step 3 acceptance tests pass.
+4. Step 3 acceptance tests pass.

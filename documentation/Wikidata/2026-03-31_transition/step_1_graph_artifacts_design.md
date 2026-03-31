@@ -531,7 +531,7 @@ Psychologin,Q212980
 
 ### Phase 1: Refactor Raw Event Schema
 - Add endpoint, query hash, normalized query descriptor to raw record envelope
-- Archive existing raw_queries/ files (no loss, but backward-incompatible)
+- Assume legacy raw cleanup is already completed operationally; do not implement archive handling in runtime code
 - Implement canonical event record format
 
 ### Phase 2: Implement Node Storage
