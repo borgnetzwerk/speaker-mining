@@ -6,6 +6,7 @@
 
 1. Produce a concrete implementation blueprint
 - module-by-module target APIs, event schemas, and acceptance tests mapped to each production-spec section.
+- Output artifact: `documentation/Wikidata/2026-03-31_transition/step_2_implementation_blueprint.md`
 
 1. Implement a canonical event schema.
 - Add endpoint, normalized query descriptor, query hash, process step, status.

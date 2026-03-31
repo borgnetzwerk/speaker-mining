@@ -27,6 +27,14 @@ Governance reference model:
 6. Do not hardcode display-only row limits in notebooks (for example `.head(10)` before `display(...)`) unless explicitly required by the task.
 7. Always expose real DataFrames to notebook viewers so sorting/filtering/search can operate on full data.
 
+### Notebook Setup Conventions
+
+1. Use a single code cell per action where possible.
+2. Split work into multiple small cells where it improves followability of progress.
+3. Insert markdown between action cells to explain what the next cell will do.
+4. Keep bootstrap logic in the first setup cell(s), including repository-root/path discovery and import-path setup.
+5. Never outsource notebook bootstrap/path-finding logic to process modules; the notebook must be able to initialize itself before importing project modules.
+
 ## Process Module Principles
 
 1. Keep functions composable and side-effect-light where possible.
@@ -34,6 +42,13 @@ Governance reference model:
 3. Include confidence and parsing metadata for heuristic extraction logic.
 4. Add helper functions for deduplication/reporting instead of ad hoc notebook logic.
 5. Keep presentation concerns out of process modules: no hardcoded preview slices, sample limits, or UI-specific output shaping.
+
+### Outsourcing To Python Files
+
+1. Do not outsource notebook bootstrap/path-discovery logic to Python files.
+2. Prefer Python files that are dedicated to a single primary task.
+3. Secondary helper behavior in the same file should be limited to closely related save/load support.
+4. Avoid broad multi-purpose modules when a focused task module is sufficient.
 
 ## Data Contract Principles
 
