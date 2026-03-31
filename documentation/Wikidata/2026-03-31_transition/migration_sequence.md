@@ -11,6 +11,7 @@
 1. Implement a canonical event schema.
 - Add endpoint, normalized query descriptor, query hash, process step, status.
 - Archive existing raw files; There is no need for versioning or schema adapters, dump them in an `archive` folder, they will be backed up outside of the repository and then deleted from the archive folder.
+- Output artifact: `documentation/Wikidata/2026-03-31_transition/step_3_canonical_event_schema.md`
 
 1. Separate graph expansion engine from candidate matching.
 - The first and authoritative candidate discovery is the graph expansion. Expansion eligibility must follow direct-link plus core-class rule. It directly retrieves the knowledge a source has already connected to the broadcasting program. Since this works with direct links only and has no literal matching, it produces much less stress on the Wikidata services and should be exhausted before any other step.  
