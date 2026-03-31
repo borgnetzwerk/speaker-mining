@@ -16,6 +16,7 @@
 1. Separate graph expansion engine from candidate matching.
 - The first and authoritative candidate discovery is the graph expansion. Expansion eligibility must follow direct-link plus core-class rule. It directly retrieves the knowledge a source has already connected to the broadcasting program. Since this works with direct links only and has no literal matching, it produces much less stress on the Wikidata services and should be exhausted before any other step.  
 - The second step would then be string-based candidate matching, only for those entries that could not be discovered from graph expansion. Any such newly discovered candidates should also be checked for expansion eligibility. The string-based candidate matching should consider the instance-of-property to the known core classes where possible, to narrow down the scope within Wikidata that will be searched.
+- Output artifact: `documentation/Wikidata/2026-03-31_transition/step_4_separate_graph_expansion_from_candidate_matching.md`
 
 1. Implement node and triple stores with deterministic materialization.
 - Persist discovered-only vs expanded payload states.
