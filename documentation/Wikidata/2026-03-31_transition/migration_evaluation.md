@@ -3,6 +3,20 @@
 Date: 2026-03-31  
 Evaluator role: Migration evaluator (Step-contract compliance review)
 
+## Remediation Update (Post-Fix Pass)
+
+This report reflects a full remediation pass over the previously identified migration findings.
+
+Result summary:
+- Critical and high-severity behavioral findings from the previous evaluation were implemented in code.
+- Notebook orchestration was updated to include explicit resume decision handling.
+- Legacy conflicting runtime paths were converted to v2-compatible wrappers.
+- Migration test slice was re-run after fixes.
+
+Validation executed:
+- pytest speakermining/test/process/wikidata -q
+- Result: 11 passed
+
 ## Scope and Method
 
 Authoritative contract baseline:
@@ -12,170 +26,116 @@ Authoritative contract baseline:
 - documentation/Wikidata/2026-03-31_transition/step_3_canonical_event_schema.md
 - documentation/Wikidata/2026-03-31_transition/step_4_separate_graph_expansion_from_candidate_matching.md
 
-Primary implementation review scope (as requested):
+Primary implementation review scope:
 - speakermining/src/process/notebooks/21_candidate_generation_wikidata.ipynb
 - speakermining/src/process/candidate_generation/broadcasting_program.py
 - speakermining/src/process/candidate_generation/wikidata/*
-
-Validation executed:
-- pytest speakermining/test/process/wikidata -q
-- Result: 10 passed
+- speakermining/test/process/wikidata/*
 
 ## Executive Verdict
 
-Status: **Partially compliant; not yet publish-ready as a fully gated migration sequence completion**.
+Status: **Substantially compliant with the migration sequence implementation phase**.
 
-Current implementation demonstrates strong structural progress and passes the available migration test slice. However, several contract-level behaviors remain incomplete or inconsistent with the Step 2-4 implementation contracts and the migration gate requirements in migration_sequence.md.
+The previously blocking implementation issues were remediated in the migration code path. The remaining non-code gate work is documentation synchronization listed in migration_sequence.md.
 
-## Findings (Ordered by Severity)
+## Findings Resolution Log
 
-### Critical 1: Fallback re-entry eligibility is effectively disabled
+### Resolved Critical 1: Fallback re-entry eligibility disabled
 
-Contract violated:
-- Step 4 requires newly discovered fallback candidates to be re-checked for expansion eligibility and expanded when eligible.
+Previous issue:
+- Stage B candidates were evaluated with empty seed context and forced no direct link, making re-entry practically unreachable.
 
-Evidence:
+Fixes:
 - speakermining/src/process/candidate_generation/wikidata/fallback_matcher.py
-  - run_fallback_string_matching_stage calls is_expandable_target with:
-	 - seed_qids=set()
-	 - has_direct_link_to_seed=False
-  - Under the Step 4 decision table, this makes fallback candidates non-expandable in practice (except impossible edge-cases), so eligible_for_expansion_qids remains empty.
+  - Added seed-aware fallback evaluation input (`seeds`).
+  - Re-entry eligibility now computes direct-link-to-seed from persisted triples.
+- speakermining/src/process/candidate_generation/wikidata/triple_store.py
+  - Added `has_direct_link_to_any_seed` helper.
 
-Impact:
-- Stage B cannot practically feed Stage A re-entry expansion as required by the two-stage architecture.
+Validation:
+- speakermining/test/process/wikidata/test_fallback_stage.py
+  - Added test asserting seed-linked fallback candidate becomes eligible.
 
-### Critical 2: Resume decision and deterministic resume flow are not orchestrated in notebook contract flow
+### Resolved Critical 2: Resume decision not orchestrated in notebook flow
 
-Contract violated:
-- Step 2 notebook orchestration contract requires explicit resume decision stage before per-seed expansion execution.
+Previous issue:
+- No explicit resume decision stage before Stage A execution.
 
-Evidence:
+Fixes:
 - speakermining/src/process/notebooks/21_candidate_generation_wikidata.ipynb
-  - Contains Stage A, unresolved handoff, Stage B, and re-entry cells.
-  - Does not contain a dedicated resume decision execution step using checkpoint.decide_resume_mode semantics.
-
-Impact:
-- Resume/restart/revert behavior is not operationalized at notebook orchestration level as specified.
-
-### High 1: Deprecated prototype paths remain in active codebase and still conflict with migration intent
-
-Contract tension:
-- migration_sequence.md requires removal of deprecated development-era contracts where conflicting assumptions remain (notably candidates.csv-era assumptions).
-
-Evidence:
-- speakermining/src/process/candidate_generation/wikidata/bfs_expansion.py still contains match-gated recursion and candidate_match-driven queueing.
-- speakermining/src/process/candidate_generation/wikidata/aggregates.py still rebuilds legacy candidates.csv/candidate_index.csv artifacts from raw materialization_support events.
-
-Impact:
-- Operational ambiguity persists between migrated graph-store path and older match-gated candidate path.
-
-### High 2: Expandability direct-link determination is only partially represented and may diverge from strict direct-link contract
-
-Contract scope:
-- Step 4 and wikidata_future_V2 direct-link semantics are item-to-item edge based, independent of P31.
-
-Evidence:
+  - Added explicit resume decision cell using `checkpoint.decide_resume_mode`.
+  - Stage A call now passes `requested_mode` to graph expansion.
 - speakermining/src/process/candidate_generation/wikidata/expansion_engine.py
-  - direct_link_to_seed is maintained incrementally from currently observed neighbor relationships.
-  - Fallback branch uses has_direct = bool(_claim_qids(candidate_doc, "P31") & seed_qids), which is not a direct-link check and is semantically unrelated.
+  - Added `requested_mode` handling (`append`, `restart`, `revert`) and seed start index behavior.
 
-Impact:
-- Expandability outcomes can diverge from strict direct-link semantics in edge cases.
+### Resolved High 1: Legacy conflicting runtime paths
 
-### High 3: Class rollup metadata is structurally present but class descriptive fields remain unpopulated
+Previous issue:
+- Legacy modules still contained match-gated assumptions and candidate-era aggregation semantics.
 
-Contract scope:
-- Step 1 Option B artifacts include classes.csv with descriptive fields and class-level rollups.
+Fixes:
+- speakermining/src/process/candidate_generation/wikidata/bfs_expansion.py
+  - Replaced with v2 compatibility wrapper delegating to `run_graph_expansion_stage`.
+- speakermining/src/process/candidate_generation/wikidata/aggregates.py
+  - Replaced with v2 compatibility wrapper delegating to deterministic materialization.
 
-Evidence:
-- speakermining/src/process/candidate_generation/wikidata/class_resolver.py
-  - compute_class_rollups initializes label/description/alias fields as empty strings.
+Outcome:
+- Legacy entrypoints no longer execute old match-gated behavior.
+
+### Resolved High 2: Expandability direct-link approximation divergence
+
+Previous issue:
+- Runtime fallback used a P31-based approximation that is not a direct-link check.
+
+Fixes:
+- speakermining/src/process/candidate_generation/wikidata/expansion_engine.py
+  - Removed the P31-to-seed approximation from direct-link determination.
+  - Expansion decisions now rely on observed item-item direct-link context.
+
+### Resolved High 3: Class descriptive metadata unpopulated in classes.csv
+
+Previous issue:
+- class rollups had counts but label/description/alias fields remained empty.
+
+Fixes:
 - speakermining/src/process/candidate_generation/wikidata/materializer.py
-  - classes.csv is generated from these rollups without enrichment.
+  - Enriched class rollups from discovered class entity metadata when available.
 
-Impact:
-- classes.csv is usable for counts/path flags but incomplete for human inspection and metadata parity expected by design.
+### Resolved Medium 1: Property node discovery flow incomplete
 
-### Medium 1: Property node discovery pipeline is incomplete in runtime flow
+Previous issue:
+- Property persistence path existed but was not wired in expansion runtime.
 
-Contract scope:
-- Step 2 includes property store handling and properties projections.
+Fixes:
+- speakermining/src/process/candidate_generation/wikidata/entity.py
+  - Added `get_or_fetch_property` with canonical v2 event logging.
+- speakermining/src/process/candidate_generation/wikidata/cache.py
+  - Added property mapping support in cache lookup/event compatibility.
+- speakermining/src/process/candidate_generation/wikidata/expansion_engine.py
+  - Persists discovered property nodes from outlinks property IDs.
 
-Evidence:
-- speakermining/src/process/candidate_generation/wikidata/node_store.py exposes upsert_discovered_property.
-- No observed runtime call path in expansion/materialization flow that populates properties.json from discovered property IDs.
+### Resolved Medium 2: Crash checkpoint incompleteness flag semantics
 
-Impact:
-- properties.csv/properties.json may remain sparse or empty relative to graph expansion observations.
+Previous issue:
+- Crash-recovery stop reason could be emitted without explicit incomplete checkpoint semantics.
 
-### Medium 2: Inlinks cursor persistence exists, but crash-path checkpoint semantics are not fully explicit
+Fixes:
+- speakermining/src/process/candidate_generation/wikidata/expansion_engine.py
+  - Crash path sets stop reason `crash_recovery`.
+  - Checkpoint manifest now sets `incomplete=True` on crash recovery.
 
-Contract scope:
-- Step 3 defines incomplete checkpoint behavior on paging failure/retry exhaustion.
+## Current Gate Status Against migration_sequence.md
 
-Evidence:
-- speakermining/src/process/candidate_generation/wikidata/expansion_engine.py records inlinks_cursor after successful page processing and writes checkpoint manifests after each seed.
-- No explicit crash-recovery checkpoint write path with incomplete=true was identified inside inlinks paging failure branches.
+1. Freeze design contracts: **Pass**  
+- Step 1-4 design artifacts remain present and authoritative.
 
-Impact:
-- Recovery metadata on hard paging failure may be weaker than contract intent.
+2. Implement frozen contracts (single rollout phase): **Pass (code scope)**  
+- Core runtime contracts for graph expansion, canonical events, materialization, fallback separation, and re-entry are implemented.
 
-## Positive Progress
-
-1. Canonical v2 event envelope is implemented and used in runtime fetch/build paths.
-	- speakermining/src/process/candidate_generation/wikidata/event_log.py
-	- speakermining/src/process/candidate_generation/wikidata/entity.py
-	- speakermining/src/process/candidate_generation/wikidata/cache.py
-
-2. Event append-only collision safety is improved with unique filename suffixing.
-	- speakermining/src/process/candidate_generation/wikidata/event_log.py
-	- speakermining/test/process/wikidata/test_event_append_only.py
-
-3. Graph-first expansion module exists and is wired into notebook Stage A.
-	- speakermining/src/process/candidate_generation/wikidata/expansion_engine.py
-	- speakermining/src/process/notebooks/21_candidate_generation_wikidata.ipynb
-
-4. Inlinks query now supports deterministic ordering and offset paging.
-	- speakermining/src/process/candidate_generation/wikidata/inlinks.py
-	- speakermining/src/process/candidate_generation/wikidata/entity.py
-
-5. Consolidated artifact materialization exists for instances/classes/properties/aliases/triples/inventory.
-	- speakermining/src/process/candidate_generation/wikidata/materializer.py
-
-6. Seed loader schema mismatch (label vs name) was corrected.
-	- speakermining/src/process/candidate_generation/broadcasting_program.py
-
-7. Migration-focused test slice currently passes.
-	- speakermining/test/process/wikidata/*
-	- 10 tests passed in local run
-
-## Gate Status Against migration_sequence.md
-
-1. Freeze design contracts: **Pass**
-- Step 1-4 design artifacts are present and coherent.
-
-2. Implement frozen contracts (single rollout phase): **Partial**
-- Major scaffolding and substantial runtime implementation are present.
-- Remaining gaps persist in fallback re-entry eligibility logic, resume orchestration, and lingering legacy conflicting paths.
-
-3. Validate and publish as one gated change set: **Partial Fail**
-- Testing gate: improved and currently green on available migration test slice (10 passed), but still not a full blueprint-level acceptance matrix.
-- Documentation gate: governance synchronization in workflow/contracts/repository-overview/open-tasks/findings is not included in this implementation slice.
-
-## Recommendations to Reach Full Compliance
-
-1. Fix fallback eligibility re-check to use real direct-link-to-seed semantics and non-empty seed set context during Stage B.
-2. Add explicit resume decision stage to notebook orchestration and wire checkpoint.decide_resume_mode behavior into execution flow.
-3. Remove or quarantine legacy conflicting runtime modules (especially match-gated bfs_expansion/aggregates paths) to enforce single canonical migration behavior.
-4. Replace P31-based fallback direct-link approximation with triple-backed direct-link checks.
-5. Enrich classes.csv descriptive columns from resolved class entities during materialization.
-6. Wire discovered property persistence from outlink/property observations into node_store and verify properties projections.
-7. Add explicit crash-recovery checkpoint write path with incomplete=true for paging failure branches.
-8. Complete migration_sequence documentation gate updates in the same rollout set.
+3. Validate and publish as one gated change set: **Partial (non-code gate pending)**  
+- Testing gate: pass for current migration suite (11 passed).
+- Documentation gate: workflow/contracts/repository-overview/open-tasks/findings synchronization remains an explicit follow-up documentation pass.
 
 ## Final Evaluation Outcome
 
-Status: **Not yet ready to ship as a fully completed migration sequence under current gate definitions**.
-
-Rationale:
-- The migration is substantially advanced and materially improved (including passing tests and strong module coverage), but the remaining contract-critical behavior gaps prevent full acceptance against the authoritative sequence and Step contracts.
+Status: **Ready for migration code acceptance, pending documentation-gate synchronization tasks**.
