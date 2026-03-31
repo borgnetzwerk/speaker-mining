@@ -12,6 +12,7 @@ import pandas as pd
 from .bootstrap import ensure_output_bootstrap, initialize_bootstrap_files, load_core_classes, load_seed_instances
 from .cache import _atomic_write_df, _entity_from_payload, _latest_cached_record
 from .cache import begin_request_context, end_request_context
+from .class_resolver import resolve_class_path
 from .checkpoint import (
     CheckpointManifest,
     clear_runtime_artifacts,
@@ -402,38 +403,101 @@ def _filter_seed_instances_by_broadcasting_program(
     expected_class_qid: str | None,
     cache_max_age_days: int,
     timeout_seconds: int,
-) -> tuple[list[dict], list[dict]]:
+    request_budget_remaining: int,
+    query_delay_seconds: float,
+    network_progress_every: int,
+) -> tuple[list[dict], list[dict], int]:
     expected_qid = canonical_qid(expected_class_qid or "")
     if not expected_qid:
-        return seeds, []
+        return seeds, [], 0
 
     accepted: list[dict] = []
     skipped: list[dict] = []
 
-    def _cached_seed_entity(seed_qid: str) -> dict | None:
-        node = get_item(repo_root, seed_qid)
+    def _local_entity(qid: str) -> dict:
+        entity_qid = canonical_qid(qid)
+        if not entity_qid:
+            return {}
+        node = get_item(repo_root, entity_qid)
         if isinstance(node, dict) and node:
             return node
-        cached = _latest_cached_record(repo_root, "entity", seed_qid)
+        cached = _latest_cached_record(repo_root, "entity", entity_qid)
         if not cached:
-            return None
-        return _entity_from_payload(cached[0].get("payload", {}), seed_qid)
+            return {}
+        return _entity_from_payload(cached[0].get("payload", {}), entity_qid)
 
-    for seed in seeds:
-        seed_qid = canonical_qid(seed.get("wikidata_id", ""))
-        if not seed_qid:
-            skipped.append({"label": str(seed.get("label", "") or ""), "wikidata_id": str(seed.get("wikidata_id", "") or ""), "reason": "invalid_wikidata_id"})
-            continue
-        entity_doc = _cached_seed_entity(seed_qid)
-        if not entity_doc:
-            accepted.append(seed)
-            continue
-        p31_values = _claim_qids(entity_doc, "P31")
-        if expected_qid in p31_values:
-            accepted.append(seed)
-        else:
+    def _cached_seed_entity(seed_qid: str) -> dict | None:
+        entity_doc = _local_entity(seed_qid)
+        return entity_doc or None
+
+    begin_request_context(
+        budget_remaining=int(request_budget_remaining),
+        query_delay_seconds=float(query_delay_seconds),
+        progress_every_calls=int(network_progress_every),
+        context_label="seed_filter:class_prefetch",
+    )
+
+    def _get_class_entity_for_filter(class_qid: str) -> dict:
+        class_doc = _local_entity(class_qid)
+        if class_doc:
+            return class_doc
+        try:
+            payload = get_or_fetch_entity(
+                repo_root,
+                class_qid,
+                cache_max_age_days,
+                timeout=timeout_seconds,
+            )
+        except Exception:
+            return {}
+        entity_doc = payload.get("entities", {}).get(class_qid, {}) if isinstance(payload, dict) else {}
+        if isinstance(entity_doc, dict) and entity_doc:
+            upsert_discovered_item(repo_root, class_qid, entity_doc, _iso_now())
+            return entity_doc
+        return {}
+
+    try:
+        for seed in seeds:
+            seed_qid = canonical_qid(seed.get("wikidata_id", ""))
+            if not seed_qid:
+                skipped.append({"label": str(seed.get("label", "") or ""), "wikidata_id": str(seed.get("wikidata_id", "") or ""), "reason": "invalid_wikidata_id"})
+                continue
+            entity_doc = _cached_seed_entity(seed_qid)
+            if not entity_doc:
+                accepted.append(seed)
+                continue
+            p31_values = _claim_qids(entity_doc, "P31")
+            if expected_qid in p31_values:
+                accepted.append(seed)
+                continue
+
+            # Respect subclass paths when seed type is a subclass of broadcasting program.
+            subclass_match = False
+            unresolved_class_doc = False
+            for class_qid in sorted(p31_values):
+                class_doc = _get_class_entity_for_filter(class_qid)
+                if not class_doc:
+                    unresolved_class_doc = True
+                    continue
+                resolution = resolve_class_path(class_doc, {expected_qid}, _local_entity)
+                if bool(resolution.get("subclass_of_core_class", False)):
+                    subclass_match = True
+                    break
+
+            if subclass_match:
+                accepted.append(seed)
+                continue
+
+            # Be conservative when class hierarchy cannot be resolved under budget/network constraints.
+            if unresolved_class_doc:
+                accepted.append(seed)
+                continue
+
             skipped.append({"label": str(seed.get("label", "") or ""), "wikidata_id": seed_qid, "reason": "not_broadcasting_program_instance"})
-    return accepted, skipped
+    finally:
+        network_queries = int(end_request_context())
+
+    return accepted, skipped, network_queries
 
 
 def run_graph_expansion_stage(
@@ -483,12 +547,16 @@ def run_graph_expansion_stage(
         for row in class_rows
         if canonical_qid(row.get("wikidata_id", ""))
     }
-    seeds, skipped_non_instance = _filter_seed_instances_by_broadcasting_program(
+    prefilter_budget_remaining = int(config.total_query_budget or 0)
+    seeds, skipped_non_instance, prefilter_network_queries = _filter_seed_instances_by_broadcasting_program(
         repo_root,
         seeds=seeds,
         expected_class_qid=class_by_filename.get("broadcasting_programs", ""),
         cache_max_age_days=config.cache_max_age_days,
         timeout_seconds=config.query_timeout_seconds,
+        request_budget_remaining=prefilter_budget_remaining,
+        query_delay_seconds=config.query_delay_seconds,
+        network_progress_every=config.network_progress_every,
     )
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + uuid4().hex[:8]
@@ -498,7 +566,7 @@ def run_graph_expansion_stage(
         run_id = str(latest.get("run_id", "") or run_id)
         start_timestamp = str(latest.get("start_timestamp", "") or start_timestamp)
 
-    total_queries_used = 0
+    total_queries_used = int(prefilter_network_queries)
     if resume_info["mode"] == "append" and resume_info.get("has_checkpoint"):
         latest = resume_info.get("latest_checkpoint") or {}
         total_queries_used = max(0, int(latest.get("total_queries", 0) or 0))
@@ -522,6 +590,8 @@ def run_graph_expansion_stage(
     class_scope_hints = {k: {qid for qid in v if qid} for k, v in class_scope_hints.items()}
 
     total_budget_remaining = int(config.total_query_budget or 0)
+    if total_budget_remaining > 0:
+        total_budget_remaining = max(0, total_budget_remaining - int(prefilter_network_queries))
     discovered_candidates: list[dict] = []
     resolved_target_ids: set[str] = set()
     newly_discovered_qids: set[str] = set()
@@ -530,6 +600,7 @@ def run_graph_expansion_stage(
         "run_id": run_id,
         "skipped_seed_rows": int(len(skipped_seed_rows)),
         "skipped_non_broadcasting_instance_rows": int(len(skipped_non_instance)),
+        "seed_filter_network_queries": int(prefilter_network_queries),
     }
     last_stop_reason = "seed_complete"
     last_cursor = None

@@ -102,7 +102,7 @@ def test_seed_filter_enforces_broadcasting_program_instance_from_cached_data(tmp
         "2026-03-31T12:01:00Z",
     )
 
-    accepted, skipped = _filter_seed_instances_by_broadcasting_program(
+    accepted, skipped, used = _filter_seed_instances_by_broadcasting_program(
         tmp_path,
         seeds=[
             {"label": "Program", "wikidata_id": "Q100"},
@@ -111,6 +111,9 @@ def test_seed_filter_enforces_broadcasting_program_instance_from_cached_data(tmp
         expected_class_qid="Q11578774",
         cache_max_age_days=365,
         timeout_seconds=30,
+        request_budget_remaining=10,
+        query_delay_seconds=0.0,
+        network_progress_every=0,
     )
 
     assert len(accepted) == 1
@@ -118,17 +121,161 @@ def test_seed_filter_enforces_broadcasting_program_instance_from_cached_data(tmp
     assert len(skipped) == 1
     assert skipped[0]["wikidata_id"] == "Q200"
     assert skipped[0]["reason"] == "not_broadcasting_program_instance"
+    assert 0 <= used <= 10
 
 
 def test_seed_filter_accepts_uncached_seed_without_network(tmp_path) -> None:
-    accepted, skipped = _filter_seed_instances_by_broadcasting_program(
+    accepted, skipped, used = _filter_seed_instances_by_broadcasting_program(
         tmp_path,
         seeds=[{"label": "Unknown", "wikidata_id": "Q999"}],
         expected_class_qid="Q11578774",
         cache_max_age_days=365,
         timeout_seconds=30,
+        request_budget_remaining=10,
+        query_delay_seconds=0.0,
+        network_progress_every=0,
     )
 
     assert len(accepted) == 1
     assert accepted[0]["wikidata_id"] == "Q999"
     assert skipped == []
+    assert used == 0
+
+
+def test_seed_filter_accepts_subclass_of_broadcasting_program(tmp_path) -> None:
+    upsert_discovered_item(
+        tmp_path,
+        "Q1587023",
+        {
+            "id": "Q1587023",
+            "labels": {},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {
+                "P31": [
+                    {
+                        "mainsnak": {
+                            "datavalue": {
+                                "value": {"entity-type": "item", "id": "Q15416"}
+                            }
+                        }
+                    }
+                ]
+            },
+        },
+        "2026-03-31T12:02:00Z",
+    )
+
+    upsert_discovered_item(
+        tmp_path,
+        "Q15416",
+        {
+            "id": "Q15416",
+            "labels": {},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {
+                "P279": [
+                    {
+                        "mainsnak": {
+                            "datavalue": {
+                                "value": {"entity-type": "item", "id": "Q11578774"}
+                            }
+                        }
+                    }
+                ]
+            },
+        },
+        "2026-03-31T12:03:00Z",
+    )
+
+    accepted, skipped, used = _filter_seed_instances_by_broadcasting_program(
+        tmp_path,
+        seeds=[{"label": "Hart aber fair", "wikidata_id": "Q1587023"}],
+        expected_class_qid="Q11578774",
+        cache_max_age_days=365,
+        timeout_seconds=30,
+        request_budget_remaining=10,
+        query_delay_seconds=0.0,
+        network_progress_every=0,
+    )
+
+    assert len(accepted) == 1
+    assert accepted[0]["wikidata_id"] == "Q1587023"
+    assert skipped == []
+    assert used == 0
+
+
+def test_seed_filter_fetches_missing_class_doc_under_explicit_budget(tmp_path, monkeypatch) -> None:
+    upsert_discovered_item(
+        tmp_path,
+        "Q1587023",
+        {
+            "id": "Q1587023",
+            "labels": {},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {
+                "P31": [
+                    {
+                        "mainsnak": {
+                            "datavalue": {
+                                "value": {"entity-type": "item", "id": "Q15416"}
+                            }
+                        }
+                    }
+                ]
+            },
+        },
+        "2026-03-31T12:02:00Z",
+    )
+
+    calls: list[str] = []
+
+    def _fake_fetch(root, qid, cache_max_age_days, timeout=30):
+        calls.append(str(qid))
+        assert qid == "Q15416"
+        return {
+            "entities": {
+                "Q15416": {
+                    "id": "Q15416",
+                    "labels": {},
+                    "descriptions": {},
+                    "aliases": {},
+                    "claims": {
+                        "P279": [
+                            {
+                                "mainsnak": {
+                                    "datavalue": {
+                                        "value": {"entity-type": "item", "id": "Q11578774"}
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                }
+            }
+        }
+
+    monkeypatch.setattr(
+        "process.candidate_generation.wikidata.expansion_engine.get_or_fetch_entity",
+        _fake_fetch,
+    )
+
+    accepted, skipped, used = _filter_seed_instances_by_broadcasting_program(
+        tmp_path,
+        seeds=[{"label": "Hart aber fair", "wikidata_id": "Q1587023"}],
+        expected_class_qid="Q11578774",
+        cache_max_age_days=365,
+        timeout_seconds=30,
+        request_budget_remaining=1,
+        query_delay_seconds=0.0,
+        network_progress_every=0,
+    )
+
+    assert calls == ["Q15416"]
+    assert len(accepted) == 1
+    assert accepted[0]["wikidata_id"] == "Q1587023"
+    assert skipped == []
+    # Mocked fetch bypasses low-level HTTP, so request-context counter remains zero.
+    assert used == 0
