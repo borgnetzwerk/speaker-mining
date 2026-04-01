@@ -86,3 +86,14 @@ The following former one-line notes were represented in the tracker and then arc
   - direct-link marking is symmetric for seed-touching edges,
   - seed filtering and materialization path resolution are cache-only (no unbounded network calls).
 - Validation: `python -m pytest speakermining/test/process/wikidata -q` passes.
+
+## F-009: Wikidata Language-Default Metadata Fallback Gap (Closed)
+
+- Observation: some Wikidata entities provide labels, descriptions, and aliases only under language-default buckets (for example `mul`) rather than explicit `de`/`en` fields.
+- Example: `Bernd Saur (Q133025759)` can miss `de`/`en` metadata while still carrying usable default-language metadata.
+- Impact before fix: rows could lose meaningful text metadata when strict language-key lookup returned empty values.
+- Resolution implemented:
+  - labels/descriptions now fall back to first available language/default value when requested language fields are empty,
+  - alias extraction now also includes language-default/global alias buckets in addition to language-specific buckets.
+- Validation: `pytest speakermining/test/process/wikidata/test_materializer_language_fallback.py -q` passes.
+- Related tracker item: `TODO-012`.

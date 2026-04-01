@@ -198,6 +198,7 @@ def run_node_integrity_pass(
     checked: set[str] = set()
     discovery_progress_last_emit = perf_counter()
     discovery_progress_interval_seconds = 60.0
+    discovery_latest_action = "startup: waiting for first check"
     try:
         while to_check:
             now_progress = perf_counter()
@@ -206,7 +207,8 @@ def run_node_integrity_pass(
                     (
                         "[node_integrity:discovery] heartbeat: "
                         f"checked={checked_qids} pending={len(to_check)} known={len(known_qids)} "
-                        f"repaired={repaired_discovery_qids} newly_discovered={len(newly_discovered_qids)}"
+                        f"repaired={repaired_discovery_qids} newly_discovered={len(newly_discovered_qids)} "
+                        f"latest_action={discovery_latest_action}"
                     ),
                     flush=True,
                 )
@@ -220,6 +222,7 @@ def run_node_integrity_pass(
             current = get_item(repo_root, qid)
             needs_refresh = not _has_minimal_discovery_payload(current)
             entity_doc = current if isinstance(current, dict) else {}
+            discovery_latest_action = f"checked {qid}: refresh={'yes' if needs_refresh else 'no'}"
 
             if needs_refresh:
                 try:
@@ -249,12 +252,23 @@ def run_node_integrity_pass(
                     repaired_qids.add(qid)
                     if qid not in discovered_before:
                         newly_discovered_qids.add(qid)
+                    discovery_latest_action = (
+                        f"repaired {qid}: minimal payload restored"
+                        if qid in repaired_qids
+                        else f"fetched {qid}: payload available"
+                    )
+                else:
+                    discovery_latest_action = f"fetched {qid}: empty payload"
 
+            new_class_qids = 0
             for class_qid in sorted(_claim_qids(entity_doc, "P31") | _claim_qids(entity_doc, "P279")):
                 if class_qid not in queued:
                     to_check.append(class_qid)
                     queued.add(class_qid)
                     known_qids.add(class_qid)
+                    new_class_qids += 1
+            if new_class_qids > 0:
+                discovery_latest_action = f"expanded class frontier from {qid}: +{new_class_qids} class qids"
     finally:
         network_queries_discovery = int(end_request_context())
 
@@ -298,6 +312,7 @@ def run_node_integrity_pass(
 
     expansion_progress_last_emit = perf_counter()
     expansion_progress_interval_seconds = 60.0
+    expansion_latest_action = "startup: waiting for first expansion"
     for idx, qid in enumerate(eligible_unexpanded_qids, start=1):
         now_progress = perf_counter()
         if now_progress - expansion_progress_last_emit >= expansion_progress_interval_seconds:
@@ -305,7 +320,8 @@ def run_node_integrity_pass(
                 (
                     "[node_integrity:expansion] heartbeat: "
                     f"processed={idx - 1}/{len(eligible_unexpanded_qids)} expanded={len(expanded_qids)} "
-                    f"network_queries_expansion={network_queries_expansion}"
+                    f"network_queries_expansion={network_queries_expansion} "
+                    f"latest_action={expansion_latest_action}"
                 ),
                 flush=True,
             )
@@ -323,7 +339,9 @@ def run_node_integrity_pass(
         )
         used = int(summary.get("network_queries", 0))
         network_queries_expansion += used
-        expanded_qids |= {canonical_qid(x) for x in summary.get("expanded_qids", set()) if canonical_qid(x)}
+        expanded_now = {canonical_qid(x) for x in summary.get("expanded_qids", set()) if canonical_qid(x)}
+        expanded_qids |= expanded_now
+        expansion_latest_action = f"expanded seed {qid}: +{len(expanded_now)} qids, network_queries={used}"
         if expansion_budget_remaining > 0:
             expansion_budget_remaining = max(0, expansion_budget_remaining - used)
 

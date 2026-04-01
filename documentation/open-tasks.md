@@ -264,3 +264,15 @@ Copy this block when adding a new item.
   1. parser supports broader interview-opening section detection beyond strict `Mark... LANZ ... mit`.
   2. surname-primary guest extraction fallback exists for non-parenthetical guest list lead segments.
   3. mention-detection conventions are documented in dedicated documentation.
+
+### TODO-012: Handle Wikidata Language-Default Metadata Fallback
+
+- Priority: high
+- Status: solved (2026-04-01)
+- Area: modeling
+- Summary: some Wikidata entities store labels, descriptions, and aliases only in language-default buckets rather than explicit `de`/`en`; materialization now falls back accordingly.
+- Evidence: `speakermining/src/process/candidate_generation/wikidata/materializer.py`, `speakermining/test/process/wikidata/test_materializer_language_fallback.py`, `documentation/findings.md`.
+- Definition of done:
+  1. label/description extraction falls back to first available language/default value when requested language value is missing.
+  2. alias extraction includes default/global alias buckets in addition to requested language buckets.
+  3. regression test covers language-default-only metadata entities and passes.

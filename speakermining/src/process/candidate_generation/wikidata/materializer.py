@@ -18,18 +18,37 @@ from .triple_store import iter_unique_triples
 def _pick_lang_text(mapping: dict, lang: str) -> str:
     if not isinstance(mapping, dict):
         return ""
+
     node = mapping.get(lang, {})
-    return str(node.get("value", "") if isinstance(node, dict) else "")
+    value = node.get("value", "") if isinstance(node, dict) else ""
+    if value:
+        return str(value)
+
+    # Fallback for entities that only provide a language-agnostic/default label.
+    for info in mapping.values():
+        fallback = info.get("value", "") if isinstance(info, dict) else ""
+        if fallback:
+            return str(fallback)
+    return ""
 
 
 def _alias_pipe(mapping: dict, lang: str) -> str:
     if not isinstance(mapping, dict):
         return ""
-    values = []
+
+    values: set[str] = set()
+
     for item in mapping.get(lang, []) or []:
         if isinstance(item, dict) and item.get("value"):
-            values.append(str(item.get("value")))
-    return "|".join(sorted(set(values)))
+            values.add(str(item.get("value")))
+
+    # Always add aliases from other language buckets (for example default/mul).
+    for alias_items in mapping.values():
+        for item in alias_items or []:
+            if isinstance(item, dict) and item.get("value"):
+                values.add(str(item.get("value")))
+
+    return "|".join(sorted(values))
 
 
 def _extract_claim_qids(claims: dict, pid: str) -> list[str]:
