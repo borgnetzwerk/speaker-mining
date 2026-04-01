@@ -97,3 +97,11 @@ The following former one-line notes were represented in the tracker and then arc
   - alias extraction now also includes language-default/global alias buckets in addition to language-specific buckets.
 - Validation: `pytest speakermining/test/process/wikidata/test_materializer_language_fallback.py -q` passes.
 - Related tracker item: `TODO-012`.
+
+## F-010: Notebook 21 Lacked Run-Spanning Network Decision Log
+
+- Observation: runtime heartbeat output in notebook 21 improved short-term visibility, but there was no append-only event stream across runs for major network-related decisions.
+- Impact: difficult to analyze long-run behavior patterns (budget pressure, cache-hit ratio drift, backoff frequency, call-rate changes) and to compare behavior between notebooks.
+- Requirement: add one append-only notebook event log that records all major network decisions and calls with timestamp, phase, rate-limit/budget context, and outcome.
+- Design reference: `documentation/notebook-observability.md`.
+- Related tracker item: `TODO-013`.

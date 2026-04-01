@@ -107,6 +107,18 @@ Copy this block when adding a new item.
   2. reconstructed rows are tagged with dedicated parsing rules and conservative confidence.
   3. validation examples are added to analysis context and checked for false-positive drift.
 
+### TODO-013: Implement Append-Only Notebook Network Event Log (Notebook 21 First)
+
+- Priority: high
+- Status: done (2026-04-01)
+- Area: workflow
+- Summary: notebook 21 now emits a run-scoped append-only JSONL event stream for phase lifecycle and network decision/call/backoff/budget events.
+- Evidence: `speakermining/src/process/notebook_event_log.py`, `speakermining/src/process/candidate_generation/wikidata/cache.py`, `speakermining/src/process/candidate_generation/wikidata/expansion_engine.py`, `speakermining/src/process/candidate_generation/wikidata/node_integrity.py`, `speakermining/src/process/candidate_generation/wikidata/fallback_matcher.py`, `speakermining/test/process/wikidata/test_notebook_event_log_runtime.py`.
+- Definition of done:
+  1. notebook 21 emits schema-valid `*.events.jsonl` entries for major network decisions and network calls with timestamps and phase context.
+  2. records include configured/effective rate-limit fields and query-budget counters (`before`/`after`) for each network-relevant decision.
+  3. append-only behavior and schema coverage are verified by automated tests and documented in notebook/runtime docs.
+
 ### TODO-011: Migrate Remaining Unguarded File Writes
 
 - Priority: medium

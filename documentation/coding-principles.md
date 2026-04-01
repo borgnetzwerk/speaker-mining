@@ -64,6 +64,15 @@ Governance reference model:
 4. On the next run, guarded writers/loaders must detect recovery snapshots first, restore/merge them back into the primary file, and only then proceed.
 5. New process modules must not introduce unguarded output writes; migrations of legacy direct writes should be tracked in `open-tasks.md`.
 
+## Notebook Observability Principles
+
+1. Production notebooks with network activity must emit append-only runtime events into `data/logs/notebooks/*.events.jsonl`.
+2. Log schema must follow `documentation/notebook-observability.md`, including `notebook_id`, `run_id`, `phase`, `event_type`, `network`, `rate_limit`, and `budget` fields.
+3. Logging must happen at the network decision boundary, not only for successful calls (cache-hit skip, budget block, retry/backoff, and errors must be visible).
+4. Notebook heartbeats shown in cell output should summarize the same underlying event stream.
+5. Cross-notebook field names should remain stable so metrics are comparable across workflows.
+6. Notebook event log writers must be corruption-tolerant: quarantine malformed JSONL lines to `*.corrupt.<timestamp>`, preserve valid history, append a repair event, and continue.
+
 ## Documentation Principles
 
 1. `workflow.md` is the authoritative source for execution order and phase ownership.

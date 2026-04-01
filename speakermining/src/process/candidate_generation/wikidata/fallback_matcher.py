@@ -15,6 +15,7 @@ from .node_store import iter_items
 from .node_store import upsert_discovered_item
 from .schemas import build_artifact_paths
 from .triple_store import has_direct_link_to_any_seed
+from ...notebook_event_log import NOTEBOOK_21_ID, get_or_create_notebook_logger
 
 
 @dataclass(frozen=True)
@@ -102,6 +103,8 @@ def run_fallback_string_matching_stage(
     config: dict,
 ) -> FallbackMatchResult:
     stage_t0 = perf_counter()
+    notebook_logger = get_or_create_notebook_logger(repo_root, NOTEBOOK_21_ID)
+    notebook_logger.log_phase_started("stage_b_fallback_matching", message="fallback string matching started")
     print("[fallback_stage] Starting fallback string matching", flush=True)
     fallback_candidates: list[dict] = []
     newly_discovered_qids: set[str] = set()
@@ -165,6 +168,8 @@ def run_fallback_string_matching_stage(
         query_delay_seconds=query_delay_seconds,
         progress_every_calls=progress_every_calls,
         context_label="fallback_stage",
+        event_emitter=notebook_logger.append_event,
+        event_phase="stage_b_fallback_matching",
     )
     try:
         processed = 0
@@ -300,6 +305,16 @@ def run_fallback_string_matching_stage(
             f"eligible={len(eligible_for_expansion_qids)}"
         ),
         flush=True,
+    )
+    notebook_logger.log_phase_finished(
+        "stage_b_fallback_matching",
+        message="fallback string matching finished",
+        extra={
+            "elapsed_seconds": round(elapsed, 3),
+            "processed_targets": int(processed),
+            "candidates": int(len(fallback_candidates)),
+            "eligible": int(len(eligible_for_expansion_qids)),
+        },
     )
 
     return FallbackMatchResult(

@@ -15,6 +15,7 @@ from .materializer import materialize_final
 from .node_store import get_item, iter_items, upsert_discovered_item
 from .triple_store import has_direct_link_to_any_seed, iter_unique_triples, record_item_edges
 from time import perf_counter
+from ...notebook_event_log import NOTEBOOK_21_ID, get_or_create_notebook_logger
 
 
 @dataclass(frozen=True)
@@ -110,6 +111,33 @@ def _has_minimal_discovery_payload(entity_doc: dict) -> bool:
     return True
 
 
+def _first_text_value(multilang_block: dict) -> str:
+    if not isinstance(multilang_block, dict):
+        return ""
+    for lang in ("de", "en"):
+        value = multilang_block.get(lang, {})
+        text = str(value.get("value", "")).strip() if isinstance(value, dict) else ""
+        if text:
+            return text
+    for value in multilang_block.values():
+        text = str(value.get("value", "")).strip() if isinstance(value, dict) else ""
+        if text:
+            return text
+    return ""
+
+
+def _minimal_payload_preview(entity_doc: dict) -> str:
+    if not isinstance(entity_doc, dict):
+        return "payload=invalid"
+    label = _first_text_value(entity_doc.get("labels", {}))
+    p31 = sorted(_claim_qids(entity_doc, "P31"))
+    p279 = sorted(_claim_qids(entity_doc, "P279"))
+    label_part = f'label="{label}"' if label else "label=<empty>"
+    p31_part = f"p31={','.join(p31[:3])}" if p31 else "p31=<none>"
+    p279_part = f"p279={','.join(p279[:3])}" if p279 else "p279=<none>"
+    return f"{label_part}; {p31_part}; {p279_part}"
+
+
 def _record_outlinks_for_node(repo_root: Path, qid: str, entity_payload: dict, cache_max_age_days: int, discovered_at_utc: str) -> None:
     outlinks_payload = get_or_build_outlinks(repo_root, qid, entity_payload, cache_max_age_days)
     record_item_edges(
@@ -168,6 +196,7 @@ def run_node_integrity_pass(
 ) -> NodeIntegrityResult:
     repo_root = Path(repo_root)
     config = config or NodeIntegrityConfig()
+    notebook_logger = get_or_create_notebook_logger(repo_root, NOTEBOOK_21_ID)
 
     resolved_seed_qids, resolved_core_classes = _resolve_runtime_seed_and_core_classes(
         repo_root,
@@ -186,11 +215,14 @@ def run_node_integrity_pass(
     newly_discovered_qids: set[str] = set()
     checked_qids = 0
 
+    notebook_logger.log_phase_started("node_integrity_discovery", message="node integrity discovery started")
     begin_request_context(
         budget_remaining=normalize_query_budget(config.discovery_query_budget),
         query_delay_seconds=float(config.query_delay_seconds),
         progress_every_calls=int(config.network_progress_every),
         context_label="node_integrity:discovery",
+        event_emitter=notebook_logger.append_event,
+        event_phase="node_integrity_discovery",
     )
 
     to_check = deque(sorted(known_qids))
@@ -207,11 +239,11 @@ def run_node_integrity_pass(
                     (
                         "[node_integrity:discovery] heartbeat: "
                         f"checked={checked_qids} pending={len(to_check)} known={len(known_qids)} "
-                        f"repaired={repaired_discovery_qids} newly_discovered={len(newly_discovered_qids)} "
-                        f"latest_action={discovery_latest_action}"
+                        f"repaired={repaired_discovery_qids} newly_discovered={len(newly_discovered_qids)}"
                     ),
                     flush=True,
                 )
+                print(f"[node_integrity:discovery] example: {discovery_latest_action}", flush=True)
                 discovery_progress_last_emit = now_progress
             qid = canonical_qid(to_check.popleft())
             if not qid or qid in checked:
@@ -252,11 +284,8 @@ def run_node_integrity_pass(
                     repaired_qids.add(qid)
                     if qid not in discovered_before:
                         newly_discovered_qids.add(qid)
-                    discovery_latest_action = (
-                        f"repaired {qid}: minimal payload restored"
-                        if qid in repaired_qids
-                        else f"fetched {qid}: payload available"
-                    )
+                    payload_preview = _minimal_payload_preview(entity_doc)
+                    discovery_latest_action = f"minimal payload restored for {qid} -> {payload_preview}"
                 else:
                     discovery_latest_action = f"fetched {qid}: empty payload"
 
@@ -271,6 +300,15 @@ def run_node_integrity_pass(
                 discovery_latest_action = f"expanded class frontier from {qid}: +{new_class_qids} class qids"
     finally:
         network_queries_discovery = int(end_request_context())
+        notebook_logger.log_phase_finished(
+            "node_integrity_discovery",
+            message="node integrity discovery finished",
+            extra={
+                "checked_qids": int(checked_qids),
+                "repaired_discovery_qids": int(repaired_discovery_qids),
+                "network_queries": int(network_queries_discovery),
+            },
+        )
 
     eligible_unexpanded_qids: list[str] = []
     for item in iter_items(repo_root):
@@ -313,6 +351,7 @@ def run_node_integrity_pass(
     expansion_progress_last_emit = perf_counter()
     expansion_progress_interval_seconds = 60.0
     expansion_latest_action = "startup: waiting for first expansion"
+    notebook_logger.log_phase_started("node_integrity_expansion", message="node integrity expansion started")
     for idx, qid in enumerate(eligible_unexpanded_qids, start=1):
         now_progress = perf_counter()
         if now_progress - expansion_progress_last_emit >= expansion_progress_interval_seconds:
@@ -320,11 +359,11 @@ def run_node_integrity_pass(
                 (
                     "[node_integrity:expansion] heartbeat: "
                     f"processed={idx - 1}/{len(eligible_unexpanded_qids)} expanded={len(expanded_qids)} "
-                    f"network_queries_expansion={network_queries_expansion} "
-                    f"latest_action={expansion_latest_action}"
+                    f"network_queries_expansion={network_queries_expansion}"
                 ),
                 flush=True,
             )
+            print(f"[node_integrity:expansion] example: {expansion_latest_action}", flush=True)
             expansion_progress_last_emit = now_progress
         if expansion_budget_remaining == 0:
             break
@@ -336,6 +375,8 @@ def run_node_integrity_pass(
             total_budget_remaining=expansion_budget_remaining,
             config=per_node_expansion_config,
             resume_inlinks_cursor=None,
+            event_emitter=notebook_logger.append_event,
+            event_phase="node_integrity_expansion",
         )
         used = int(summary.get("network_queries", 0))
         network_queries_expansion += used
@@ -347,6 +388,14 @@ def run_node_integrity_pass(
 
     run_id = f"node_integrity_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
     materialize_stats = materialize_final(repo_root, run_id=run_id)
+    notebook_logger.log_phase_finished(
+        "node_integrity_expansion",
+        message="node integrity expansion finished",
+        extra={
+            "expanded_qids": int(len(expanded_qids)),
+            "network_queries": int(network_queries_expansion),
+        },
+    )
 
     return NodeIntegrityResult(
         known_qids=int(len(known_qids)),

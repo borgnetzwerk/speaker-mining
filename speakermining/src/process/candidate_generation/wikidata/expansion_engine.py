@@ -27,6 +27,7 @@ from .inlinks import parse_inlinks_results
 from .materializer import materialize_checkpoint, materialize_final
 from .node_store import get_item, iter_items, upsert_discovered_item, upsert_discovered_property, upsert_expanded_item
 from .triple_store import record_item_edges
+from ...notebook_event_log import NOTEBOOK_21_ID, get_or_create_notebook_logger
 
 
 @dataclass(frozen=True)
@@ -269,6 +270,8 @@ def run_seed_expansion(
     total_budget_remaining: int,
     config: ExpansionConfig,
     resume_inlinks_cursor: dict | None = None,
+    event_emitter=None,
+    event_phase: str = "stage_a_graph_expansion",
 ) -> dict:
     seed_qid = canonical_qid(seed.get("wikidata_id", ""))
     if not seed_qid:
@@ -297,6 +300,8 @@ def run_seed_expansion(
         query_delay_seconds=config.query_delay_seconds,
         progress_every_calls=int(config.network_progress_every),
         context_label=f"graph_seed:{seed_qid}",
+        event_emitter=event_emitter,
+        event_phase=event_phase,
     )
 
     queue: deque[tuple[str, int]] = deque([(seed_qid, 0)])
@@ -513,6 +518,8 @@ def _filter_seed_instances_by_broadcasting_program(
     request_budget_remaining: int,
     query_delay_seconds: float,
     network_progress_every: int,
+    event_emitter=None,
+    event_phase: str = "stage_a_graph_expansion",
 ) -> tuple[list[dict], list[dict], int]:
     expected_qid = canonical_qid(expected_class_qid or "")
     if not expected_qid:
@@ -542,6 +549,8 @@ def _filter_seed_instances_by_broadcasting_program(
         query_delay_seconds=float(query_delay_seconds),
         progress_every_calls=int(network_progress_every),
         context_label="seed_filter:class_prefetch",
+        event_emitter=event_emitter,
+        event_phase=event_phase,
     )
 
     def _get_class_entity_for_filter(class_qid: str) -> dict:
@@ -617,6 +626,8 @@ def run_graph_expansion_stage(
     requested_mode: str | None = None,
 ) -> GraphExpansionResult:
     repo_root = Path(repo_root)
+    notebook_logger = get_or_create_notebook_logger(repo_root, NOTEBOOK_21_ID)
+    notebook_logger.log_phase_started("stage_a_graph_expansion", message="graph expansion stage started")
     stage_t0 = perf_counter()
     print("[graph_stage] Starting graph expansion stage", flush=True)
     resume_info = decide_resume_mode(repo_root, requested_mode)
@@ -664,6 +675,8 @@ def run_graph_expansion_stage(
         request_budget_remaining=prefilter_budget_remaining,
         query_delay_seconds=config.query_delay_seconds,
         network_progress_every=config.network_progress_every,
+        event_emitter=notebook_logger.append_event,
+        event_phase="stage_a_graph_expansion",
     )
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + uuid4().hex[:8]
@@ -749,6 +762,8 @@ def run_graph_expansion_stage(
             total_budget_remaining=total_budget_remaining,
             config=config,
             resume_inlinks_cursor=seed_resume_cursor,
+            event_emitter=notebook_logger.append_event,
+            event_phase="stage_a_graph_expansion",
         )
         newly_discovered_qids |= set(seed_summary.get("discovered_qids", set()))
         expanded_qids |= set(seed_summary.get("expanded_qids", set()))
@@ -867,6 +882,15 @@ def run_graph_expansion_stage(
             f"with total_queries={checkpoint_stats['total_queries']}"
         ),
         flush=True,
+    )
+    notebook_logger.log_phase_finished(
+        "stage_a_graph_expansion",
+        message="graph expansion stage finished",
+        extra={
+            "elapsed_seconds": checkpoint_stats["stage_elapsed_seconds"],
+            "total_queries": int(checkpoint_stats.get("total_queries", 0)),
+            "stop_reason": str(last_stop_reason),
+        },
     )
     return GraphExpansionResult(
         discovered_candidates=discovered_candidates,

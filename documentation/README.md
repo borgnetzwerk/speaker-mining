@@ -9,11 +9,12 @@ Use this as the single place to understand how the repository works, what standa
 1. [repository-overview.md](repository-overview.md)
 2. [workflow.md](workflow.md)
 3. [contracts.md](contracts.md)
-4. [mention-detection.md](mention-detection.md)
-5. [coding-principles.md](coding-principles.md)
-6. [open-tasks.md](open-tasks.md)
-7. [findings.md](findings.md)
-8. [context/README.md](context/README.md)
+4. [notebook-observability.md](notebook-observability.md)
+5. [mention-detection.md](mention-detection.md)
+6. [coding-principles.md](coding-principles.md)
+7. [open-tasks.md](open-tasks.md)
+8. [findings.md](findings.md)
+9. [context/README.md](context/README.md)
 
 ## Scope Of This Documentation
 
@@ -29,6 +30,7 @@ Use this as the single place to understand how the repository works, what standa
 - Workflow execution order and phase ownership: [workflow.md](workflow.md)
 - Architecture and module map: [repository-overview.md](repository-overview.md)
 - Output file contracts and schema headers: [contracts.md](contracts.md)
+- Notebook run/network observability and append-only event logs: [notebook-observability.md](notebook-observability.md)
 - Mention detection conventions and parsing rules: [mention-detection.md](mention-detection.md)
 - Contributor standards and change discipline: [coding-principles.md](coding-principles.md)
 - Open and solved work items: [open-tasks.md](open-tasks.md)

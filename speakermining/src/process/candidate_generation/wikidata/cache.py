@@ -6,19 +6,21 @@ for storing and retrieving Wikidata query results.
 from __future__ import annotations
 
 import json
+import hashlib
 import random
 import re
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import pandas as pd
 
 from .contact_loader import load_contact_info, format_contact_info_for_user_agent
-from .common import normalize_query_budget
+from .common import canonical_qid, normalize_query_budget
 
 
 WIKIDATA_API_BASE = "https://www.wikidata.org/wiki/Special:EntityData"
@@ -41,7 +43,55 @@ except (FileNotFoundError, ValueError) as exc:
 	raise
 
 
-_REQUEST_CONTEXT: dict[str, float | int | str] | None = None
+_REQUEST_CONTEXT: dict[str, object] | None = None
+
+
+def _infer_network_metadata(url: str) -> tuple[str, str, str, str]:
+	"""Infer endpoint, request kind, query identity, and entity id from URL."""
+	parsed = urlparse(str(url or ""))
+	host = (parsed.netloc or "").lower()
+	path = parsed.path or ""
+	query_map = parse_qs(parsed.query or "")
+	endpoint = "wikidata_api" if "wikidata.org" in host and "Special:EntityData" in path else "wikidata_sparql"
+	request_kind = "sparql_query"
+	query_identity = parsed.query or path
+	entity_qid = ""
+
+	if endpoint == "wikidata_api":
+		request_kind = "entity_or_property_by_id"
+		last_token = path.rstrip("/").split("/")[-1]
+		if last_token.endswith(".json"):
+			last_token = last_token[:-5]
+		entity_qid = canonical_qid(last_token)
+		if entity_qid.startswith("Q"):
+			request_kind = "entity_by_qid"
+		elif entity_qid.startswith("P"):
+			request_kind = "property_by_pid"
+		query_identity = entity_qid or last_token or parsed.query or path
+	else:
+		raw_query = ""
+		if "query" in query_map and query_map.get("query"):
+			raw_query = str(query_map.get("query", [""])[0])
+		query_identity = raw_query or parsed.query or path
+
+	query_hash = hashlib.md5(f"{endpoint}|{query_identity}".encode("utf-8")).hexdigest()
+	return endpoint, request_kind, query_hash, entity_qid
+
+
+def _emit_request_event(event_type: str, payload: dict) -> None:
+	"""Emit a structured request event when an emitter is configured."""
+	if _REQUEST_CONTEXT is None:
+		return
+	emitter = _REQUEST_CONTEXT.get("event_emitter")
+	if not callable(emitter):
+		return
+	phase = str(_REQUEST_CONTEXT.get("event_phase", _REQUEST_CONTEXT.get("context_label", "wikidata")) or "wikidata")
+	event_payload = {
+		"event_type": str(event_type or "unknown"),
+		"phase": phase,
+	}
+	event_payload.update(payload if isinstance(payload, dict) else {})
+	emitter(**event_payload)
 
 
 def begin_request_context(
@@ -51,6 +101,8 @@ def begin_request_context(
 	progress_every_calls: int = 50,
 	progress_every_seconds: float = 60.0,
 	context_label: str = "wikidata",
+	event_emitter=None,
+	event_phase: str | None = None,
 ) -> None:
 	"""Initialize process-local HTTP request budget and delay context.
 
@@ -80,6 +132,8 @@ def begin_request_context(
 		"started_at": now_ts,
 		"last_progress_at": now_ts,
 		"context_label": context_label,
+		"event_emitter": event_emitter,
+		"event_phase": str(event_phase or context_label or "wikidata"),
 	}
 
 
@@ -269,7 +323,32 @@ def _http_get_json(
 	for attempt in range(max_retries + 1):
 		max_queries = normalize_query_budget(_REQUEST_CONTEXT.get("budget_remaining", 0))
 		used_queries = int(_REQUEST_CONTEXT.get("network_queries", 0))
+		endpoint, request_kind, query_hash, entity_qid = _infer_network_metadata(url)
 		if max_queries >= 0 and used_queries >= max_queries:
+			_emit_request_event(
+				"network_budget_blocked",
+				{
+					"message": "network budget exhausted before call",
+					"network": {
+						"endpoint": endpoint,
+						"request_kind": request_kind,
+						"decision": "skip_budget",
+					},
+					"rate_limit": {
+						"query_delay_seconds_configured": float(_REQUEST_CONTEXT.get("query_delay_seconds", 0.0) or 0.0),
+						"query_delay_seconds_effective": float(_REQUEST_CONTEXT.get("query_delay_seconds", 0.0) or 0.0),
+						"backoff_factor": 1.0,
+					},
+					"budget": {
+						"max_queries_per_run": int(max_queries),
+						"queries_used_before": int(used_queries),
+						"queries_used_after": int(used_queries),
+					},
+					"entity": {"qid": entity_qid} if entity_qid else None,
+					"query": {"query_hash": query_hash},
+					"result": {"status": "skipped"},
+				},
+			)
 			raise RuntimeError("Network query budget hit")
 
 		delay_seconds = float(_REQUEST_CONTEXT.get("query_delay_seconds", 0.0))
@@ -279,9 +358,58 @@ def _http_get_json(
 		if time_since_last < delay_seconds:
 			time.sleep(delay_seconds - time_since_last)
 
+		decision = "retry" if attempt > 0 else "call"
+		_emit_request_event(
+			"network_decision",
+			{
+				"message": "network decision taken",
+				"network": {
+					"endpoint": endpoint,
+					"request_kind": request_kind,
+					"decision": decision,
+				},
+				"rate_limit": {
+					"query_delay_seconds_configured": float(_REQUEST_CONTEXT.get("query_delay_seconds", 0.0) or 0.0),
+					"query_delay_seconds_effective": float(delay_seconds),
+					"backoff_factor": 1.0,
+				},
+				"budget": {
+					"max_queries_per_run": int(max_queries),
+					"queries_used_before": int(used_queries),
+					"queries_used_after": int(used_queries),
+				},
+				"entity": {"qid": entity_qid} if entity_qid else None,
+				"query": {"query_hash": query_hash},
+			},
+		)
+
 		queries_after_this_call = used_queries + 1
 		_REQUEST_CONTEXT["last_query_time"] = time.time()
 		_REQUEST_CONTEXT["network_queries"] = queries_after_this_call
+		request_t0 = time.time()
+		_emit_request_event(
+			"network_call_started",
+			{
+				"message": "network call started",
+				"network": {
+					"endpoint": endpoint,
+					"request_kind": request_kind,
+					"decision": "call",
+				},
+				"rate_limit": {
+					"query_delay_seconds_configured": float(_REQUEST_CONTEXT.get("query_delay_seconds", 0.0) or 0.0),
+					"query_delay_seconds_effective": float(delay_seconds),
+					"backoff_factor": 1.0,
+				},
+				"budget": {
+					"max_queries_per_run": int(max_queries),
+					"queries_used_before": int(used_queries),
+					"queries_used_after": int(queries_after_this_call),
+				},
+				"entity": {"qid": entity_qid} if entity_qid else None,
+				"query": {"query_hash": query_hash},
+			},
+		)
 
 		progress_every = int(_REQUEST_CONTEXT.get("progress_every_calls", 0) or 0)
 		progress_seconds = float(_REQUEST_CONTEXT.get("progress_every_seconds", 0.0) or 0.0)
@@ -307,9 +435,71 @@ def _http_get_json(
 		try:
 			req = Request(url, headers={"Accept": accept, "User-Agent": USER_AGENT})
 			with urlopen(req, timeout=timeout) as response:
+				http_status = int(getattr(response, "status", 200) or 200)
 				payload = response.read().decode("utf-8")
+			duration_ms = max(0, int((time.time() - request_t0) * 1000.0))
+			_emit_request_event(
+				"network_call_finished",
+				{
+					"message": "network call finished",
+					"network": {
+						"endpoint": endpoint,
+						"request_kind": request_kind,
+						"decision": "call",
+					},
+					"rate_limit": {
+						"query_delay_seconds_configured": float(_REQUEST_CONTEXT.get("query_delay_seconds", 0.0) or 0.0),
+						"query_delay_seconds_effective": float(delay_seconds),
+						"backoff_factor": 1.0,
+					},
+					"budget": {
+						"max_queries_per_run": int(max_queries),
+						"queries_used_before": int(used_queries),
+						"queries_used_after": int(queries_after_this_call),
+					},
+					"entity": {"qid": entity_qid} if entity_qid else None,
+					"query": {"query_hash": query_hash},
+					"result": {
+						"status": "success",
+						"http_status": int(http_status),
+						"duration_ms": int(duration_ms),
+					},
+				},
+			)
 			return json.loads(payload)
 		except (HTTPError, URLError) as exc:
+			duration_ms = max(0, int((time.time() - request_t0) * 1000.0))
+			http_status = int(getattr(exc, "code", 0) or 0)
+			status_text = "http_error" if isinstance(exc, HTTPError) else "network_error"
+			_emit_request_event(
+				"network_error",
+				{
+					"message": f"network call failed: {type(exc).__name__}",
+					"network": {
+						"endpoint": endpoint,
+						"request_kind": request_kind,
+						"decision": "abort",
+					},
+					"rate_limit": {
+						"query_delay_seconds_configured": float(_REQUEST_CONTEXT.get("query_delay_seconds", 0.0) or 0.0),
+						"query_delay_seconds_effective": float(delay_seconds),
+						"backoff_factor": 1.0,
+					},
+					"budget": {
+						"max_queries_per_run": int(max_queries),
+						"queries_used_before": int(used_queries),
+						"queries_used_after": int(queries_after_this_call),
+					},
+					"entity": {"qid": entity_qid} if entity_qid else None,
+					"query": {"query_hash": query_hash},
+					"result": {
+						"status": status_text,
+						"http_status": int(http_status) if http_status > 0 else None,
+						"duration_ms": int(duration_ms),
+						"error": str(exc),
+					},
+				},
+			)
 			if attempt >= max_retries:
 				raise
 
@@ -323,6 +513,40 @@ def _http_get_json(
 				raise
 
 			sleep_seconds = (backoff_base_seconds * (2 ** attempt)) + random.uniform(0.0, 0.25)
+			configured_delay = float(_REQUEST_CONTEXT.get("query_delay_seconds", 0.0) or 0.0)
+			if configured_delay > 0.0:
+				backoff_factor = (configured_delay + sleep_seconds) / configured_delay
+			else:
+				backoff_factor = 1.0
+			_emit_request_event(
+				"network_backoff_applied",
+				{
+					"message": "transient failure; retry backoff applied",
+					"network": {
+						"endpoint": endpoint,
+						"request_kind": request_kind,
+						"decision": "retry",
+					},
+					"rate_limit": {
+						"query_delay_seconds_configured": configured_delay,
+						"query_delay_seconds_effective": configured_delay + sleep_seconds,
+						"backoff_factor": float(backoff_factor),
+					},
+					"budget": {
+						"max_queries_per_run": int(max_queries),
+						"queries_used_before": int(used_queries),
+						"queries_used_after": int(queries_after_this_call),
+					},
+					"entity": {"qid": entity_qid} if entity_qid else None,
+					"query": {"query_hash": query_hash},
+					"result": {
+						"status": "retry",
+						"http_status": int(status_code) if isinstance(exc, HTTPError) else None,
+						"duration_ms": int(duration_ms),
+						"error": str(exc),
+					},
+				},
+			)
 			time.sleep(sleep_seconds)
 
 	# Defensive fallback (unreachable under normal flow)

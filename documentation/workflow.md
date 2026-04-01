@@ -90,6 +90,14 @@ Each phase reads upstream data and writes only inside its owned folder:
 2. Wikidata
 3. Fernsehserien and other sources
 
+## Notebook Runtime Logging Contract
+
+Notebook runtime/network logging design is defined in `notebook-observability.md`.
+
+For `21_candidate_generation_wikidata.ipynb`, major network-related decisions
+must be logged into one append-only notebook event stream that persists across
+runs.
+
 ## Wikidata v2 Execution Contract
 
 The active Wikidata workflow in `21_candidate_generation_wikidata.ipynb` is canonical v2-only.
