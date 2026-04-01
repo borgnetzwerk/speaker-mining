@@ -131,6 +131,18 @@ Copy this block when adding a new item.
   2. lock-failure behavior is consistent: write `*.recovery`, fail fast with actionable message.
   3. resume behavior is documented and validated for representative CSV and JSON outputs.
 
+### TODO-014: Assess JSONL Migration Potential And Risk Across JSON/CSV Artifacts
+
+- Priority: high
+- Status: done (2026-04-01)
+- Area: architecture
+- Summary: complete an evidence-based assessment of where JSONL could replace current JSON/CSV solutions (or should not), with case-by-case recommendations.
+- Evidence: `documentation/context/jsonl_potential.md`, `documentation/findings.md` (F-011), code inventory under `speakermining/src/process/**`.
+- Definition of done:
+  1. inventory of current JSON/CSV/JSONL usage is documented with repository evidence.
+  2. each artifact family has explicit potential/risk analysis for JSONL replacement.
+  3. each case has a preliminary recommendation or explicit need for further clarification.
+
 ### [ID]: Identify clusters of potential misspellings 
 
 - Priority: medium

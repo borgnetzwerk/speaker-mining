@@ -105,3 +105,13 @@ The following former one-line notes were represented in the tracker and then arc
 - Requirement: add one append-only notebook event log that records all major network decisions and calls with timestamp, phase, rate-limit/budget context, and outcome.
 - Design reference: `documentation/notebook-observability.md`.
 - Related tracker item: `TODO-013`.
+
+## F-011: JSONL Migration Potential Beyond Notebook Events (Assessment Open)
+
+- Observation: JSONL is attractive for append-only, event-like artifacts (for example `raw_queries` event records and checkpoint timelines), but replacing all JSON/CSV artifacts with JSONL would introduce mismatches for snapshot/state and tabular-contract outputs.
+- Evidence snapshot (2026-04-01): repository currently contains `csv=335`, `json=16061`, `jsonl=1`; `data/20_candidate_generation/wikidata/raw_queries` alone has `3755` JSON files (~`181 MB` total).
+- Primary opportunity: reduce file-count overhead and improve stream-style analysis for append-only event families.
+- Primary risk: monolithic JSONL append files can become large hot spots during runtime and need corruption handling and rotation/indexing policy to remain operationally safe.
+- Preliminary direction: keep CSV for stable tabular contracts, keep JSON objects/lists for mutable state snapshots, and evaluate JSONL selectively for append-only event flows (starting with `raw_queries` as a candidate) with staged rollout and validation.
+- Dedicated analysis artifact: `documentation/context/jsonl_potential.md`.
+- Related tracker item: `TODO-014`.
