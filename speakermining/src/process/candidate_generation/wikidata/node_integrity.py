@@ -8,12 +8,13 @@ from pathlib import Path
 from .bootstrap import load_core_classes, load_seed_instances
 from .cache import begin_request_context, end_request_context
 from .class_resolver import resolve_class_path
-from .common import canonical_qid, normalize_query_budget
+from .common import canonical_qid, effective_core_class_qids, normalize_query_budget
 from .entity import get_or_build_outlinks, get_or_fetch_entity
 from .expansion_engine import ExpansionConfig, is_expandable_target, run_seed_expansion
 from .materializer import materialize_final
 from .node_store import get_item, iter_items, upsert_discovered_item
 from .triple_store import has_direct_link_to_any_seed, iter_unique_triples, record_item_edges
+from time import perf_counter
 
 
 @dataclass(frozen=True)
@@ -66,11 +67,11 @@ def _is_class_node(entity_doc: dict) -> bool:
 
 
 def _p31_core_match(entity_doc: dict, core_class_qids: set[str]) -> bool:
-    return bool(_claim_qids(entity_doc, "P31") & set(core_class_qids or set()))
+    return bool(_claim_qids(entity_doc, "P31") & effective_core_class_qids(core_class_qids))
 
 
 def _p31_core_match_with_subclass_resolution(repo_root: Path, entity_doc: dict, core_class_qids: set[str]) -> bool:
-    core_qids = set(core_class_qids or set())
+    core_qids = effective_core_class_qids(core_class_qids)
     if not core_qids:
         return False
     if _p31_core_match(entity_doc, core_qids):
@@ -155,7 +156,7 @@ def _resolve_runtime_seed_and_core_classes(repo_root: Path, seed_qids: set[str] 
             if canonical_qid(row.get("wikidata_id", ""))
         }
 
-    return resolved_seed_qids, resolved_core_classes
+    return resolved_seed_qids, effective_core_class_qids(resolved_core_classes)
 
 
 def run_node_integrity_pass(
@@ -195,8 +196,21 @@ def run_node_integrity_pass(
     to_check = deque(sorted(known_qids))
     queued: set[str] = set(known_qids)
     checked: set[str] = set()
+    discovery_progress_last_emit = perf_counter()
+    discovery_progress_interval_seconds = 60.0
     try:
         while to_check:
+            now_progress = perf_counter()
+            if now_progress - discovery_progress_last_emit >= discovery_progress_interval_seconds:
+                print(
+                    (
+                        "[node_integrity:discovery] heartbeat: "
+                        f"checked={checked_qids} pending={len(to_check)} known={len(known_qids)} "
+                        f"repaired={repaired_discovery_qids} newly_discovered={len(newly_discovered_qids)}"
+                    ),
+                    flush=True,
+                )
+                discovery_progress_last_emit = now_progress
             qid = canonical_qid(to_check.popleft())
             if not qid or qid in checked:
                 continue
@@ -282,7 +296,20 @@ def run_node_integrity_pass(
         network_progress_every=int(config.network_progress_every),
     )
 
-    for qid in eligible_unexpanded_qids:
+    expansion_progress_last_emit = perf_counter()
+    expansion_progress_interval_seconds = 60.0
+    for idx, qid in enumerate(eligible_unexpanded_qids, start=1):
+        now_progress = perf_counter()
+        if now_progress - expansion_progress_last_emit >= expansion_progress_interval_seconds:
+            print(
+                (
+                    "[node_integrity:expansion] heartbeat: "
+                    f"processed={idx - 1}/{len(eligible_unexpanded_qids)} expanded={len(expanded_qids)} "
+                    f"network_queries_expansion={network_queries_expansion}"
+                ),
+                flush=True,
+            )
+            expansion_progress_last_emit = now_progress
         if expansion_budget_remaining == 0:
             break
         summary = run_seed_expansion(

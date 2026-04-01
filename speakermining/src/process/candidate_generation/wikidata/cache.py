@@ -49,6 +49,7 @@ def begin_request_context(
 	budget_remaining: int,
 	query_delay_seconds: float,
 	progress_every_calls: int = 50,
+	progress_every_seconds: float = 60.0,
 	context_label: str = "wikidata",
 ) -> None:
 	"""Initialize process-local HTTP request budget and delay context.
@@ -59,18 +60,25 @@ def begin_request_context(
 		query_delay_seconds: Minimum delay between network requests.
 		progress_every_calls: Emit progress output after this many calls.
 			Set 0 to disable progress output.
+		progress_every_seconds: Emit progress output at least once per interval
+			while network calls are still being made. Set 0 to disable.
 		context_label: Human-readable stage label for progress output.
 	"""
 	global _REQUEST_CONTEXT
 	budget_remaining = normalize_query_budget(budget_remaining)
 	progress_every_calls = max(0, int(progress_every_calls))
+	progress_every_seconds = max(0.0, float(progress_every_seconds))
 	context_label = str(context_label or "wikidata").strip() or "wikidata"
+	now_ts = time.time()
 	_REQUEST_CONTEXT = {
 		"budget_remaining": budget_remaining,
 		"query_delay_seconds": float(query_delay_seconds),
 		"network_queries": 0,
 		"last_query_time": 0.0,
 		"progress_every_calls": progress_every_calls,
+		"progress_every_seconds": progress_every_seconds,
+		"started_at": now_ts,
+		"last_progress_at": now_ts,
 		"context_label": context_label,
 	}
 
@@ -141,8 +149,53 @@ def _atomic_write_text(path: Path, text: str) -> None:
 	"""
 	path.parent.mkdir(parents=True, exist_ok=True)
 	tmp_path = path.with_suffix(path.suffix + ".tmp")
-	tmp_path.write_text(text, encoding="utf-8")
-	tmp_path.replace(path)
+	try:
+		tmp_path.write_text(text, encoding="utf-8")
+		tmp_path.replace(path)
+	except PermissionError as exc:
+		recovery_path = path.with_suffix(path.suffix + ".recovery")
+		recovery_payload = {
+			"target_path": str(path),
+			"written_at_utc": datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+			"text": text,
+		}
+		recovery_path.write_text(
+			json.dumps(recovery_payload, ensure_ascii=False, indent=2),
+			encoding="utf-8",
+		)
+		try:
+			if tmp_path.exists():
+				tmp_path.unlink()
+		except Exception:
+			pass
+		raise RuntimeError(
+			(
+				f"Permission denied while writing {path}. "
+				f"A recovery snapshot was written to {recovery_path}. "
+				"Stop this run, close any editor/process that may lock the target file, "
+				"then rerun: recovery will be merged automatically before processing continues."
+			)
+		) from exc
+
+
+def _restore_csv_recovery_if_present(path: Path) -> None:
+	"""Restore a previous CSV recovery snapshot before normal writes.
+
+	This supports resume-after-failure workflows where a prior run could not
+	replace the target file due to an OS-level file lock.
+	"""
+	recovery_path = path.with_suffix(path.suffix + ".recovery")
+	if not recovery_path.exists():
+		return
+	try:
+		recovery_path.replace(path)
+	except PermissionError as exc:
+		raise RuntimeError(
+			(
+				f"Recovery snapshot exists for {path} but could not be restored from {recovery_path}. "
+				"Close any process locking the target file and rerun."
+			)
+		) from exc
 
 
 def _atomic_write_df(path: Path, df: pd.DataFrame) -> None:
@@ -153,9 +206,35 @@ def _atomic_write_df(path: Path, df: pd.DataFrame) -> None:
 		df: DataFrame to write.
 	"""
 	path.parent.mkdir(parents=True, exist_ok=True)
+	_restore_csv_recovery_if_present(path)
 	tmp_path = path.with_suffix(path.suffix + ".tmp")
-	df.to_csv(tmp_path, index=False)
-	tmp_path.replace(path)
+	try:
+		df.to_csv(tmp_path, index=False)
+		tmp_path.replace(path)
+	except PermissionError as exc:
+		recovery_path = path.with_suffix(path.suffix + ".recovery")
+		try:
+			# Preserve the exact attempted content when final rename is blocked.
+			if tmp_path.exists():
+				tmp_path.replace(recovery_path)
+			else:
+				df.to_csv(recovery_path, index=False)
+		except Exception:
+			df.to_csv(recovery_path, index=False)
+		finally:
+			try:
+				if tmp_path.exists():
+					tmp_path.unlink()
+			except Exception:
+				pass
+		raise RuntimeError(
+			(
+				f"Permission denied while writing {path}. "
+				f"A recovery snapshot was written to {recovery_path}. "
+				"Stop this run, close any editor/process that may lock the target file, "
+				"then rerun to restore and continue."
+			)
+		) from exc
 
 
 def _http_get_json(
@@ -205,13 +284,25 @@ def _http_get_json(
 		_REQUEST_CONTEXT["network_queries"] = queries_after_this_call
 
 		progress_every = int(_REQUEST_CONTEXT.get("progress_every_calls", 0) or 0)
-		if progress_every > 0 and queries_after_this_call % progress_every == 0:
+		progress_seconds = float(_REQUEST_CONTEXT.get("progress_every_seconds", 0.0) or 0.0)
+		started_at = float(_REQUEST_CONTEXT.get("started_at", _REQUEST_CONTEXT.get("last_query_time", time.time())) or time.time())
+		last_progress_at = float(_REQUEST_CONTEXT.get("last_progress_at", started_at) or started_at)
+		now_progress = time.time()
+		by_calls = progress_every > 0 and queries_after_this_call % progress_every == 0
+		by_time = progress_seconds > 0.0 and (now_progress - last_progress_at) >= progress_seconds
+		if by_calls or by_time:
 			context_label = str(_REQUEST_CONTEXT.get("context_label", "wikidata") or "wikidata")
 			budget_label = "unlimited" if max_queries == -1 else str(max_queries)
+			elapsed_seconds = max(0.0, now_progress - started_at)
+			calls_per_minute = (queries_after_this_call * 60.0 / elapsed_seconds) if elapsed_seconds > 0 else 0.0
 			print(
-				f"[{context_label}] Network calls used: {queries_after_this_call} / {budget_label}",
+				(
+					f"[{context_label}] Network calls used: {queries_after_this_call} / {budget_label} "
+					f"elapsed={elapsed_seconds:.1f}s rate={calls_per_minute:.2f}/min"
+				),
 				flush=True,
 			)
+			_REQUEST_CONTEXT["last_progress_at"] = now_progress
 
 		try:
 			req = Request(url, headers={"Accept": accept, "User-Agent": USER_AGENT})

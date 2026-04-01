@@ -14,6 +14,7 @@ _WS_RE = re.compile(r"\s+")
 _NON_WORD_RE = re.compile(r"[^\w]+", flags=re.UNICODE)
 _QID_RE = re.compile(r"Q\d+")
 _PID_RE = re.compile(r"P\d+")
+ENTITY_ROOT_QID = "Q35120"
 
 
 def normalize_text(value: str) -> str:
@@ -72,6 +73,17 @@ def canonical_qid(value: str) -> str:
     text = str(value or "").upper().strip()
     match = _QID_RE.search(text)
     return match.group(0) if match else ""
+
+
+def effective_core_class_qids(core_class_qids: set[str] | None) -> set[str]:
+    """Normalize core-class set used for eligibility/subclass matching.
+
+    The Wikidata class "entity" (Q35120) is treated as a root concept and must
+    not qualify items as subclass/direct-instance of a project core class.
+    """
+    normalized = {canonical_qid(qid) for qid in (core_class_qids or set()) if canonical_qid(qid)}
+    normalized.discard(ENTITY_ROOT_QID)
+    return normalized
 
 
 def canonical_pid(value: str) -> str:

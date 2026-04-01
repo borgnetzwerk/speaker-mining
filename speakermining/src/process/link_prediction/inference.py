@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from process.io_guardrails import atomic_write_csv
+
 
 REL_COLUMNS = ["source_id", "property", "target_id", "confidence", "reason"]
 
@@ -35,5 +37,5 @@ def save_relations(df: pd.DataFrame, output_dir: str | Path = "data/40_link_pred
 	out_dir = Path(output_dir)
 	out_dir.mkdir(parents=True, exist_ok=True)
 	path = out_dir / "rel.csv"
-	df[REL_COLUMNS].to_csv(path, index=False)
+	atomic_write_csv(path, df[REL_COLUMNS], index=False)
 	return path

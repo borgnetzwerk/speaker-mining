@@ -4,6 +4,8 @@ import re
 from pathlib import Path
 from typing import Iterable, List
 
+from process.io_guardrails import atomic_write_text
+
 
 def _episode_marker_pattern() -> re.Pattern[str]:
     return re.compile(r"^--- EPISODE\s+\d+", flags=re.IGNORECASE)
@@ -134,11 +136,12 @@ def write_episode_text_dump(episode_blocks: Iterable[str], path: str | Path) -> 
     out_path = Path(path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with out_path.open("w", encoding="utf-8") as handle:
-        for idx, episode in enumerate(episode_blocks, start=1):
-            handle.write(f"--- EPISODE {idx} ---\n\n")
-            handle.write(str(episode).strip())
-            handle.write("\n\n" + "=" * 50 + "\n\n")
+    chunks: list[str] = []
+    for idx, episode in enumerate(episode_blocks, start=1):
+        chunks.append(f"--- EPISODE {idx} ---\n\n")
+        chunks.append(str(episode).strip())
+        chunks.append("\n\n" + "=" * 50 + "\n\n")
+    atomic_write_text(out_path, "".join(chunks), encoding="utf-8")
 
     return out_path
 

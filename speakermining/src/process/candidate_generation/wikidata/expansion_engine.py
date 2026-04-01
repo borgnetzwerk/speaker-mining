@@ -21,7 +21,7 @@ from .checkpoint import (
     restore_checkpoint_snapshot,
     write_checkpoint_manifest,
 )
-from .common import canonical_qid, iter_entity_texts, normalize_query_budget, normalize_text, pick_entity_label
+from .common import canonical_qid, effective_core_class_qids, iter_entity_texts, normalize_query_budget, normalize_text, pick_entity_label
 from .entity import get_or_build_outlinks, get_or_fetch_entity, get_or_fetch_inlinks, get_or_fetch_property
 from .inlinks import parse_inlinks_results
 from .materializer import materialize_checkpoint, materialize_final
@@ -307,9 +307,21 @@ def run_seed_expansion(
     inlinks_cursor: dict | None = None
     resume_cursor_consumed = False
     stop_reason = "seed_complete"
+    seed_progress_last_emit = perf_counter()
+    seed_progress_interval_seconds = 60.0
 
     try:
         while queue and len(expanded_qids) < int(config.max_nodes):
+            now_progress = perf_counter()
+            if now_progress - seed_progress_last_emit >= seed_progress_interval_seconds:
+                print(
+                    (
+                        f"[graph_seed:{seed_qid}] heartbeat: queue={len(queue)} seen={len(seen)} "
+                        f"discovered={len(discovered_qids)} expanded={len(expanded_qids)} depth_limit={int(config.max_depth)}"
+                    ),
+                    flush=True,
+                )
+                seed_progress_last_emit = now_progress
             qid, depth = queue.popleft()
             qid = canonical_qid(qid)
             if not qid or qid in seen or depth > int(config.max_depth):
@@ -673,6 +685,7 @@ def run_graph_expansion_stage(
 
     if not core_class_qids:
         core_class_qids = {canonical_qid(row.get("wikidata_id", "")) for row in setup_core_classes if canonical_qid(row.get("wikidata_id", ""))}
+    core_class_qids = effective_core_class_qids(core_class_qids)
 
     class_scope_hints = {
         "person": {class_by_filename.get("persons", "")},

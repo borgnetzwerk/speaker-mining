@@ -10,6 +10,7 @@ import pandas as pd
 
 from .config import EPISODE_COLUMNS, FILE_EPISODES, PHASE_DIR
 from .publications import build_publication_rows, extract_publication_rows_from_text, to_publication_dataframe
+from process.io_guardrails import atomic_write_csv
 
 
 def _stable_episode_id(title: str, date_value: str, fallback_text: str) -> str:
@@ -160,5 +161,5 @@ def save_episodes(df: pd.DataFrame, output_dir: str | Path | None = None) -> Pat
 	out_dir = Path(output_dir) if output_dir else PHASE_DIR
 	out_dir.mkdir(parents=True, exist_ok=True)
 	out_path = out_dir / FILE_EPISODES
-	df.to_csv(out_path, index=False)
+	atomic_write_csv(out_path, df, index=False)
 	return out_path

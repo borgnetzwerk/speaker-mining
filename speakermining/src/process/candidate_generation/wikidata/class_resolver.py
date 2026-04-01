@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 
-from .common import canonical_qid
+from .common import canonical_qid, effective_core_class_qids
 
 
 def _claim_item_qids(entity_doc: dict, pid: str) -> list[str]:
@@ -19,7 +19,7 @@ def _claim_item_qids(entity_doc: dict, pid: str) -> list[str]:
 
 
 def resolve_class_path(entity_doc: dict, core_class_qids: set[str], get_entity_fn) -> dict:
-    core = {canonical_qid(qid) for qid in (core_class_qids or set()) if canonical_qid(qid)}
+    core = effective_core_class_qids(core_class_qids)
     entity_id = canonical_qid(entity_doc.get("id", ""))
     if not entity_id:
         return {

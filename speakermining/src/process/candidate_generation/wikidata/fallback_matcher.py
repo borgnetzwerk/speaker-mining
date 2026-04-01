@@ -9,7 +9,7 @@ import pandas as pd
 
 from .cache import _atomic_write_df
 from .cache import begin_request_context, end_request_context
-from .common import canonical_qid, normalize_query_budget, normalize_text, pick_entity_label
+from .common import canonical_qid, effective_core_class_qids, normalize_query_budget, normalize_text, pick_entity_label
 from .entity import get_or_fetch_entity, get_or_search_entities_by_label
 from .node_store import iter_items
 from .node_store import upsert_discovered_item
@@ -108,6 +108,7 @@ def run_fallback_string_matching_stage(
     eligible_for_expansion_qids: set[str] = set()
     ineligible_qids: set[str] = set()
     seed_qids = {canonical_qid(qid) for qid in (seeds or set()) if canonical_qid(qid)}
+    effective_core_classes = effective_core_class_qids(core_class_qids)
 
     # Deterministic in-memory index over discovered nodes.
     label_index: dict[str, list[dict]] = {}
@@ -167,7 +168,21 @@ def run_fallback_string_matching_stage(
     )
     try:
         processed = 0
+        heartbeat_last_emit = perf_counter()
+        heartbeat_interval_seconds = 60.0
         for target in unresolved_targets:
+            now_progress = perf_counter()
+            if now_progress - heartbeat_last_emit >= heartbeat_interval_seconds:
+                print(
+                    (
+                        "[fallback_stage] heartbeat: "
+                        f"processed_targets={processed} cached_labels={len(label_index)} "
+                        f"searched_labels={len(searched_labels)} candidates={len(fallback_candidates)} "
+                        f"eligible={len(eligible_for_expansion_qids)}"
+                    ),
+                    flush=True,
+                )
+                heartbeat_last_emit = now_progress
             mention_id = str(target.get("mention_id", "") or "")
             mention_type = str(target.get("mention_type", ""))
             mention_type_norm = mention_type.strip().lower()
@@ -249,7 +264,7 @@ def run_fallback_string_matching_stage(
                     qid,
                     seed_qids=seed_qids,
                     has_direct_link_to_seed=has_direct_link,
-                    p31_core_match=bool(set(candidate.get("p31", [])) & set(core_class_qids or set())),
+                    p31_core_match=bool(set(candidate.get("p31", [])) & effective_core_classes),
                     is_class_node=bool(candidate.get("is_class_node", False)),
                 )
                 if can_expand:

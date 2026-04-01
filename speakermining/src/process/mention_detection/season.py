@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from .config import FILE_SEASONS, PHASE_DIR, SEASON_COLUMNS
+from process.io_guardrails import atomic_write_csv
 
 
 def extract_season_rows(episodes_df: pd.DataFrame) -> pd.DataFrame:
@@ -49,5 +50,5 @@ def save_seasons(df: pd.DataFrame, output_dir: str | Path | None = None) -> Path
 	out_dir = Path(output_dir) if output_dir else PHASE_DIR
 	out_dir.mkdir(parents=True, exist_ok=True)
 	out_path = out_dir / FILE_SEASONS
-	df.to_csv(out_path, index=False)
+	atomic_write_csv(out_path, df, index=False)
 	return out_path

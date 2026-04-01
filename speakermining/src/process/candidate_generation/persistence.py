@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from process.io_guardrails import atomic_write_csv
+
 
 def phase2_output_dir(root: str | Path) -> Path:
 	"""Return and ensure the Phase 2 output directory exists."""
@@ -20,7 +22,7 @@ def phase2_output_dir(root: str | Path) -> Path:
 def persist_dataframe(root: str | Path, df: pd.DataFrame, filename: str) -> Path:
 	"""Write a DataFrame to Phase 2 output as CSV (overwrite mode)."""
 	path = phase2_output_dir(root) / filename
-	df.to_csv(path, index=False)
+	atomic_write_csv(path, df, index=False)
 	return path
 
 

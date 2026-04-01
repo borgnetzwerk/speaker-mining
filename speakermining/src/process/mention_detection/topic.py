@@ -8,6 +8,7 @@ from typing import Iterable
 import pandas as pd
 
 from .config import FILE_TOPIC_MENTIONS, PHASE_DIR, TOPIC_MENTION_COLUMNS
+from process.io_guardrails import atomic_write_csv
 
 
 def _extract_sachinhalt(text: str) -> str:
@@ -279,5 +280,5 @@ def save_topic_mentions(df: pd.DataFrame, output_dir: str | Path | None = None) 
 	out_dir = Path(output_dir) if output_dir else PHASE_DIR
 	out_dir.mkdir(parents=True, exist_ok=True)
 	out_path = out_dir / FILE_TOPIC_MENTIONS
-	df.to_csv(out_path, index=False)
+	atomic_write_csv(out_path, df, index=False)
 	return out_path

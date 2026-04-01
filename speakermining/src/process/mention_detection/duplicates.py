@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 from .config import PHASE_DIR
+from process.io_guardrails import atomic_write_csv
 
 
 def split_exact_duplicates(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -32,7 +33,7 @@ def save_exact_duplicate_rows(
     out_dir = Path(output_dir) if output_dir else PHASE_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"duplicates_{table_name}.csv"
-    duplicates_df.to_csv(out_path, index=False)
+    atomic_write_csv(out_path, duplicates_df, index=False)
     return out_path
 
 

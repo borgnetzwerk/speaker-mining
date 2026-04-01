@@ -107,6 +107,18 @@ Copy this block when adding a new item.
   2. reconstructed rows are tagged with dedicated parsing rules and conservative confidence.
   3. validation examples are added to analysis context and checked for false-positive drift.
 
+### TODO-011: Migrate Remaining Unguarded File Writes
+
+- Priority: medium
+- Status: done (2026-04-01)
+- Area: architecture
+- Summary: process modules now use guarded atomic writers for production output writes, including lock-failure recovery snapshots.
+- Evidence: shared helper `speakermining/src/process/io_guardrails.py`; migrated callsites across candidate-generation, mention-detection, disambiguation, deduplication, link-prediction, and text-extraction; regression test `speakermining/test/process/wikidata/test_guarded_file_writes.py`.
+- Definition of done:
+  1. all production write paths in process modules use guarded atomic helpers.
+  2. lock-failure behavior is consistent: write `*.recovery`, fail fast with actionable message.
+  3. resume behavior is documented and validated for representative CSV and JSON outputs.
+
 ### [ID]: Identify clusters of potential misspellings 
 
 - Priority: medium

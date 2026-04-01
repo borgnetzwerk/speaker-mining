@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from .config import FILE_PUBLIKATION, PHASE_DIR, PUBLIKATION_COLUMNS
+from process.io_guardrails import atomic_write_csv
 
 
 def _stable_publikation_id(episode_id: str, publication_index: int, raw_line: str) -> str:
@@ -114,5 +115,5 @@ def save_publications(df: pd.DataFrame, output_dir: str | Path | None = None) ->
 	out_dir = Path(output_dir) if output_dir else PHASE_DIR
 	out_dir.mkdir(parents=True, exist_ok=True)
 	out_path = out_dir / FILE_PUBLIKATION
-	df.to_csv(out_path, index=False)
+	atomic_write_csv(out_path, df, index=False)
 	return out_path

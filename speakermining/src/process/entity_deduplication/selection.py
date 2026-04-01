@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from process.io_guardrails import atomic_write_csv
+
 from .config import (
 	ALLOWED_DECISIONS,
 	FILE_MERGE_SELECTIONS,
@@ -65,7 +67,7 @@ def backup_manual_merge_selections(df: pd.DataFrame, history_dir: str | Path | N
 	out_dir.mkdir(parents=True, exist_ok=True)
 	stamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 	path = out_dir / f"mg_{stamp}.csv"
-	df.to_csv(path, index=False)
+	atomic_write_csv(path, df, index=False)
 	return path
 
 

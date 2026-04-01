@@ -56,6 +56,14 @@ Governance reference model:
 2. If output filenames change, update `workflow.md` and root `README.md` in the same PR.
 3. Add or update validation cells whenever core parsing behavior changes.
 
+## File Write Resilience Principles
+
+1. Production writes must use guarded atomic helpers (temp file + replace) instead of direct `to_csv(...)` or `write_text(...)` calls.
+2. Guarded writers must catch lock-related write failures (for example Windows `PermissionError`) and persist a recovery snapshot under a separate `*.recovery` filename.
+3. After writing a recovery snapshot, fail fast with a clear stop message; do not continue processing with partially persisted state.
+4. On the next run, guarded writers/loaders must detect recovery snapshots first, restore/merge them back into the primary file, and only then proceed.
+5. New process modules must not introduce unguarded output writes; migrations of legacy direct writes should be tracked in `open-tasks.md`.
+
 ## Documentation Principles
 
 1. `workflow.md` is the authoritative source for execution order and phase ownership.

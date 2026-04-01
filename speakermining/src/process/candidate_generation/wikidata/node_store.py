@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -9,7 +10,84 @@ from .common import canonical_pid, canonical_qid
 from .schemas import build_artifact_paths
 
 
+def _iso_now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _recovery_path(path: Path) -> Path:
+    return path.with_suffix(path.suffix + ".recovery")
+
+
+def _normalize_store_payload(payload: object, root_key: str) -> dict:
+    if not isinstance(payload, dict):
+        return {root_key: {}}
+    normalized = dict(payload)
+    if root_key not in normalized or not isinstance(normalized[root_key], dict):
+        normalized[root_key] = {}
+    return normalized
+
+
+def _apply_recovery_if_present(path: Path, root_key: str) -> None:
+    recovery = _recovery_path(path)
+    if not recovery.exists():
+        return
+
+    try:
+        recovery_payload = json.loads(recovery.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError(
+            f"Found recovery file at {recovery}, but it is not readable JSON. "
+            "Stop and inspect manually before continuing."
+        ) from exc
+
+    if not isinstance(recovery_payload, dict):
+        raise RuntimeError(
+            f"Found recovery file at {recovery}, but content format is invalid. "
+            "Stop and inspect manually before continuing."
+        )
+
+    recovered_text = str(recovery_payload.get("text", "") or "")
+    if not recovered_text:
+        raise RuntimeError(
+            f"Found recovery file at {recovery}, but no stored text payload was present. "
+            "Stop and inspect manually before continuing."
+        )
+
+    try:
+        recovered_store_raw = json.loads(recovered_text)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Found recovery file at {recovery}, but stored text is not valid JSON. "
+            "Stop and inspect manually before continuing."
+        ) from exc
+
+    recovered_store = _normalize_store_payload(recovered_store_raw, root_key)
+    current_store = _normalize_store_payload(
+        json.loads(path.read_text(encoding="utf-8")) if path.exists() else {},
+        root_key,
+    )
+
+    merged = dict(current_store)
+    merged[root_key] = {
+        **current_store.get(root_key, {}),
+        **recovered_store.get(root_key, {}),
+    }
+    merged.setdefault("recovery_merge", {})
+    if not isinstance(merged["recovery_merge"], dict):
+        merged["recovery_merge"] = {}
+    merged["recovery_merge"].update(
+        {
+            "last_merge_at_utc": _iso_now(),
+            "last_merge_source": str(recovery),
+        }
+    )
+
+    _atomic_write_text(path, json.dumps(merged, ensure_ascii=False, indent=2))
+    recovery.unlink()
+
+
 def _load_json(path: Path, root_key: str) -> dict:
+    _apply_recovery_if_present(path, root_key)
     if not path.exists():
         return {root_key: {}}
     try:
