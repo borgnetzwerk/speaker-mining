@@ -50,7 +50,7 @@ Operational rule:
 
 ## 4. Triple Completeness Requirements
 
-`data/20_candidate_generation/wikidata/triples.csv` is a complete item-to-item edge ledger and MUST include every discovered QID->PID->QID link, regardless of whether the source node was expanded.
+`data/20_candidate_generation/wikidata/projections/triples.csv` is a complete item-to-item edge ledger and MUST include every discovered QID->PID->QID link, regardless of whether the source node was expanded.
 
 In scope:
 
@@ -61,7 +61,7 @@ In scope:
 
 Implication:
 
-- If 271 entities are discovered with `P31 -> Q5`, those 271 triples MUST be represented in `triples.csv` after materialization.
+- If 271 entities are discovered with `P31 -> Q5`, those 271 triples MUST be represented in `projections/triples.csv` after materialization.
 
 ## 5. Verification Expectations
 

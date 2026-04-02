@@ -41,7 +41,7 @@ Authoritative source for default order and historical notebook status:
 - `process.candidate_generation.topic`
 - `process.candidate_generation.persistence`
 
-Wikidata v2 stage modules used by notebook 21:
+Wikidata stage modules used by notebook 21 (v3 event-sourcing runtime):
 
 - `process.candidate_generation.wikidata.bootstrap`
 - `process.candidate_generation.wikidata.expansion_engine`
@@ -81,6 +81,6 @@ Authoritative source for output contracts, file names, and schema headers:
 
 1. Institution extraction is documented in findings and deferred code, but is not part of active default outputs.
 2. Candidate generation is split into multiple notebooks; legacy documentation assumed one notebook.
-3. Wikidata candidate generation is now graph-first plus fallback-stage orchestration and must remain v2-only.
+3. Wikidata candidate generation is graph-first plus fallback-stage orchestration on top of a v3 JSONL eventstore and projection handlers.
 
 See `open-tasks.md` for operational tracking and `findings.md` for aggregated evidence.

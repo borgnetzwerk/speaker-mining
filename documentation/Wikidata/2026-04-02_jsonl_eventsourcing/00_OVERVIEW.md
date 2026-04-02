@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-02  
 **Previous Release:** 2026-03-31 (v2, graph-first expansion)  
-**Migration Status:** Specification Phase (pre-implementation)
+**Migration Status:** Implementation Complete (commit preparation)
 
 ---
 

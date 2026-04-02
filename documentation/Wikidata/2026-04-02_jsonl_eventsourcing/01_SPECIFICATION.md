@@ -1,7 +1,7 @@
 # V3 JSONL Event-Sourcing — Technical Specification
 
 **Date:** 2026-04-02  
-**Status:** Specification (pre-implementation)  
+**Status:** Implementation Complete (reference specification)  
 **Author:** Based on analysis of v2 system and jsonl_potential_for_eventsourcing.md
 
 ---

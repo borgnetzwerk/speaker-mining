@@ -106,7 +106,11 @@ The following former one-line notes were represented in the tracker and then arc
 - Design reference: `documentation/notebook-observability.md`.
 - Related tracker item: `TODO-013`.
 
-## F-011: JSONL Migration Potential Beyond Notebook Events (Assessment Open)
+## F-011: JSONL Migration Potential Beyond Notebook Events (Historical Assessment)
+
+- Historical status: this section captures pre-migration analysis context from 2026-04-01 and is retained for traceability.
+- Non-normative notice: this section is not the active runtime contract for Wikidata v3.
+- Current source of truth: use `documentation/Wikidata.md`, `documentation/contracts.md`, and `documentation/workflow.md` for active runtime policy.
 
 - Observation: JSONL is attractive for append-only, event-like artifacts (for example `raw_queries` event records and checkpoint timelines), but replacing all JSON/CSV artifacts with JSONL would introduce mismatches for snapshot/state and tabular-contract outputs.
 - Evidence snapshot (2026-04-01): repository currently contains `csv=335`, `json=16061`, `jsonl=1`; `data/20_candidate_generation/wikidata/raw_queries` alone has `3755` JSON files (~`181 MB` total).

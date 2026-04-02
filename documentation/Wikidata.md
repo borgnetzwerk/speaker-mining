@@ -99,8 +99,12 @@ Caching is mandatory by default.
 
 Recommended cache location pattern:
 
-1. `data/20_candidate_generation/wikidata/raw_queries/` for raw query artifacts,
-2. index/summary files in `data/20_candidate_generation/wikidata/`.
+1. `data/20_candidate_generation/wikidata/chunks/` for canonical append-only event artifacts,
+2. projection/index files under `data/20_candidate_generation/wikidata/projections/`.
+
+Legacy note:
+
+1. `data/20_candidate_generation/wikidata/raw_queries/` is a legacy v2 artifact location retained for archive and one-time migration reference.
 
 ## Request Pacing And Load Shedding
 

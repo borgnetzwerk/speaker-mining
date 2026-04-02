@@ -98,23 +98,25 @@ For `21_candidate_generation_wikidata.ipynb`, major network-related decisions
 must be logged into one append-only notebook event stream that persists across
 runs.
 
-## Wikidata v2 Execution Contract
+## Wikidata v3 Execution Contract
 
-The active Wikidata workflow in `21_candidate_generation_wikidata.ipynb` is canonical v2-only.
+The active Wikidata workflow in `21_candidate_generation_wikidata.ipynb` is canonical v3 event-sourcing.
 
 Execution sequence:
 
-1. Bootstrap required v2 artifacts under `data/20_candidate_generation/wikidata/`.
+1. Bootstrap required artifacts under `data/20_candidate_generation/wikidata/`.
 2. Stage A graph-first expansion (seed-order deterministic, checkpointed resume).
 3. Build unresolved target handoff.
 4. Stage B fallback string matching only for unresolved targets.
 5. Re-check fallback discoveries against graph expandability and re-enter eligible QIDs.
-6. Materialize deterministic artifacts (`instances.csv`, `classes.csv`, `properties.csv`, `triples.csv`, `query_inventory.csv`, `summary.json`).
+6. Append runtime events to `chunks/*.jsonl` and maintain checkpoint state.
+7. Materialize deterministic projection artifacts under `projections/` through handler replay.
 
 Policy guardrails:
 
-1. Raw query events in `raw_queries/` represent remote replies (plus explicitly derived local graph events), not cache-hit telemetry.
-2. Legacy/pre-v2 compatibility logic is out of scope for runtime code.
+1. `chunks/` is the canonical append-only event log; boundary continuity is represented by `eventstore_opened` and `eventstore_closed` events.
+2. Legacy `raw_queries/` artifacts are migration/archive inputs and are not the canonical runtime event stream.
+3. Legacy/pre-v3 compatibility logic is out of scope for runtime code.
 
 ## Matching Policy
 

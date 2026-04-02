@@ -1,7 +1,7 @@
 # V3 JSONL Event-Sourcing Migration — Documentation
 
 **Date:** 2026-04-02  
-**Status:** Specification Phase (Pre-Implementation)  
+**Status:** Implementation Complete (Commit Preparation)  
 **Link to previous migration:** [2026-03-31 v2 Migration](../2026-03-31_transition/)
 
 **Runtime Policy (effective immediately):** v2 will not be executed again. All ongoing and future execution is v3-only. Legacy v2 query-response data is retained only as one-time import input.
@@ -13,12 +13,18 @@
 | Document | Purpose | Audience |
 |----------|---------|----------|
 | [00_OVERVIEW.md](00_OVERVIEW.md) | High-level vision and key differences | Everyone; start here |
-| [01_SPECIFICATION.md](01_SPECIFICATION.md) | Technical architecture and API design | Architects, implementers |
-| [02_GAP_ANALYSIS.md](02_GAP_ANALYSIS.md) | Current v2 vs. proposed v3 detailed comparison | Architects, tech leads |
-| [03_MIGRATION_SEQUENCE.md](03_MIGRATION_SEQUENCE.md) | Step-by-step implementation plan (3 phases) | Project managers, engineers |
+| [01_specification.md](01_specification.md) | Technical architecture and API design | Architects, implementers |
+| [02_gap_analysis.md](02_gap_analysis.md) | Current v2 vs. proposed v3 detailed comparison | Architects, tech leads |
+| [03_migration_sequence.md](03_migration_sequence.md) | Step-by-step implementation plan (3 phases) | Project managers, engineers |
 | [04_OPEN_QUESTIONS.md](04_OPEN_QUESTIONS.md) | Resolved decision register for implementation | Decision-makers, architects |
 | [05_EXECUTION_READINESS.md](05_EXECUTION_READINESS.md) | Verified code mapping, baseline status, and action-log protocol | Implementers, reviewers |
 | [06_MIGRATION_VALIDATION_REPORT_TEMPLATE.md](06_MIGRATION_VALIDATION_REPORT_TEMPLATE.md) | Standard validation report with mandatory mismatch classification | Implementers, reviewers |
+| [10_implementation.md](10_implementation.md) | Implementation action log and validation progression | Implementers, reviewers |
+| [11_data_migration_implementation.md](11_data_migration_implementation.md) | Phase 3.1 migration implementation summary | Implementers, reviewers |
+| [20_evaluation#3.md](20_evaluation%233.md) | Consolidated implementation evaluation (current canonical) | Reviewers, decision owners |
+| [21_phase3_2_validation.md](21_phase3_2_validation.md) | Phase 3.2 validation execution report | Implementers, reviewers |
+| [30_transition_cleanup_delete_list.md](30_transition_cleanup_delete_list.md) | Post-migration cleanup and archive policy | Implementers |
+| [40_MIGRATION_COMMIT_READINESS.md](40_MIGRATION_COMMIT_READINESS.md) | Final commit readiness checklist and blockers | Implementers, release owner |
 
 ---
 
@@ -27,8 +33,8 @@
 Clarifications made during this migration stage are normative and must be propagated to all relevant migration documents in this folder.
 
 Required behavior:
-- No concept is considered clarified until [00_OVERVIEW.md](00_OVERVIEW.md), [01_SPECIFICATION.md](01_SPECIFICATION.md), [02_GAP_ANALYSIS.md](02_GAP_ANALYSIS.md), [03_MIGRATION_SEQUENCE.md](03_MIGRATION_SEQUENCE.md), and [04_OPEN_QUESTIONS.md](04_OPEN_QUESTIONS.md) reflect the same understanding.
-- If documents conflict, [01_SPECIFICATION.md](01_SPECIFICATION.md) is the technical source, and other docs must be updated to match.
+- No concept is considered clarified until [00_OVERVIEW.md](00_OVERVIEW.md), [01_specification.md](01_specification.md), [02_gap_analysis.md](02_gap_analysis.md), [03_migration_sequence.md](03_migration_sequence.md), and [04_OPEN_QUESTIONS.md](04_OPEN_QUESTIONS.md) reflect the same understanding.
+- If documents conflict, [01_specification.md](01_specification.md) is the technical source, and other docs must be updated to match.
 - Clarification updates should be done in the same change set whenever possible.
 - Execution progress and implementation decisions should be tracked in [05_EXECUTION_READINESS.md](05_EXECUTION_READINESS.md) during migration delivery.
 
@@ -43,6 +49,9 @@ The **v3 migration** evolves the Wikidata candidate generation pipeline from a c
 ✅ **Data integrity**: Checksums, corruption detection, graceful shutdown  
 ✅ **Maintainability**: Clear handler contracts, testable components  
 ✅ **Preserved semantics**: All v2 graph expansion and class resolution rules remain  
+
+Current readiness note:
+- Implementation is present and documented, and the checklist in [40_MIGRATION_COMMIT_READINESS.md](40_MIGRATION_COMMIT_READINESS.md) is now cleared for migration commit packaging.
 
 ---
 
@@ -64,7 +73,7 @@ Content:
 
 ---
 
-### 2. 01_SPECIFICATION.md (For Architects & Implementers)
+### 2. 01_specification.md (For Architects & Implementers)
 
 **Best for:** "I need to know the technical details to build this"
 
@@ -87,7 +96,7 @@ Content:
 
 ---
 
-### 3. 02_GAP_ANALYSIS.md (For Architects & Tech Leads)
+### 3. 02_gap_analysis.md (For Architects & Tech Leads)
 
 **Best for:** "I need to understand what changes from v2 and what risks are involved"
 
@@ -110,7 +119,7 @@ Content:
 
 ---
 
-### 4. 03_MIGRATION_SEQUENCE.md (For Project Managers & Engineers)
+### 4. 03_migration_sequence.md (For Project Managers & Engineers)
 
 **Best for:** "I need the step-by-step implementation plan"
 
@@ -198,21 +207,21 @@ Content:
 
 ### "I'm new to this project"
 1. Read [00_OVERVIEW.md](00_OVERVIEW.md) (10 min)
-2. Skim [02_GAP_ANALYSIS.md](02_GAP_ANALYSIS.md) (15 min)
-3. Browse [03_MIGRATION_SEQUENCE.md](03_MIGRATION_SEQUENCE.md) for phases (15 min)
+2. Skim [02_gap_analysis.md](02_gap_analysis.md) (15 min)
+3. Browse [03_migration_sequence.md](03_migration_sequence.md) for phases (15 min)
 4. **Total: ~40 minutes** to understand the scope
 
 ### "I need to make architectural decisions"
 1. Start with [00_OVERVIEW.md](00_OVERVIEW.md)
-2. Deep-dive [01_SPECIFICATION.md](01_SPECIFICATION.md)
+2. Deep-dive [01_specification.md](01_specification.md)
 3. Review [04_OPEN_QUESTIONS.md](04_OPEN_QUESTIONS.md)
-4. Discuss [02_GAP_ANALYSIS.md](02_GAP_ANALYSIS.md) risks
+4. Discuss [02_gap_analysis.md](02_gap_analysis.md) risks
 5. **Total: ~2 hours** to make informed decisions
 
 ### "I'm implementing Phase 1"
 1. Read [00_OVERVIEW.md](00_OVERVIEW.md) (context)
-2. Study [01_SPECIFICATION.md](01_SPECIFICATION.md) (detailed spec)
-3. Focus on [03_MIGRATION_SEQUENCE.md](03_MIGRATION_SEQUENCE.md) Phase 1 section (~1 hr)
+2. Study [01_specification.md](01_specification.md) (detailed spec)
+3. Focus on [03_migration_sequence.md](03_migration_sequence.md) Phase 1 section (~1 hr)
 4. Review [04_OPEN_QUESTIONS.md](04_OPEN_QUESTIONS.md) decisions that affect Phase 1
 5. **Total: ~3-4 hours** to start implementation
 
@@ -220,7 +229,7 @@ Content:
 1. [00_OVERVIEW.md](00_OVERVIEW.md) (vision)
 2. [03_MIGRATION_SEQUENCE.md](03_MIGRATION_SEQUENCE.md) (phases, gates)
 3. [04_OPEN_QUESTIONS.md](04_OPEN_QUESTIONS.md) (decision-making)
-4. Reference [02_GAP_ANALYSIS.md](02_GAP_ANALYSIS.md) for risk planning
+4. Reference [02_gap_analysis.md](02_gap_analysis.md) for risk planning
 5. **Total: ~2 hours** to manage the program
 
 ---

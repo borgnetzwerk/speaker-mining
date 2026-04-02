@@ -72,9 +72,9 @@ These phases are present in workflow structure but no stable, repository-wide sc
 
 When Phase 3/4 schemas are finalized, extend this document and add explicit headers for each produced file.
 
-## Phase 2 Wikidata Graph Store (Canonical v2 Contract)
+## Phase 2 Wikidata Graph Store (Canonical v3 Contract)
 
-This section describes the active canonical v2 contract for the graph-oriented
+This section describes the active canonical v3 contract for the graph-oriented
 Wikidata store.
 
 Canonical target path:
@@ -87,57 +87,61 @@ Canonical spelling is `organizations`.
 
 ### Required artifacts
 
-Top-level:
+Top-level runtime state:
+
+1. `chunks/` (append-only JSONL eventstore chunks)
+2. `eventhandler.csv` (per-handler progress checkpoints)
+3. `chunk_catalog.csv` (derived chunk summary)
+4. `eventstore_checksums.txt` (closed-chunk checksums)
+5. `checkpoints/` (append-only checkpoint manifests)
+6. `archive/` (checkpoint archive snapshots)
+7. `projections/` (materialized deterministic artifacts)
+
+Projection artifacts (`projections/`):
 
 1. `classes.csv`
-2. `instances.csv`
-3. `properties.csv`
-4. `aliases_en.csv`
-5. `aliases_de.csv`
-6. `triples.csv`
-7. `query_inventory.csv`
-8. `summary.json`
-9. `entities.json`
-10. `properties.json`
-11. `triple_events.json`
-12. `core_classes.csv` (runtime snapshot from setup classes input)
-13. `broadcasting_programs.csv` (runtime snapshot from setup seed input)
-14. `graph_stage_resolved_targets.csv`
-15. `graph_stage_unresolved_targets.csv`
-16. `fallback_stage_candidates.csv`
-17. `fallback_stage_eligible_for_expansion.csv`
-18. `fallback_stage_ineligible.csv`
-19. `raw_queries/` (append-only event files)
-20. `checkpoints/` (append-only checkpoint manifests)
-21. `archive/` (checkpoint archive snapshots)
+2. `core_classes.csv`
+3. `instances.csv`
+4. `entities.json`
+5. `triples.csv`
+6. `query_inventory.csv`
+7. `fallback_stage_candidates.csv`
+8. `fallback_stage_eligible_for_expansion.csv`
+9. `fallback_stage_ineligible.csv`
+10. `graph_stage_resolved_targets.csv`
+11. `graph_stage_unresolved_targets.csv`
+12. `properties.csv`
+13. `aliases_en.csv`
+14. `aliases_de.csv`
+15. `summary.json`
+
+Legacy note:
+
+1. `raw_queries/` is a legacy v2 artifact set kept only for archive/migration reference.
 
 ### Core schemas
 
-1. `classes.csv`: `id`, `label_en`, `label_de`, `description_en`, `description_de`, `alias_en`, `alias_de`, `path_to_core_class`, `subclass_of_core_class`, `discovered_count`, `expanded_count`
-2. `instances.csv`: `id`, `class_id`, `class_filename`, `label_en`, `label_de`, `description_en`, `description_de`, `alias_en`, `alias_de`, `path_to_core_class`, `subclass_of_core_class`, `discovered_at_utc`, `expanded_at_utc`
-3. `properties.csv`: `id`, `label_en`, `label_de`, `description_en`, `description_de`, `alias_en`, `alias_de`
-4. `aliases_en.csv`: `alias`, `qid`
-5. `aliases_de.csv`: `alias`, `qid`
-6. `triples.csv`: `subject`, `predicate`, `object`, `discovered_at_utc`, `source_query_file`
-7. `query_inventory.csv`: `endpoint`, `query_hash`, `normalized_query`, `key`, `status`, `timestamp_utc`, `source_step`
-8. `graph_stage_resolved_targets.csv`: `mention_id`, `mention_type`, `mention_label`, `candidate_id`, `candidate_label`, `source`, `context`
-9. `graph_stage_unresolved_targets.csv`: `mention_id`, `mention_type`, `mention_label`, `context`
-10. `fallback_stage_candidates.csv`: `mention_id`, `mention_type`, `mention_label`, `candidate_id`, `candidate_label`, `source`, `context`
-11. `fallback_stage_eligible_for_expansion.csv`: `candidate_id`
-12. `fallback_stage_ineligible.csv`: `candidate_id`
+1. `classes.csv`: `id`, `class_filename`, `label_en`, `label_de`, `description_en`, `description_de`, `alias_en`, `alias_de`, `path_to_core_class`, `subclass_of_core_class`, `discovered_count`, `expanded_count`
+2. `core_classes.csv`: same columns as `classes.csv`
+3. `instances.csv`: `qid`, `label`, `labels_de`, `labels_en`, `aliases`, `description`, `discovered_at`, `expanded_at`
+4. `entities.json`: object keyed by QID with full entity payloads
+5. `triples.csv`: `subject`, `predicate`, `object`, `discovered_at_utc`, `source_query_file`
+6. `query_inventory.csv`: `query_hash`, `endpoint`, `normalized_query`, `status`, `first_seen`, `last_seen`, `count`
+7. `fallback_stage_candidates.csv`: `mention_id`, `mention_type`, `mention_label`, `candidate_id`, `candidate_label`, `source`, `context`
+8. `fallback_stage_eligible_for_expansion.csv`: `candidate_id`
+9. `fallback_stage_ineligible.csv`: `candidate_id`
+10. `graph_stage_resolved_targets.csv`: `mention_id`, `mention_type`, `mention_label`, `candidate_id`, `candidate_label`, `source`, `context`
+11. `graph_stage_unresolved_targets.csv`: `mention_id`, `mention_type`, `mention_label`, `context`
 
-JSON stores:
+Eventstore envelope requirements (JSONL chunks):
 
-1. `entities.json`: top-level object with key `entities`
-2. `properties.json`: top-level object with key `properties`
-3. `triple_events.json`: list of triple-event records
-4. `summary.json`: run summary object with current stage and row counters
-
-JSON files are the richer source of truth; CSV files are overview/index outputs.
+1. Required fields: `sequence_num`, `event_version`, `event_type`, `timestamp_utc`, `recorded_at`, `payload`
+2. `event_version` must be `v3`
+3. Chunk boundary events must be represented by `eventstore_opened` and `eventstore_closed`
 
 ### Runtime semantics
 
-1. Raw query events are canonical v2 envelopes with deterministic `query_hash` and `timestamp_utc` fields.
-2. Raw event files are append-only and represent remote replies (plus explicit derived-local graph events).
-3. Cache-hit and fallback-read telemetry do not create raw event files.
+1. `chunks/` is the canonical append-only runtime event log.
+2. Projections are deterministic handler outputs rebuilt from eventstore events.
+3. Cache-hit and fallback-read telemetry do not create legacy v2 raw query files.
 4. Seed filtering and materialization path resolution run cache-first without uncapped network fetches.

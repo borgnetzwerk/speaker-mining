@@ -1,14 +1,14 @@
 # V3 Migration Execution Readiness (Phase 0)
 
 **Date:** 2026-04-02  
-**Status:** Ready for Phase 1 implementation kickoff  
-**Scope:** Preparation for implementing and documenting v2 -> v3 JSONL event-sourcing migration
+**Status:** Implementation complete, pending final migration commit  
+**Scope:** Final readiness tracking for committing v2 -> v3 JSONL event-sourcing migration
 
 **Runtime Policy:** v2 is decommissioned and will not be executed again. Migration execution is v3-only.
 
 ---
 
-## 1. Current v2 Code Surface (Verified)
+## 1. Historical Baseline (v2 Surface)
 
 Primary implementation area:
 - `speakermining/src/process/candidate_generation/wikidata/`
@@ -39,7 +39,7 @@ Current artifact path contract is centralized in:
 
 ---
 
-## 2. Migration Alignment: Where v3 Slots In
+## 2. Migration Alignment: v3 Integration Targets
 
 Direct replacement points:
 - Replace `event_log.py` file-per-event writer with chunked JSONL event store writer.
@@ -164,10 +164,27 @@ Template:
 
 ## 6. Immediate Next Steps
 
-- Start Phase 1.1 implementation from `03_MIGRATION_SEQUENCE.md` with event writer + chunk catalog first.
-- Add dedicated tests for:
-  - sequence continuity across chunk boundaries
-  - catalog rebuild from boundary events
-  - incomplete-line recovery
-  - deterministic replay byte parity
-- Use `06_MIGRATION_VALIDATION_REPORT_TEMPLATE.md` for every migration validation run; mismatch classification fields are mandatory.
+- Use `40_MIGRATION_COMMIT_READINESS.md` as the canonical pre-commit gate checklist.
+- Resolve open failing tests before migration commit.
+- Record the final validation run and gate decision in `06_MIGRATION_VALIDATION_REPORT_TEMPLATE.md`.
+
+---
+
+## 7. Final Readiness Snapshot (2026-04-02)
+
+Current state:
+- v3 event-store and handlers are implemented.
+- Migration scripts and migration tests are present.
+- Notebook runbook has been updated for projections path usage.
+
+Latest validation run:
+- Command:
+  - `.venv/Scripts/python.exe -m pytest speakermining/test/process/wikidata -q`
+- Result:
+  - `130 passed, 0 failed`
+
+Open blockers for migration commit:
+1. None.
+
+Decision:
+- Migration is commit-ready from a test-gate perspective; proceed with final validation report completion and migration commit hygiene checks.
