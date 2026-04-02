@@ -41,11 +41,11 @@ Explicitly **Out of Scope (Future Work):**
 
 ### 1. Event-Produced Data Registry
 All persistent state derives from events. Events in the chunk chain are the source of truth:
-- Query responses → `query_fetch` events
+- Query responses → `query_response` events
 - Entity discovery → `entity_discovered` events
 - Class assignments → `class_membership` events
 - Expansion decisions → `expansion_decision` events
-- Fallback matches → `fallback_candidate` events
+- Fallback matches → `candidate_matched` events
 
 All event types share the same common envelope (`sequence_num`, `event_version`, `event_type`, `timestamp_utc`, `recorded_at`, optional `event_id`), while the `payload` structure is specific to the event type.
 
@@ -54,7 +54,7 @@ Event handlers subscribe to events and maintain derived files:
 - `InstancesHandler`: Reads `entity_discovered` → updates `instances.csv` + `entities.json`
 - `ClassesHandler`: Reads `class_membership` + `class_resolved` → updates `classes.csv`
 - `TripleHandler`: Reads `triple_discovered` → updates `triples.csv`
-- `CandidatesHandler`: Reads `fallback_candidate` + `match_found` → updates candidate CSVs
+- `CandidatesHandler`: Reads `candidate_matched` → updates candidate CSVs
 - `QueryInventoryHandler`: Reads all events → updates `query_inventory.csv`
 
 ### 3. Single-Writer Constraint

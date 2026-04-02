@@ -351,8 +351,8 @@ On startup:
 **Restart:** Truncate eventhandler.csv; reprocess all events
 **Revert:** Load previous checkpoint snapshot; continue from there (advanced)
 
-### 4.3 Snapshot Checkpoints (Optional, for Rollback)
-For critical recovery:
+### 4.3 Snapshot Checkpoints (Required)
+Take one snapshot before every run:
 ```
 checkpoints/
 ├── checkpoint__YYYYMMDDTHHMMSSZ__seq1250.json
@@ -365,7 +365,7 @@ checkpoints/
     └── eventstore_snapshot_YYYYMMDDTHHMMSSZ.jsonl.gz
 ```
 
-Snapshots are taken at milestones (e.g., "after seed X", "after all seeds"). If needed, restore by:
+If needed, restore by:
 1. Extract snapshot
 2. Reset eventhandler.csv to snapshot's state
 3. Restart with "append" resume mode
@@ -578,7 +578,6 @@ Requires manual intervention and backup restoration.
 ### 7.4 Backups
 Maintain backups:
 - **Before each run**: Full snapshot of eventstore + handler state
-- **After milestones**: Checkpoint backups (e.g., after seed X, after all seeds)
 - **Periodic**: Daily/weekly full backups
 - **Off-site**: Archive to separate storage
 

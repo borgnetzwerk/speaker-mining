@@ -14,7 +14,7 @@
 | [01_SPECIFICATION.md](01_SPECIFICATION.md) | Technical architecture and API design | Architects, implementers |
 | [02_GAP_ANALYSIS.md](02_GAP_ANALYSIS.md) | Current v2 vs. proposed v3 detailed comparison | Architects, tech leads |
 | [03_MIGRATION_SEQUENCE.md](03_MIGRATION_SEQUENCE.md) | Step-by-step implementation plan (3 phases) | Project managers, engineers |
-| [04_OPEN_QUESTIONS.md](04_OPEN_QUESTIONS.md) | Design clarifications needed before kickoff | Decision-makers, architects |
+| [04_OPEN_QUESTIONS.md](04_OPEN_QUESTIONS.md) | Resolved decision register for implementation | Decision-makers, architects |
 
 ---
 
@@ -111,7 +111,7 @@ Content:
 
 Content:
 - **3 Phases** with detailed breakdown:
-  - **Phase 1: Event Store Scaffolding** (2-3 weeks)
+  - **Phase 1: Event Store Scaffolding**
     - Event store writer
     - Handler base class & registry
     - 5 core handler implementations
@@ -119,14 +119,14 @@ Content:
     - Signal handlers & graceful shutdown
     - Checksums & data integrity
     - Testing suite
-  - **Phase 2: Handler Integration** (2-3 weeks)
+  - **Phase 2: Handler Integration**
     - Extract event writer from expansion logic
     - Checkpoint/resume using handler sequences
     - Fallback matcher integration
     - Full dataset run & validation
     - Performance benchmarking
     - Integration tests & CI
-  - **Phase 3: Data Migration & v3-Only Cutover** (1-2 weeks)
+  - **Phase 3: Data Migration & v3-Only Cutover**
     - Migrate v2 raw_queries → eventstore
     - Validate migrated data
     - Remove v2 code paths
@@ -143,7 +143,6 @@ Content:
 - Cross-phase concerns:
   - Testing strategy
   - Risk mitigation
-  - Timeline (total: ~5-8 weeks)
   - Resource allocation (2 engineers)
   - Communication plan
 
@@ -214,7 +213,7 @@ Content:
 
 ### "I'm managing the overall migration"
 1. [00_OVERVIEW.md](00_OVERVIEW.md) (vision)
-2. [03_MIGRATION_SEQUENCE.md](03_MIGRATION_SEQUENCE.md) (timeline, phases, gates)
+2. [03_MIGRATION_SEQUENCE.md](03_MIGRATION_SEQUENCE.md) (phases, gates)
 3. [04_OPEN_QUESTIONS.md](04_OPEN_QUESTIONS.md) (decision-making)
 4. Reference [02_GAP_ANALYSIS.md](02_GAP_ANALYSIS.md) for risk planning
 5. **Total: ~2 hours** to manage the program
@@ -285,20 +284,20 @@ Also: [documentation/context/de_eventsourcing_notes.md](../context/de_eventsourc
 
 ## Status & Milestones
 
-| Milestone | Status | Date |
-|-----------|--------|------|
-| 00_OVERVIEW.md | ✅ Complete | 2026-04-02 |
-| 01_SPECIFICATION.md | ✅ Complete | 2026-04-02 |
-| 02_GAP_ANALYSIS.md | ✅ Complete | 2026-04-02 |
-| 03_MIGRATION_SEQUENCE.md | ✅ Complete | 2026-04-02 |
-| 04_OPEN_QUESTIONS.md | ✅ Complete | 2026-04-02 |
-| Design Review & Decision-Making | ✅ Complete | 2026-04-02 |
-| Phase 1 Implementation | ⏳ Not Started | ~2026-04-15 |
-| Phase 1 Completion Gate | ⏳ Pending | ~2026-05-01 |
-| Phase 2 Implementation | ⏳ Not Started | ~2026-05-02 |
-| Phase 2 Completion Gate | ⏳ Pending | ~2026-05-20 |
-| Phase 3 Implementation | ⏳ Not Started | ~2026-05-21 |
-| Phase 3 Completion & Production | ⏳ Pending | ~2026-06-01 |
+| Milestone | Status |
+|-----------|--------|
+| 00_OVERVIEW.md | ✅ Complete |
+| 01_SPECIFICATION.md | ✅ Complete |
+| 02_GAP_ANALYSIS.md | ✅ Complete |
+| 03_MIGRATION_SEQUENCE.md | ✅ Complete |
+| 04_OPEN_QUESTIONS.md | ✅ Complete |
+| Design Review & Decision-Making | ✅ Complete |
+| Phase 1 Implementation | ⏳ Not Started |
+| Phase 1 Completion Gate | ⏳ Pending |
+| Phase 2 Implementation | ⏳ Not Started |
+| Phase 2 Completion Gate | ⏳ Pending |
+| Phase 3 Implementation | ⏳ Not Started |
+| Phase 3 Completion & Production | ⏳ Pending |
 
 ---
 
@@ -334,7 +333,6 @@ This documentation is intentionally thorough but also intentionally question-pro
 5. **Is it about principles?** → See [../context/jsonl_potential_for_eventsourcing.md](../context/jsonl_potential_for_eventsourcing.md)
 
 If your question **isn't answered** by the documentation:
-- Add it to [04_OPEN_QUESTIONS.md](04_OPEN_QUESTIONS.md) (if it's a design decision)
-- Or post in the design review meeting (scheduled after 2026-04-02)
+- Open a follow-up issue and link the relevant section(s)
 
 ---

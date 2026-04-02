@@ -139,7 +139,7 @@ This document now serves as the final decision register for the former open ques
 
 ---
 
-**Document Status:** ? COMPLETE (Resolved Decision Register)
+**Document Status:** COMPLETE (Resolved Decision Register)
 
 **Last Updated:** 2026-04-02  
 **Owner:** [TBD]
