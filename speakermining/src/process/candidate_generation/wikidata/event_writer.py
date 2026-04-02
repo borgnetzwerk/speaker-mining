@@ -10,6 +10,9 @@ from .chunk_catalog import rebuild_chunk_catalog
 from .graceful_shutdown import should_terminate
 
 
+_EVENT_STORE_CACHE: dict[str, "EventStore"] = {}
+
+
 def _iso_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -112,6 +115,26 @@ def _event_count(path: Path) -> int:
 def _chunk_id_from_file_name(path: Path) -> str:
     stem = path.stem
     return f"chunk_{stem}"
+
+
+def _event_store_cache_key(repo_root: Path) -> str:
+    return str(Path(repo_root).resolve())
+
+
+def get_event_store(repo_root: Path) -> "EventStore":
+    cache_key = _event_store_cache_key(repo_root)
+    store = _EVENT_STORE_CACHE.get(cache_key)
+    if store is None:
+        store = EventStore(Path(repo_root))
+        _EVENT_STORE_CACHE[cache_key] = store
+    return store
+
+
+def reset_event_store_cache(repo_root: Path | None = None) -> None:
+    if repo_root is None:
+        _EVENT_STORE_CACHE.clear()
+        return
+    _EVENT_STORE_CACHE.pop(_event_store_cache_key(repo_root), None)
 
 
 class EventStore:

@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .event_writer import EventStore
+from .event_writer import get_event_store
 from .schemas import SOURCE_STEPS
 
 
@@ -228,11 +228,13 @@ def write_query_event(
         http_status=http_status,
         error=error,
     )
-    store = EventStore(Path(repo_root))
+    store = get_event_store(Path(repo_root))
     store.append_event(event)
     from .cache import _remember_latest_cached_record
+    from .query_inventory import remember_query_inventory_record
 
     _remember_latest_cached_record(Path(repo_root), event, force=True)
+    remember_query_inventory_record(Path(repo_root), event)
     return store.active_chunk_path
 
 
@@ -262,7 +264,7 @@ def write_candidate_matched_event(
             "context": str(context or ""),
         },
     }
-    store = EventStore(Path(repo_root))
+    store = get_event_store(Path(repo_root))
     store.append_event(event)
     return store.active_chunk_path
 

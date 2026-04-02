@@ -17,7 +17,7 @@ from .common import (
 )
 from .event_log import get_query_event_field, get_query_event_response_data, iter_query_events
 from .node_store import flush_node_store, iter_items, iter_properties
-from .query_inventory import rebuild_query_inventory, to_dataframe
+from .query_inventory import materialize_query_inventory
 from .schemas import build_artifact_paths
 from .triple_store import flush_triple_events, iter_unique_triples
 
@@ -297,7 +297,7 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
     triples_df = _build_triples_df(repo_root)
     print(f"[materializer] build triples done in {perf_counter() - t0:.2f}s", flush=True)
     t0 = perf_counter()
-    query_inventory_df = to_dataframe(rebuild_query_inventory(repo_root))
+    query_inventory_df = materialize_query_inventory(repo_root)
     print(f"[materializer] build query_inventory done in {perf_counter() - t0:.2f}s", flush=True)
 
     t0 = perf_counter()

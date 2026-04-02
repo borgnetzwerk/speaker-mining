@@ -62,11 +62,15 @@ def _snapshot_dir_for_checkpoint(repo_root: Path, checkpoint_path: Path) -> Path
 
 def write_checkpoint_snapshot(repo_root: Path, checkpoint_path: Path) -> Path:
     paths = build_artifact_paths(Path(repo_root))
+    from .event_writer import reset_event_store_cache
     from .node_store import flush_node_store
+    from .query_inventory import materialize_query_inventory
     from .triple_store import flush_triple_events
 
+    reset_event_store_cache(repo_root)
     flush_node_store(repo_root)
     flush_triple_events(repo_root)
+    materialize_query_inventory(repo_root)
     snapshot_dir = _snapshot_dir_for_checkpoint(repo_root, checkpoint_path)
     if snapshot_dir.exists():
         shutil.rmtree(snapshot_dir)
@@ -90,7 +94,9 @@ def write_checkpoint_snapshot(repo_root: Path, checkpoint_path: Path) -> Path:
 def restore_checkpoint_snapshot(repo_root: Path, checkpoint_path: Path) -> None:
     paths = build_artifact_paths(Path(repo_root))
     from .cache import reset_latest_cached_record_index
+    from .event_writer import reset_event_store_cache
     from .node_store import reset_node_store_cache
+    from .query_inventory import reset_query_inventory_cache
     from .triple_store import reset_triple_store_cache
 
     snapshot_dir = _snapshot_dir_for_checkpoint(repo_root, checkpoint_path)
@@ -99,7 +105,9 @@ def restore_checkpoint_snapshot(repo_root: Path, checkpoint_path: Path) -> None:
 
     paths.wikidata_dir.mkdir(parents=True, exist_ok=True)
     reset_latest_cached_record_index(repo_root)
+    reset_event_store_cache(repo_root)
     reset_node_store_cache(repo_root)
+    reset_query_inventory_cache(repo_root)
     reset_triple_store_cache(repo_root)
     for runtime_file in _runtime_state_files(repo_root):
         runtime_file.unlink(missing_ok=True)
@@ -163,11 +171,15 @@ def delete_checkpoint(path: Path) -> None:
 def clear_runtime_artifacts(repo_root: Path) -> None:
     paths = build_artifact_paths(Path(repo_root))
     from .cache import reset_latest_cached_record_index
+    from .event_writer import reset_event_store_cache
     from .node_store import reset_node_store_cache
+    from .query_inventory import reset_query_inventory_cache
     from .triple_store import reset_triple_store_cache
 
     reset_latest_cached_record_index(repo_root)
+    reset_event_store_cache(repo_root)
     reset_node_store_cache(repo_root)
+    reset_query_inventory_cache(repo_root)
     reset_triple_store_cache(repo_root)
     if not paths.wikidata_dir.exists():
         return

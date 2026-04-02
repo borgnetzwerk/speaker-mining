@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from process.candidate_generation.wikidata import node_store, triple_store
+from process.candidate_generation.wikidata import event_log, node_store, query_inventory, triple_store
+from process.candidate_generation.wikidata.event_writer import EventStore
 
 
 def test_node_store_defers_writes_until_flush(tmp_path: Path, monkeypatch) -> None:
@@ -66,3 +67,51 @@ def test_triple_store_defers_writes_until_flush(tmp_path: Path, monkeypatch) -> 
     triple_store.flush_triple_events(tmp_path)
 
     assert writes == ["triple_events.json"]
+
+
+def test_write_query_event_reuses_event_store_and_updates_inventory(tmp_path: Path, monkeypatch) -> None:
+    init_calls = {"count": 0}
+
+    original_init = EventStore.__init__
+
+    def _counting_init(self, repo_root):
+        init_calls["count"] += 1
+        original_init(self, repo_root)
+
+    monkeypatch.setattr(EventStore, "__init__", _counting_init)
+
+    event_log.write_query_event(
+        tmp_path,
+        endpoint="wikidata_api",
+        normalized_query="entity:Q1",
+        source_step="entity_fetch",
+        status="success",
+        key="Q1",
+        payload={"entities": {"Q1": {"id": "Q1"}}},
+        http_status=200,
+        error=None,
+    )
+    event_log.write_query_event(
+        tmp_path,
+        endpoint="wikidata_api",
+        normalized_query="entity:Q2",
+        source_step="entity_fetch",
+        status="success",
+        key="Q2",
+        payload={"entities": {"Q2": {"id": "Q2"}}},
+        http_status=200,
+        error=None,
+    )
+
+    assert init_calls["count"] == 1
+
+    def _unexpected_iter(*args, **kwargs):
+        _ = (args, kwargs)
+        raise AssertionError("query inventory should not scan the event log after incremental updates")
+
+    monkeypatch.setattr(query_inventory, "iter_query_events", _unexpected_iter)
+
+    df = query_inventory.materialize_query_inventory(tmp_path)
+
+    assert set(df["key"]) == {"Q1", "Q2"}
+    assert len(df) == 2
