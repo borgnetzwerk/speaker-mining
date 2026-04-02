@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from process.candidate_generation.wikidata.event_log import write_query_event
+from process.candidate_generation.wikidata.event_log import iter_query_events, write_query_event
 from process.candidate_generation.wikidata.schemas import build_artifact_paths
 
 
@@ -33,6 +33,9 @@ def test_event_file_uniqueness_for_same_key(tmp_path: Path) -> None:
     )
 
     paths = build_artifact_paths(tmp_path)
-    files = sorted(paths.raw_queries_dir.glob("*.json"))
-    assert len(files) == 2
-    assert files[0].name != files[1].name
+    chunk_files = sorted((paths.wikidata_dir / "chunks").glob("*.jsonl"))
+    assert len(chunk_files) == 1
+
+    events = list(iter_query_events(tmp_path) or [])
+    assert len(events) == 2
+    assert events[0]["payload"]["query_hash"] != events[1]["payload"]["query_hash"]

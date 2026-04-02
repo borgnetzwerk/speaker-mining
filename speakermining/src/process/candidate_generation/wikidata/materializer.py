@@ -6,9 +6,10 @@ from time import perf_counter
 
 import pandas as pd
 
-from .cache import _atomic_write_df, _atomic_write_text, _entity_from_payload, _load_raw_record
+from .cache import _atomic_write_df, _atomic_write_text, _entity_from_payload
 from .class_resolver import compute_class_rollups, resolve_class_path
 from .common import canonical_qid, effective_core_class_qids
+from .event_log import get_query_event_field, get_query_event_response_data, iter_query_events
 from .node_store import iter_items, iter_properties
 from .query_inventory import rebuild_query_inventory, to_dataframe
 from .schemas import build_artifact_paths
@@ -80,31 +81,31 @@ def _class_filename_lookup(repo_root: Path) -> dict[str, str]:
     return lookup
 
 
-def _latest_entity_cache_paths(repo_root: Path) -> dict[str, Path]:
-    """Index latest entity_fetch event file per QID using filename tokens.
-
-    This avoids repeated full raw_queries scans when resolving parent classes.
-    """
-    raw_dir = Path(repo_root) / "data" / "20_candidate_generation" / "wikidata" / "raw_queries"
-    if not raw_dir.exists():
-        return {}
-
-    latest: dict[str, tuple[str, Path]] = {}
-    for path in raw_dir.glob("*__entity_fetch__*__*.json"):
-        parts = path.name.split("__", 3)
-        if len(parts) < 4:
+def _latest_entity_cache_docs(repo_root: Path) -> dict[str, dict]:
+    """Index latest entity_fetch payload per QID from v3 query_response events."""
+    latest: dict[str, tuple[int, dict]] = {}
+    for event in iter_query_events(repo_root) or []:
+        if get_query_event_field(event, "source_step", "") != "entity_fetch":
             continue
-        stamp, source_step, key, _rest = parts
-        if source_step != "entity_fetch":
-            continue
-        qid = canonical_qid(key)
+        qid = canonical_qid(str(get_query_event_field(event, "key", "") or ""))
         if not qid:
             continue
+        seq = event.get("sequence_num")
+        if not isinstance(seq, int):
+            continue
+        payload = get_query_event_response_data(event)
+        if not isinstance(payload, dict):
+            continue
         prior = latest.get(qid)
-        if prior is None or stamp > prior[0]:
-            latest[qid] = (stamp, path)
+        if prior is None or seq > prior[0]:
+            latest[qid] = (seq, payload)
 
-    return {qid: data[1] for qid, data in latest.items()}
+    docs: dict[str, dict] = {}
+    for qid, (_seq, payload) in latest.items():
+        node_doc = _entity_from_payload(payload, qid)
+        if isinstance(node_doc, dict) and node_doc:
+            docs[qid] = node_doc
+    return docs
 
 
 def _build_instances_df(repo_root: Path, core_class_qids: set[str]) -> pd.DataFrame:
@@ -117,7 +118,7 @@ def _build_instances_df(repo_root: Path, core_class_qids: set[str]) -> pd.DataFr
         for item in items
         if canonical_qid(str(item.get("id", "") or ""))
     }
-    latest_entity_paths = _latest_entity_cache_paths(repo_root)
+    latest_entity_docs = _latest_entity_cache_docs(repo_root)
 
     def _get_entity(qid: str) -> dict | None:
         qid_norm = canonical_qid(qid)
@@ -130,15 +131,9 @@ def _build_instances_df(repo_root: Path, core_class_qids: set[str]) -> pd.DataFr
         if qid_norm in parent_doc_cache:
             return parent_doc_cache[qid_norm]
 
-        path = latest_entity_paths.get(qid_norm)
-        if path is None:
+        node_doc = latest_entity_docs.get(qid_norm)
+        if node_doc is None:
             return None
-
-        record = _load_raw_record(path)
-        if not record:
-            return None
-
-        node_doc = _entity_from_payload(record.get("payload", {}), qid_norm)
         parent_doc_cache[qid_norm] = node_doc if isinstance(node_doc, dict) else {}
         return parent_doc_cache[qid_norm]
 

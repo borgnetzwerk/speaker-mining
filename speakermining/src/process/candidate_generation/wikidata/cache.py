@@ -630,9 +630,9 @@ def _load_raw_record(path: Path) -> dict | None:
 
 def _latest_cached_record(root: Path, query_type: str, key: str) -> tuple[dict, float] | None:
 	"""Find most recent cached record matching query type and key.
-	
-	Searches raw_queries/ directory for timestamped records matching the pattern.
-	Returns most recent match with its age in days.
+
+	Scans v3 query_response events in chunk files and returns the latest matching
+	event with its age in days.
 	
 	Args:
 		root: Repository root path.
@@ -651,16 +651,14 @@ def _latest_cached_record(root: Path, query_type: str, key: str) -> tuple[dict, 
 		"label_search": "entity_fetch",
 	}
 	step = mapping.get(str(query_type or "").strip().lower(), "")
-	files = sorted(_raw_dir(root).glob("*.json"), reverse=True)
-	for path in files:
-		record = _load_raw_record(path)
-		if not record:
+	from .event_log import get_query_event_field, iter_query_events
+
+	for record in reversed(list(iter_query_events(Path(root)))):
+		if record.get("event_version") != "v3":
 			continue
-		if record.get("event_version") != "v2":
+		if get_query_event_field(record, "source_step", "") != step:
 			continue
-		if record.get("source_step") != step:
-			continue
-		if str(record.get("key", "")) != str(key):
+		if str(get_query_event_field(record, "key", "")) != str(key):
 			continue
 		ts = record.get("timestamp_utc", "")
 		try:
@@ -685,5 +683,8 @@ def _entity_from_payload(payload: dict, qid: str) -> dict:
 	Returns:
 		Entity document dict (may be empty if Q-ID not in payload).
 	"""
-	entities = payload.get("entities", {})
+	response_payload = payload
+	if isinstance(payload, dict) and isinstance(payload.get("response_data"), dict):
+		response_payload = payload.get("response_data", {})
+	entities = response_payload.get("entities", {}) if isinstance(response_payload, dict) else {}
 	return entities.get(qid, {})

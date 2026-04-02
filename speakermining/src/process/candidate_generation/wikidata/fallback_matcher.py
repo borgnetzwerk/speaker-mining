@@ -11,6 +11,7 @@ from .cache import _atomic_write_df
 from .cache import begin_request_context, end_request_context
 from .common import canonical_qid, effective_core_class_qids, normalize_query_budget, normalize_text, pick_entity_label
 from .entity import get_or_fetch_entity, get_or_search_entities_by_label
+from .event_log import write_candidate_matched_event
 from .node_store import iter_items
 from .node_store import upsert_discovered_item
 from .schemas import build_artifact_paths
@@ -262,6 +263,16 @@ def run_fallback_string_matching_stage(
                         "source": "fallback_string",
                         "context": str(target.get("context", "") or ""),
                     }
+                )
+                write_candidate_matched_event(
+                    repo_root,
+                    mention_id=mention_id,
+                    mention_type=mention_type,
+                    mention_label=str(target.get("mention_label", "") or ""),
+                    candidate_id=qid,
+                    candidate_label=str(candidate.get("label", qid) or qid),
+                    source="fallback_string",
+                    context=str(target.get("context", "") or ""),
                 )
                 newly_discovered_qids.add(qid)
                 has_direct_link = has_direct_link_to_any_seed(repo_root, qid, seed_qids)

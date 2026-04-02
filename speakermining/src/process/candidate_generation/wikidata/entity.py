@@ -15,7 +15,7 @@ from .cache import (
 	_http_get_json,
 	_latest_cached_record,
 )
-from .event_log import write_query_event
+from .event_log import get_query_event_response_data, write_query_event
 from .common import canonical_pid, canonical_qid
 from .inlinks import build_inlinks_query
 from .outlinks import extract_outlinks
@@ -47,7 +47,7 @@ def get_or_fetch_entity(
 	qid = canonical_qid(qid)
 	cached = _latest_cached_record(root, "entity", qid)
 	if cached and cached[1] <= cache_max_age_days:
-		return cached[0].get("payload", {})
+		return get_query_event_response_data(cached[0])
 
 	url = f"{WIKIDATA_API_BASE}/{qid}.json"
 	try:
@@ -66,7 +66,7 @@ def get_or_fetch_entity(
 		return payload
 	except Exception:
 		if cached:
-			return cached[0].get("payload", {})
+			return get_query_event_response_data(cached[0])
 		raise
 
 
@@ -81,7 +81,7 @@ def get_or_fetch_property(
 	pid = canonical_pid(pid)
 	cached = _latest_cached_record(root, "property", pid)
 	if cached and cached[1] <= cache_max_age_days:
-		return cached[0].get("payload", {})
+		return get_query_event_response_data(cached[0])
 
 	url = f"{WIKIDATA_API_BASE}/{pid}.json"
 	try:
@@ -100,7 +100,7 @@ def get_or_fetch_property(
 		return payload
 	except Exception:
 		if cached:
-			return cached[0].get("payload", {})
+			return get_query_event_response_data(cached[0])
 		raise
 
 
@@ -136,7 +136,7 @@ def get_or_fetch_inlinks(
 	cache_key = f"{qid}_limit{int(inlinks_limit)}_offset{offset}"
 	cached = _latest_cached_record(root, "inlinks", cache_key)
 	if cached and cached[1] <= cache_max_age_days:
-		return cached[0].get("payload", {})
+		return get_query_event_response_data(cached[0])
 
 	query = build_inlinks_query(qid, limit=inlinks_limit, offset=offset)
 	encoded_query = quote(query, safe="")
@@ -157,7 +157,7 @@ def get_or_fetch_inlinks(
 		return payload
 	except Exception:
 		if cached:
-			return cached[0].get("payload", {})
+			return get_query_event_response_data(cached[0])
 		raise
 
 
@@ -184,7 +184,7 @@ def get_or_build_outlinks(
 	qid = canonical_qid(qid)
 	cached = _latest_cached_record(root, "outlinks", qid)
 	if cached and cached[1] <= cache_max_age_days:
-		return cached[0].get("payload", {})
+		return get_query_event_response_data(cached[0])
 
 	entity_doc = _entity_from_payload(entity_payload, qid)
 	outlinks_payload = extract_outlinks(qid, entity_doc)
@@ -224,7 +224,7 @@ def get_or_search_entities_by_label(
 
 	cached = _latest_cached_record(root, "label_search", cache_key)
 	if cached and cached[1] <= cache_max_age_days:
-		return cached[0].get("payload", {})
+		return get_query_event_response_data(cached[0])
 
 	params = {
 		"action": "wbsearchentities",
@@ -251,5 +251,5 @@ def get_or_search_entities_by_label(
 		return payload
 	except Exception:
 		if cached:
-			return cached[0].get("payload", {})
+			return get_query_event_response_data(cached[0])
 		raise

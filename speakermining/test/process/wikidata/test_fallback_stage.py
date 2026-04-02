@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from process.candidate_generation.wikidata.event_log import _chunks_dir, _iter_jsonl_events
 from process.candidate_generation.wikidata.fallback_matcher import merge_stage_candidates, run_fallback_string_matching_stage
 from process.candidate_generation.wikidata.node_store import upsert_discovered_item
 from process.candidate_generation.wikidata.triple_store import record_item_edges
@@ -201,7 +202,16 @@ def test_fallback_initializes_request_context_with_budget(tmp_path: Path, monkey
     calls: list[dict] = []
     ended = {"count": 0}
 
-    def _fake_begin(*, budget_remaining: int, query_delay_seconds: float, progress_every_calls: int = 50, context_label: str = "wikidata") -> None:
+    def _fake_begin(
+        *,
+        budget_remaining: int,
+        query_delay_seconds: float,
+        progress_every_calls: int = 50,
+        context_label: str = "wikidata",
+        event_emitter=None,
+        event_phase: str | None = None,
+    ) -> None:
+        _ = (event_emitter, event_phase)
         calls.append(
             {
                 "budget_remaining": int(budget_remaining),
@@ -312,3 +322,53 @@ def test_fallback_explicit_zero_budget_disables_endpoint_search(tmp_path: Path, 
 
     assert called["count"] == 0
     assert result.fallback_candidates == []
+
+
+def test_fallback_emits_candidate_matched_events(tmp_path: Path) -> None:
+    entity_doc = {
+        "id": "Q1499182",
+        "labels": {"de": {"value": "Markus Lanz"}},
+        "descriptions": {},
+        "aliases": {},
+        "claims": {
+            "P31": [
+                {
+                    "mainsnak": {
+                        "datavalue": {
+                            "value": {"entity-type": "item", "id": "Q215627"}
+                        }
+                    }
+                }
+            ]
+        },
+    }
+    upsert_discovered_item(tmp_path, "Q1499182", entity_doc, "2026-03-31T12:00:00Z")
+
+    unresolved = [
+        {
+            "mention_id": "m1",
+            "mention_type": "person",
+            "mention_label": "Markus Lanz",
+            "context": "test",
+        }
+    ]
+
+    run_fallback_string_matching_stage(
+        tmp_path,
+        unresolved_targets=unresolved,
+        seeds={"Q100"},
+        core_class_qids={"Q215627"},
+        class_scope_hints={"person": ["Q215627"]},
+        config={},
+    )
+
+    matched_events = []
+    for chunk_path in sorted(_chunks_dir(tmp_path).glob("*.jsonl")):
+        for event in _iter_jsonl_events(chunk_path):
+            if event.get("event_type") == "candidate_matched":
+                matched_events.append(event)
+
+    assert matched_events
+    payload = matched_events[0].get("payload", {})
+    assert payload.get("mention_id") == "m1"
+    assert payload.get("candidate_id") == "Q1499182"

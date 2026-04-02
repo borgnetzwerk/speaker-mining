@@ -27,6 +27,7 @@ SOURCE_STEPS = {
 class ArtifactPaths:
     root: Path
     wikidata_dir: Path
+    projections_dir: Path
     raw_queries_dir: Path
     checkpoints_dir: Path
     archive_dir: Path
@@ -60,28 +61,31 @@ def canonical_class_filename(name: str) -> str:
 def build_artifact_paths(repo_root: Path) -> ArtifactPaths:
     repo_root = Path(repo_root)
     wikidata_dir = repo_root / "data" / "20_candidate_generation" / "wikidata"
+    projections_dir = wikidata_dir / "projections"
+    projections_dir.mkdir(parents=True, exist_ok=True)
     return ArtifactPaths(
         root=repo_root,
         wikidata_dir=wikidata_dir,
+        projections_dir=projections_dir,
         raw_queries_dir=wikidata_dir / "raw_queries",
         checkpoints_dir=wikidata_dir / "checkpoints",
         archive_dir=wikidata_dir / "archive",
-        classes_csv=wikidata_dir / "classes.csv",
-        instances_csv=wikidata_dir / "instances.csv",
-        properties_csv=wikidata_dir / "properties.csv",
-        aliases_en_csv=wikidata_dir / "aliases_en.csv",
-        aliases_de_csv=wikidata_dir / "aliases_de.csv",
-        triples_csv=wikidata_dir / "triples.csv",
-        entities_json=wikidata_dir / "entities.json",
-        properties_json=wikidata_dir / "properties.json",
-        triples_events_json=wikidata_dir / "triple_events.json",
-        query_inventory_csv=wikidata_dir / "query_inventory.csv",
-        summary_json=wikidata_dir / "summary.json",
-        core_classes_csv=wikidata_dir / "core_classes.csv",
-        broadcasting_programs_csv=wikidata_dir / "broadcasting_programs.csv",
-        graph_stage_resolved_targets_csv=wikidata_dir / "graph_stage_resolved_targets.csv",
-        graph_stage_unresolved_targets_csv=wikidata_dir / "graph_stage_unresolved_targets.csv",
-        fallback_stage_candidates_csv=wikidata_dir / "fallback_stage_candidates.csv",
-        fallback_stage_eligible_for_expansion_csv=wikidata_dir / "fallback_stage_eligible_for_expansion.csv",
-        fallback_stage_ineligible_csv=wikidata_dir / "fallback_stage_ineligible.csv",
+        classes_csv=projections_dir / "classes.csv",
+        instances_csv=projections_dir / "instances.csv",
+        properties_csv=projections_dir / "properties.csv",
+        aliases_en_csv=projections_dir / "aliases_en.csv",
+        aliases_de_csv=projections_dir / "aliases_de.csv",
+        triples_csv=projections_dir / "triples.csv",
+        entities_json=projections_dir / "entities.json",
+        properties_json=projections_dir / "properties.json",
+        triples_events_json=projections_dir / "triple_events.json",
+        query_inventory_csv=projections_dir / "query_inventory.csv",
+        summary_json=projections_dir / "summary.json",
+        core_classes_csv=projections_dir / "core_classes.csv",
+        broadcasting_programs_csv=projections_dir / "broadcasting_programs.csv",
+        graph_stage_resolved_targets_csv=projections_dir / "graph_stage_resolved_targets.csv",
+        graph_stage_unresolved_targets_csv=projections_dir / "graph_stage_unresolved_targets.csv",
+        fallback_stage_candidates_csv=projections_dir / "fallback_stage_candidates.csv",
+        fallback_stage_eligible_for_expansion_csv=projections_dir / "fallback_stage_eligible_for_expansion.csv",
+        fallback_stage_ineligible_csv=projections_dir / "fallback_stage_ineligible.csv",
     )

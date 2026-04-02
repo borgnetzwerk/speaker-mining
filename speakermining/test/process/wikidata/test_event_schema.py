@@ -22,20 +22,14 @@ def test_event_schema_required_fields() -> None:
     required = {
         "event_version",
         "event_type",
-        "endpoint",
-        "normalized_query",
-        "query_hash",
         "timestamp_utc",
-        "source_step",
-        "status",
-        "key",
-        "http_status",
-        "error",
         "payload",
     }
     assert required.issubset(set(event.keys()))
-    assert event["event_version"] == "v2"
-    assert event["query_hash"] == compute_query_hash("wikidata_api", "entity:Q1499182")
+    assert event["event_version"] == "v3"
+    assert event["payload"]["query_hash"] == compute_query_hash("wikidata_api", "entity:Q1499182")
+    assert event["payload"]["endpoint"] == "wikidata_api"
+    assert event["payload"]["source_step"] == "entity_fetch"
 
 
 def test_query_hash_is_deterministic() -> None:

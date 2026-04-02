@@ -54,6 +54,7 @@ def load_seed_instances(repo_root: Path) -> tuple[list[dict], list[dict]]:
 
 def ensure_output_bootstrap(repo_root: Path) -> None:
     paths = build_artifact_paths(Path(repo_root))
+    paths.projections_dir.mkdir(parents=True, exist_ok=True)
     paths.raw_queries_dir.mkdir(parents=True, exist_ok=True)
     paths.checkpoints_dir.mkdir(parents=True, exist_ok=True)
     paths.archive_dir.mkdir(parents=True, exist_ok=True)
