@@ -13,6 +13,7 @@ from process.candidate_generation.wikidata.entity import (
     get_or_search_entities_by_label,
 )
 from process.candidate_generation.wikidata.common import get_active_wikidata_languages, set_active_wikidata_languages
+from process.candidate_generation.wikidata import cache as cache_module
 from process.candidate_generation.wikidata import entity as entity_module
 from process.candidate_generation.wikidata.event_log import write_query_event
 
@@ -33,6 +34,43 @@ def test_get_or_fetch_entity_returns_unwrapped_cached_payload(tmp_path: Path) ->
     payload = get_or_fetch_entity(tmp_path, "Q1", cache_max_age_days=9999)
     assert "entities" in payload
     assert "response_data" not in payload
+
+
+def test_get_or_fetch_entity_uses_index_after_first_lookup(tmp_path: Path, monkeypatch) -> None:
+    write_query_event(
+        tmp_path,
+        endpoint="wikidata_api",
+        normalized_query="entity:Q1",
+        source_step="entity_fetch",
+        status="success",
+        key="Q1",
+        payload={"entities": {"Q1": {"id": "Q1", "labels": {"en": {"language": "en", "value": "One"}}}}},
+        http_status=200,
+        error=None,
+    )
+
+    first_payload = get_or_fetch_entity(tmp_path, "Q1", cache_max_age_days=9999)
+    assert first_payload["entities"]["Q1"]["labels"]["en"]["value"] == "One"
+
+    def _fail_if_scanned(*_args, **_kwargs):
+        raise AssertionError("iter_query_events should not be called after the cache index is primed")
+
+    monkeypatch.setattr(cache_module, "iter_query_events", _fail_if_scanned)
+
+    write_query_event(
+        tmp_path,
+        endpoint="wikidata_api",
+        normalized_query="entity:Q1?revision=latest",
+        source_step="entity_fetch",
+        status="success",
+        key="Q1",
+        payload={"entities": {"Q1": {"id": "Q1", "labels": {"en": {"language": "en", "value": "Two"}}}}},
+        http_status=200,
+        error=None,
+    )
+
+    second_payload = get_or_fetch_entity(tmp_path, "Q1", cache_max_age_days=9999)
+    assert second_payload["entities"]["Q1"]["labels"]["en"]["value"] == "Two"
 
 
 def test_get_or_fetch_entity_filters_cached_payload_languages(tmp_path: Path) -> None:

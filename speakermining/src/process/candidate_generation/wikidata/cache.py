@@ -21,6 +21,7 @@ import pandas as pd
 
 from .contact_loader import load_contact_info, format_contact_info_for_user_agent
 from .common import canonical_qid, normalize_query_budget
+from .event_log import get_query_event_field, iter_query_events
 
 
 WIKIDATA_API_BASE = "https://www.wikidata.org/wiki/Special:EntityData"
@@ -44,6 +45,56 @@ except (FileNotFoundError, ValueError) as exc:
 
 
 _REQUEST_CONTEXT: dict[str, object] | None = None
+_LATEST_QUERY_EVENT_INDEX: dict[tuple[str, str, str], dict] = {}
+_LATEST_QUERY_EVENT_INDEX_PRIMED: set[str] = set()
+
+
+def _cache_root_key(root: Path) -> str:
+	return str(Path(root).resolve())
+
+
+def _latest_query_event_index_key(root: Path, source_step: str, key: str) -> tuple[str, str, str]:
+	return _cache_root_key(root), str(source_step or ""), str(key or "")
+
+
+def _remember_latest_cached_record(root: Path, record: dict, *, force: bool = False) -> None:
+	if not isinstance(record, dict) or record.get("event_version") != "v3":
+		return
+	source_step = str(get_query_event_field(record, "source_step", "") or "")
+	key = str(get_query_event_field(record, "key", "") or "")
+	if not source_step or not key:
+		return
+	index_key = _latest_query_event_index_key(root, source_step, key)
+	if force:
+		_LATEST_QUERY_EVENT_INDEX[index_key] = dict(record)
+		return
+	current = _LATEST_QUERY_EVENT_INDEX.get(index_key)
+	current_seq = int(current.get("sequence_num", -1) or -1) if isinstance(current, dict) else -1
+	record_seq = int(record.get("sequence_num", -1) or -1)
+	if current is None or record_seq >= current_seq:
+		_LATEST_QUERY_EVENT_INDEX[index_key] = dict(record)
+
+
+def _prime_latest_cached_record_index(root: Path) -> None:
+	root_key = _cache_root_key(root)
+	if root_key in _LATEST_QUERY_EVENT_INDEX_PRIMED:
+		return
+	latest: dict[tuple[str, str], dict] = {}
+	for record in iter_query_events(Path(root)) or []:
+		if not isinstance(record, dict) or record.get("event_version") != "v3":
+			continue
+		source_step = str(get_query_event_field(record, "source_step", "") or "")
+		key = str(get_query_event_field(record, "key", "") or "")
+		if not source_step or not key:
+			continue
+		current = latest.get((source_step, key))
+		current_seq = int(current.get("sequence_num", -1) or -1) if isinstance(current, dict) else -1
+		record_seq = int(record.get("sequence_num", -1) or -1)
+		if current is None or record_seq >= current_seq:
+			latest[(source_step, key)] = dict(record)
+	for (source_step, key), record in latest.items():
+		_LATEST_QUERY_EVENT_INDEX[_latest_query_event_index_key(root, source_step, key)] = record
+	_LATEST_QUERY_EVENT_INDEX_PRIMED.add(root_key)
 
 
 def _infer_network_metadata(url: str) -> tuple[str, str, str, str]:
@@ -654,8 +705,9 @@ def _load_raw_record(path: Path) -> dict | None:
 def _latest_cached_record(root: Path, query_type: str, key: str) -> tuple[dict, float] | None:
 	"""Find most recent cached record matching query type and key.
 
-	Scans v3 query_response events in chunk files and returns the latest matching
-	event with its age in days.
+	The first lookup for a repository primes a process-local index by scanning the
+	event history once. After that, repeated lookups are O(1) and avoid rescanning
+	the full chunk chain.
 	
 	Args:
 		root: Repository root path.
@@ -674,23 +726,25 @@ def _latest_cached_record(root: Path, query_type: str, key: str) -> tuple[dict, 
 		"label_search": "entity_fetch",
 	}
 	step = mapping.get(str(query_type or "").strip().lower(), "")
-	from .event_log import get_query_event_field, iter_query_events
+	if not step:
+		return None
 
-	for record in reversed(list(iter_query_events(Path(root)))):
-		if record.get("event_version") != "v3":
-			continue
-		if get_query_event_field(record, "source_step", "") != step:
-			continue
-		if str(get_query_event_field(record, "key", "")) != str(key):
-			continue
-		ts = record.get("timestamp_utc", "")
-		try:
-			dt = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-		except Exception:
-			continue
-		age_days = (_now_utc() - dt).total_seconds() / 86400.0
-		return record, age_days
-	return None
+	root_key = _cache_root_key(root)
+	index_key = _latest_query_event_index_key(root, step, key)
+	cached = _LATEST_QUERY_EVENT_INDEX.get(index_key)
+	if cached is None and root_key not in _LATEST_QUERY_EVENT_INDEX_PRIMED:
+		_prime_latest_cached_record_index(Path(root))
+		cached = _LATEST_QUERY_EVENT_INDEX.get(index_key)
+	if cached is None:
+		return None
+
+	ts = str(cached.get("timestamp_utc", "") or "")
+	try:
+		dt = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+	except Exception:
+		return None
+	age_days = (_now_utc() - dt).total_seconds() / 86400.0
+	return cached, age_days
 
 
 def _entity_from_payload(payload: dict, qid: str) -> dict:

@@ -230,6 +230,9 @@ def write_query_event(
     )
     store = EventStore(Path(repo_root))
     store.append_event(event)
+    from .cache import _remember_latest_cached_record
+
+    _remember_latest_cached_record(Path(repo_root), event, force=True)
     return store.active_chunk_path
 
 
