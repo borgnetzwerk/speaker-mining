@@ -59,6 +59,36 @@ Scope: Wikidata candidate-generation and graph-quality tasks only
   1. Tests fail when reclassification logic is disabled.
   2. Tests pass when integrity pass reclassifies and expands correctly.
 
+### WDT-004: Data is wrongly fetched for all langauges, despite us only needing german, english and default.
+* by default, when accessing wikidata, only the "default for all langauges" should always be loaded
+* additional languages need to be explicitly specified - labels, descriptions, aliases and alike in a language that is not specified should never be pulled
+* The goal would be an initial specification of required languages. This should be a list where the user can easily change any language from false to true. By default, every language should be set to false. If this state is loaded, it should throw an error "Please define at least one language".
+  * For our case, every run will only proceed with "en" and "de". Still, the user should specify exactly this themselves.
+
+### WDT-005: Not only default language aliases are added, but also all others
+* There seems to be a bug in the current implementation of alias appending (see `documentation\context\findings-assets\wrong_alias_appending.csv`)
+  * The intention was the following:
+    * we fetch the label, description and aliases for our specified languages 
+      * currently: 2 languages, "en" and "de", so we would have:
+        * label_en
+        * desciption_en
+        * alias_en
+        * label_de
+        * desciption_de
+        * alias_de
+    * We then also fetch the "default for all languages"
+      * for every specified language label and description field, we check if its empty. for example:
+        * label_en: empty -> replace with "default for all languages" label
+        * desciption_en: not empty -> don't replace with "default for all languages"
+      * for the alias fields, we just append the alias from "default for all languages"
+        * alias_en: ["...", "..."] -> ["...", "...", "first_alias_form_default_for_all_languages", "second_alias_form_default_for_all_languages", ...]
+  * instead of that intended behaviour, all language alias are appended to all aliases. This is wrong.
+
+
+
+
 ## Notes
 
 - This tracker is dedicated to Wikidata workflow internals and avoids overlap with OpenRefine/Wikidata Reconciliation Service terminology.
+
+
