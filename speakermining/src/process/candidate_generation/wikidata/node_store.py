@@ -10,6 +10,12 @@ from .common import canonical_pid, canonical_qid
 from .schemas import build_artifact_paths
 
 
+_ENTITY_STORE_CACHE: dict[str, dict] = {}
+_PROPERTY_STORE_CACHE: dict[str, dict] = {}
+_ENTITY_STORE_DIRTY: set[str] = set()
+_PROPERTY_STORE_DIRTY: set[str] = set()
+
+
 def _iso_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -136,9 +142,69 @@ def _append_unique_timestamp(current: dict, field: str, timestamp_utc: str) -> l
     return sorted(values)
 
 
+def _store_cache_key(path: Path) -> str:
+    return str(Path(path).resolve())
+
+
+def _cached_store(path: Path, root_key: str, cache: dict[str, dict]) -> dict:
+    cache_key = _store_cache_key(path)
+    store = cache.get(cache_key)
+    if store is None:
+        store = _load_json(path, root_key)
+        cache[cache_key] = store
+    return store
+
+
+def _mark_store_dirty(path: Path, dirty: set[str]) -> None:
+    dirty.add(_store_cache_key(path))
+
+
+def _flush_store(path: Path, cache: dict[str, dict], dirty: set[str]) -> None:
+    cache_key = _store_cache_key(path)
+    if cache_key not in dirty:
+        return
+    store = cache.get(cache_key)
+    if store is None:
+        return
+    _atomic_write_text(path, json.dumps(store, ensure_ascii=False, indent=2))
+    dirty.discard(cache_key)
+
+
+def flush_node_store(repo_root: Path) -> None:
+    paths = build_artifact_paths(Path(repo_root))
+    flush_entity_store(paths.entities_json)
+    flush_property_store(paths.properties_json)
+
+
+def flush_entity_store(path: Path) -> None:
+    flush_path = Path(path)
+    _flush_store(flush_path, _ENTITY_STORE_CACHE, _ENTITY_STORE_DIRTY)
+
+
+def flush_property_store(path: Path) -> None:
+    flush_path = Path(path)
+    _flush_store(flush_path, _PROPERTY_STORE_CACHE, _PROPERTY_STORE_DIRTY)
+
+
+def reset_node_store_cache(repo_root: Path | None = None) -> None:
+    if repo_root is None:
+        _ENTITY_STORE_CACHE.clear()
+        _PROPERTY_STORE_CACHE.clear()
+        _ENTITY_STORE_DIRTY.clear()
+        _PROPERTY_STORE_DIRTY.clear()
+        return
+    paths = build_artifact_paths(Path(repo_root))
+    for path in (paths.entities_json, paths.properties_json):
+        cache_key = _store_cache_key(path)
+        _ENTITY_STORE_CACHE.pop(cache_key, None)
+        _PROPERTY_STORE_CACHE.pop(cache_key, None)
+        _ENTITY_STORE_DIRTY.discard(cache_key)
+        _PROPERTY_STORE_DIRTY.discard(cache_key)
+
+
 def upsert_discovered_item(repo_root: Path, qid: str, entity_doc: dict, discovered_at_utc: str) -> None:
     paths = build_artifact_paths(Path(repo_root))
-    store = _load_json(paths.entities_json, "entities")
+    store = _cached_store(paths.entities_json, "entities", _ENTITY_STORE_CACHE)
     qid = canonical_qid(qid)
     if not qid:
         return
@@ -156,12 +222,12 @@ def upsert_discovered_item(repo_root: Path, qid: str, entity_doc: dict, discover
         merged["expanded_at_utc_history"] = list(current.get("expanded_at_utc_history", []) or [])
     merged.setdefault("expanded_at_utc", None)
     store["entities"][qid] = merged
-    _atomic_write_text(paths.entities_json, json.dumps(store, ensure_ascii=False, indent=2))
+    _mark_store_dirty(paths.entities_json, _ENTITY_STORE_DIRTY)
 
 
 def upsert_expanded_item(repo_root: Path, qid: str, expanded_payload: dict, expanded_at_utc: str) -> None:
     paths = build_artifact_paths(Path(repo_root))
-    store = _load_json(paths.entities_json, "entities")
+    store = _cached_store(paths.entities_json, "entities", _ENTITY_STORE_CACHE)
     qid = canonical_qid(qid)
     if not qid:
         return
@@ -174,12 +240,12 @@ def upsert_expanded_item(repo_root: Path, qid: str, expanded_payload: dict, expa
     merged["discovered_at_utc"] = current.get("discovered_at_utc") or expanded_at_utc
     merged["discovered_at_utc_history"] = _append_unique_timestamp(current, "discovered_at_utc_history", merged["discovered_at_utc"])
     store["entities"][qid] = merged
-    _atomic_write_text(paths.entities_json, json.dumps(store, ensure_ascii=False, indent=2))
+    _mark_store_dirty(paths.entities_json, _ENTITY_STORE_DIRTY)
 
 
 def upsert_discovered_property(repo_root: Path, pid: str, property_doc: dict, discovered_at_utc: str) -> None:
     paths = build_artifact_paths(Path(repo_root))
-    store = _load_json(paths.properties_json, "properties")
+    store = _cached_store(paths.properties_json, "properties", _PROPERTY_STORE_CACHE)
     pid = canonical_pid(pid)
     if not pid:
         return
@@ -191,24 +257,24 @@ def upsert_discovered_property(repo_root: Path, pid: str, property_doc: dict, di
     merged["discovered_at_utc"] = current.get("discovered_at_utc") or discovered_at_utc
     merged["discovered_at_utc_history"] = _append_unique_timestamp(current, "discovered_at_utc_history", discovered_at_utc)
     store["properties"][pid] = merged
-    _atomic_write_text(paths.properties_json, json.dumps(store, ensure_ascii=False, indent=2))
+    _mark_store_dirty(paths.properties_json, _PROPERTY_STORE_DIRTY)
 
 
 def get_item(repo_root: Path, qid: str) -> dict | None:
     paths = build_artifact_paths(Path(repo_root))
-    store = _load_json(paths.entities_json, "entities")
+    store = _cached_store(paths.entities_json, "entities", _ENTITY_STORE_CACHE)
     return store["entities"].get(canonical_qid(qid))
 
 
 def iter_items(repo_root: Path) -> Iterator[dict]:
     paths = build_artifact_paths(Path(repo_root))
-    store = _load_json(paths.entities_json, "entities")
+    store = _cached_store(paths.entities_json, "entities", _ENTITY_STORE_CACHE)
     for qid in sorted(store["entities"]):
         yield store["entities"][qid]
 
 
 def iter_properties(repo_root: Path) -> Iterator[dict]:
     paths = build_artifact_paths(Path(repo_root))
-    store = _load_json(paths.properties_json, "properties")
+    store = _cached_store(paths.properties_json, "properties", _PROPERTY_STORE_CACHE)
     for pid in sorted(store["properties"]):
         yield store["properties"][pid]

@@ -97,6 +97,17 @@ def _prime_latest_cached_record_index(root: Path) -> None:
 	_LATEST_QUERY_EVENT_INDEX_PRIMED.add(root_key)
 
 
+def reset_latest_cached_record_index(root: Path | None = None) -> None:
+	if root is None:
+		_LATEST_QUERY_EVENT_INDEX.clear()
+		_LATEST_QUERY_EVENT_INDEX_PRIMED.clear()
+		return
+	root_key = _cache_root_key(root)
+	_LATEST_QUERY_EVENT_INDEX_PRIMED.discard(root_key)
+	for index_key in [key for key in list(_LATEST_QUERY_EVENT_INDEX) if key[0] == root_key]:
+		_LATEST_QUERY_EVENT_INDEX.pop(index_key, None)
+
+
 def _infer_network_metadata(url: str) -> tuple[str, str, str, str]:
 	"""Infer endpoint, request kind, query identity, and entity id from URL."""
 	parsed = urlparse(str(url or ""))

@@ -25,8 +25,9 @@ from .common import canonical_qid, effective_core_class_qids, iter_entity_texts,
 from .entity import get_or_build_outlinks, get_or_fetch_entity, get_or_fetch_inlinks, get_or_fetch_property
 from .inlinks import parse_inlinks_results
 from .materializer import materialize_checkpoint, materialize_final
-from .node_store import get_item, iter_items, upsert_discovered_item, upsert_discovered_property, upsert_expanded_item
+from .node_store import flush_node_store, get_item, iter_items, upsert_discovered_item, upsert_discovered_property, upsert_expanded_item
 from .triple_store import record_item_edges
+from .triple_store import flush_triple_events
 from ...notebook_event_log import NOTEBOOK_21_ID, get_or_create_notebook_logger
 
 
@@ -493,6 +494,8 @@ def run_seed_expansion(
                 break
     finally:
         network_queries = int(end_request_context())
+        flush_node_store(repo_root)
+        flush_triple_events(repo_root)
 
     # Distinguish a fully processed seed frontier from other completion cases.
     if stop_reason == "seed_complete" and not queue:

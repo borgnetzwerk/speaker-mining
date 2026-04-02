@@ -8,6 +8,10 @@ from .common import canonical_pid, canonical_qid
 from .schemas import build_artifact_paths
 
 
+_TRIPLE_EVENTS_CACHE: dict[str, list[dict]] = {}
+_TRIPLE_EVENTS_DIRTY: set[str] = set()
+
+
 def _load_events(path: Path) -> list[dict]:
     if not path.exists():
         return []
@@ -16,6 +20,46 @@ def _load_events(path: Path) -> list[dict]:
     except Exception:
         return []
     return payload if isinstance(payload, list) else []
+
+
+def _cache_key(path: Path) -> str:
+    return str(Path(path).resolve())
+
+
+def _cached_events(path: Path) -> list[dict]:
+    cache_key = _cache_key(path)
+    events = _TRIPLE_EVENTS_CACHE.get(cache_key)
+    if events is None:
+        events = _load_events(path)
+        _TRIPLE_EVENTS_CACHE[cache_key] = events
+    return events
+
+
+def _mark_dirty(path: Path) -> None:
+    _TRIPLE_EVENTS_DIRTY.add(_cache_key(path))
+
+
+def flush_triple_events(repo_root: Path) -> None:
+    paths = build_artifact_paths(Path(repo_root))
+    cache_key = _cache_key(paths.triples_events_json)
+    if cache_key not in _TRIPLE_EVENTS_DIRTY:
+        return
+    events = _TRIPLE_EVENTS_CACHE.get(cache_key)
+    if events is None:
+        return
+    _atomic_write_text(paths.triples_events_json, json.dumps(events, ensure_ascii=False, indent=2))
+    _TRIPLE_EVENTS_DIRTY.discard(cache_key)
+
+
+def reset_triple_store_cache(repo_root: Path | None = None) -> None:
+    if repo_root is None:
+        _TRIPLE_EVENTS_CACHE.clear()
+        _TRIPLE_EVENTS_DIRTY.clear()
+        return
+    paths = build_artifact_paths(Path(repo_root))
+    cache_key = _cache_key(paths.triples_events_json)
+    _TRIPLE_EVENTS_CACHE.pop(cache_key, None)
+    _TRIPLE_EVENTS_DIRTY.discard(cache_key)
 
 
 def record_item_edges(
@@ -30,7 +74,7 @@ def record_item_edges(
     if not subject_qid:
         return
 
-    events = _load_events(paths.triples_events_json)
+    events = _cached_events(paths.triples_events_json)
     for edge in edges:
         pid = canonical_pid(edge.get("pid", ""))
         obj = canonical_qid(edge.get("to_qid", edge.get("object", "")))
@@ -46,12 +90,12 @@ def record_item_edges(
             }
         )
 
-    _atomic_write_text(paths.triples_events_json, json.dumps(events, ensure_ascii=False, indent=2))
+    _mark_dirty(paths.triples_events_json)
 
 
 def iter_unique_triples(repo_root: Path):
     paths = build_artifact_paths(Path(repo_root))
-    events = _load_events(paths.triples_events_json)
+    events = _cached_events(paths.triples_events_json)
     dedup: dict[tuple[str, str, str], dict] = {}
     for event in events:
         key = (event.get("subject", ""), event.get("predicate", ""), event.get("object", ""))

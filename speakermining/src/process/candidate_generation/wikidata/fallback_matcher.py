@@ -12,10 +12,10 @@ from .cache import begin_request_context, end_request_context
 from .common import canonical_qid, effective_core_class_qids, normalize_query_budget, normalize_text, pick_entity_label
 from .entity import get_or_fetch_entity, get_or_search_entities_by_label
 from .event_log import write_candidate_matched_event
-from .node_store import iter_items
+from .node_store import flush_node_store, iter_items
 from .node_store import upsert_discovered_item
 from .schemas import build_artifact_paths
-from .triple_store import has_direct_link_to_any_seed
+from .triple_store import flush_triple_events, has_direct_link_to_any_seed
 from ...notebook_event_log import NOTEBOOK_21_ID, get_or_create_notebook_logger
 
 
@@ -308,6 +308,8 @@ def run_fallback_string_matching_stage(
     ineligible_df = pd.DataFrame({"candidate_id": sorted(ineligible_qids)})
     _atomic_write_df(paths.fallback_stage_eligible_for_expansion_csv, eligible_df)
     _atomic_write_df(paths.fallback_stage_ineligible_csv, ineligible_df)
+    flush_node_store(repo_root)
+    flush_triple_events(repo_root)
     elapsed = perf_counter() - stage_t0
     print(
         (

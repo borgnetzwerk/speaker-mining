@@ -16,10 +16,10 @@ from .common import (
     projection_languages,
 )
 from .event_log import get_query_event_field, get_query_event_response_data, iter_query_events
-from .node_store import iter_items, iter_properties
+from .node_store import flush_node_store, iter_items, iter_properties
 from .query_inventory import rebuild_query_inventory, to_dataframe
 from .schemas import build_artifact_paths
-from .triple_store import iter_unique_triples
+from .triple_store import flush_triple_events, iter_unique_triples
 
 
 def _pick_lang_text(mapping: dict, lang: str) -> str:
@@ -273,6 +273,8 @@ def _write_summary(paths, run_id: str, stage: str, stats: dict) -> None:
 def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | None) -> dict:
     total_t0 = perf_counter()
     print(f"[materializer] Start stage={stage} run_id={run_id}", flush=True)
+    flush_node_store(repo_root)
+    flush_triple_events(repo_root)
     paths = build_artifact_paths(Path(repo_root))
     class_filename_lookup = _class_filename_lookup(repo_root)
     core_class_qids = effective_core_class_qids(set(class_filename_lookup.keys()))

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from process.candidate_generation.wikidata.checkpoint import (
     CheckpointManifest,
+    clear_runtime_artifacts,
     decide_resume_mode,
     load_latest_checkpoint,
     list_checkpoints,
@@ -13,6 +14,7 @@ from process.candidate_generation.wikidata.checkpoint import (
     write_checkpoint_manifest,
 )
 from process.candidate_generation.wikidata.expansion_engine import ExpansionConfig, run_graph_expansion_stage, run_seed_expansion
+from process.candidate_generation.wikidata.node_store import get_item, upsert_discovered_item
 from process.candidate_generation.wikidata.schemas import build_artifact_paths
 
 
@@ -144,6 +146,28 @@ def test_restart_mode_clears_existing_artifacts(tmp_path: Path) -> None:
 
     assert result.checkpoint_stats["resume_mode"] == "append"
     assert not marker.exists()
+
+
+def test_clear_runtime_artifacts_resets_cached_store_state(tmp_path: Path) -> None:
+    upsert_discovered_item(
+        tmp_path,
+        "Q1",
+        {
+            "id": "Q1",
+            "labels": {"en": {"value": "Cached Example"}},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {"P31": [], "P279": []},
+        },
+        "2026-03-31T12:00:00Z",
+    )
+
+    assert get_item(tmp_path, "Q1") is not None
+
+    clear_runtime_artifacts(tmp_path)
+
+    assert get_item(tmp_path, "Q1") is None
+    assert not build_artifact_paths(tmp_path).entities_json.exists()
 
 
 def test_partial_seed_budget_stop_does_not_increment_completed_count(tmp_path: Path, monkeypatch) -> None:
