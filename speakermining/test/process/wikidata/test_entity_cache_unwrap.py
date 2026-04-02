@@ -3,6 +3,7 @@ from __future__ import annotations
 # pyright: reportMissingImports=false
 
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 from process.candidate_generation.wikidata.entity import (
     get_or_build_outlinks,
@@ -11,6 +12,8 @@ from process.candidate_generation.wikidata.entity import (
     get_or_fetch_property,
     get_or_search_entities_by_label,
 )
+from process.candidate_generation.wikidata.common import get_active_wikidata_languages, set_active_wikidata_languages
+from process.candidate_generation.wikidata import entity as entity_module
 from process.candidate_generation.wikidata.event_log import write_query_event
 
 
@@ -30,6 +33,127 @@ def test_get_or_fetch_entity_returns_unwrapped_cached_payload(tmp_path: Path) ->
     payload = get_or_fetch_entity(tmp_path, "Q1", cache_max_age_days=9999)
     assert "entities" in payload
     assert "response_data" not in payload
+
+
+def test_get_or_fetch_entity_filters_cached_payload_languages(tmp_path: Path) -> None:
+    previous = get_active_wikidata_languages()
+    try:
+        set_active_wikidata_languages({"en": True})
+        write_query_event(
+            tmp_path,
+            endpoint="wikidata_api",
+            normalized_query="entity:Q1",
+            source_step="entity_fetch",
+            status="success",
+            key="Q1",
+            payload={
+                "entities": {
+                    "Q1": {
+                        "id": "Q1",
+                        "labels": {
+                            "en": {"language": "en", "value": "One"},
+                            "fr": {"language": "fr", "value": "Un"},
+                            "mul": {"language": "mul", "value": "One Default"},
+                        },
+                        "descriptions": {
+                            "en": {"language": "en", "value": "desc one"},
+                            "fr": {"language": "fr", "value": "desc un"},
+                            "mul": {"language": "mul", "value": "desc default"},
+                        },
+                        "aliases": {
+                            "en": [{"language": "en", "value": "Alias EN"}],
+                            "fr": [{"language": "fr", "value": "Alias FR"}],
+                            "mul": [{"language": "mul", "value": "Alias Default"}],
+                        },
+                    }
+                }
+            },
+            http_status=200,
+            error=None,
+        )
+
+        payload = get_or_fetch_entity(tmp_path, "Q1", cache_max_age_days=9999)
+        node = payload["entities"]["Q1"]
+
+        assert set(node["labels"].keys()) == {"en", "mul"}
+        assert set(node["descriptions"].keys()) == {"en", "mul"}
+        assert set(node["aliases"].keys()) == {"en", "mul"}
+    finally:
+        set_active_wikidata_languages(previous)
+
+
+def test_get_or_fetch_entity_fetches_only_missing_literal_languages(tmp_path: Path, monkeypatch) -> None:
+    previous = get_active_wikidata_languages()
+    try:
+        set_active_wikidata_languages({"de": True, "en": True})
+        write_query_event(
+            tmp_path,
+            endpoint="wikidata_api",
+            normalized_query="entity:Q1",
+            source_step="entity_fetch",
+            status="success",
+            key="Q1",
+            payload={
+                "entities": {
+                    "Q1": {
+                        "id": "Q1",
+                        "labels": {
+                            "de": {"language": "de", "value": "Eins"},
+                            "en": {"language": "en", "value": "One"},
+                            "mul": {"language": "mul", "value": "One Default"},
+                        },
+                        "descriptions": {
+                            "de": {"language": "de", "value": "Beschreibung"},
+                            "en": {"language": "en", "value": "Description"},
+                            "mul": {"language": "mul", "value": "Description Default"},
+                        },
+                        "aliases": {
+                            "de": [{"language": "de", "value": "Alias DE"}],
+                            "en": [{"language": "en", "value": "Alias EN"}],
+                            "mul": [{"language": "mul", "value": "Alias Default"}],
+                        },
+                        "claims": {"P31": [], "P279": []},
+                        "_fetched_literal_languages": ["de", "en"],
+                    }
+                }
+            },
+            http_status=200,
+            error=None,
+        )
+
+        observed_urls: list[str] = []
+
+        def _fake_http_get_json(url: str, accept: str = "application/json", timeout: int = 30, **_kwargs):
+            observed_urls.append(url)
+            return {
+                "entities": {
+                    "Q1": {
+                        "id": "Q1",
+                        "labels": {"it": {"language": "it", "value": "Uno"}},
+                        "descriptions": {"it": {"language": "it", "value": "Descrizione"}},
+                        "aliases": {"it": [{"language": "it", "value": "Alias IT"}]},
+                    }
+                }
+            }
+
+        monkeypatch.setattr(entity_module, "_http_get_json", _fake_http_get_json)
+
+        set_active_wikidata_languages({"de": True, "en": True, "it": True})
+        payload = get_or_fetch_entity(tmp_path, "Q1", cache_max_age_days=9999)
+
+        assert len(observed_urls) == 1
+        query = parse_qs(urlparse(observed_urls[0]).query)
+        assert query.get("props", [""])[0] == "labels|descriptions|aliases"
+        assert query.get("languages", [""])[0] == "it|mul"
+
+        node = payload["entities"]["Q1"]
+        assert set(node["labels"].keys()) == {"de", "en", "it", "mul"}
+        assert set(node["descriptions"].keys()) == {"de", "en", "it", "mul"}
+        assert set(node["aliases"].keys()) == {"de", "en", "it", "mul"}
+        assert "claims" in node
+        assert set(node.get("_fetched_literal_languages", [])) == {"de", "en", "it"}
+    finally:
+        set_active_wikidata_languages(previous)
 
 
 def test_get_or_fetch_property_returns_unwrapped_cached_payload(tmp_path: Path) -> None:

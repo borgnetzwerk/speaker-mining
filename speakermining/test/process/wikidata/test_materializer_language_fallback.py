@@ -15,8 +15,9 @@ def test_pick_lang_text_falls_back_to_default_language_bucket() -> None:
 def test_alias_pipe_includes_requested_and_default_aliases() -> None:
     aliases = {
         "en": [{"language": "en", "value": "B. Saur"}],
+        "fr": [{"language": "fr", "value": "Bernard Saur"}],
         "mul": [{"language": "mul", "value": "Bernd Saur"}],
     }
 
-    assert _alias_pipe(aliases, "de") == "B. Saur|Bernd Saur"
+    assert _alias_pipe(aliases, "de") == "Bernd Saur"
     assert _alias_pipe(aliases, "en") == "B. Saur|Bernd Saur"

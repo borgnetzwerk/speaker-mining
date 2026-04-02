@@ -72,12 +72,18 @@ Scope: Wikidata candidate-generation and graph-quality tasks only
   2. Tests pass when integrity pass reclassifies and expands correctly.
 
 ### WDT-004: Data is wrongly fetched for all langauges, despite us only needing german, english and default.
+* Status: [x]
 * by default, when accessing wikidata, only the "default for all langauges" should always be loaded
 * additional languages need to be explicitly specified - labels, descriptions, aliases and alike in a language that is not specified should never be pulled
 * The goal would be an initial specification of required languages. This should be a list where the user can easily change any language from false to true. By default, every language should be set to false. If this state is loaded, it should throw an error "Please define at least one language".
   * For our case, every run will only proceed with "en" and "de". Still, the user should specify exactly this themselves.
+* Implementation notes (2026-04-02):
+  * Added explicit language-selection policy via `set_active_wikidata_languages(...)`.
+  * Notebook config now contains `wikidata_entity_languages` with all flags `False` by default and raises `ValueError("Please define at least one language")` when unresolved.
+  * Entity/property payloads are filtered to selected languages plus `mul` before downstream processing.
 
 ### WDT-005: Not only default language aliases are added, but also all others
+* Status: [x]
 * There seems to be a bug in the current implementation of alias appending (see `documentation\context\findings-assets\wrong_alias_appending.csv`)
   * The intention was the following:
     * we fetch the label, description and aliases for our specified languages 
@@ -95,6 +101,10 @@ Scope: Wikidata candidate-generation and graph-quality tasks only
       * for the alias fields, we just append the alias from "default for all languages"
         * alias_en: ["...", "..."] -> ["...", "...", "first_alias_form_default_for_all_languages", "second_alias_form_default_for_all_languages", ...]
   * instead of that intended behaviour, all language alias are appended to all aliases. This is wrong.
+* Implementation notes (2026-04-02):
+  * Fixed alias aggregation in materializer: each alias field now uses only `alias_<lang>` + `alias_mul`.
+  * Removed cross-language alias leakage (`mapping.values()` merge across all languages).
+  * Added regression tests for alias fallback and language filtering.
 
 
 

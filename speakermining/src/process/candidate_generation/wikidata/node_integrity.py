@@ -8,7 +8,13 @@ from pathlib import Path
 from .bootstrap import load_core_classes, load_seed_instances
 from .cache import begin_request_context, end_request_context
 from .class_resolver import resolve_class_path
-from .common import canonical_qid, effective_core_class_qids, normalize_query_budget
+from .common import (
+    DEFAULT_WIKIDATA_FALLBACK_LANGUAGE,
+    canonical_qid,
+    effective_core_class_qids,
+    get_active_wikidata_languages,
+    normalize_query_budget,
+)
 from .entity import get_or_build_outlinks, get_or_fetch_entity
 from .expansion_engine import ExpansionConfig, is_expandable_target, run_seed_expansion
 from .materializer import materialize_final
@@ -114,12 +120,8 @@ def _has_minimal_discovery_payload(entity_doc: dict) -> bool:
 def _first_text_value(multilang_block: dict) -> str:
     if not isinstance(multilang_block, dict):
         return ""
-    for lang in ("de", "en"):
+    for lang in list(get_active_wikidata_languages()) + [DEFAULT_WIKIDATA_FALLBACK_LANGUAGE]:
         value = multilang_block.get(lang, {})
-        text = str(value.get("value", "")).strip() if isinstance(value, dict) else ""
-        if text:
-            return text
-    for value in multilang_block.values():
         text = str(value.get("value", "")).strip() if isinstance(value, dict) else ""
         if text:
             return text

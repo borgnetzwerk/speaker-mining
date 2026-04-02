@@ -15,6 +15,75 @@ _NON_WORD_RE = re.compile(r"[^\w]+", flags=re.UNICODE)
 _QID_RE = re.compile(r"Q\d+")
 _PID_RE = re.compile(r"P\d+")
 ENTITY_ROOT_QID = "Q35120"
+DEFAULT_WIKIDATA_FALLBACK_LANGUAGE = "mul"
+_DEFAULT_ACTIVE_WIKIDATA_LANGUAGES: tuple[str, ...] = ("de", "en")
+_ACTIVE_WIKIDATA_LANGUAGES: tuple[str, ...] = _DEFAULT_ACTIVE_WIKIDATA_LANGUAGES
+
+
+def _normalize_language_code(value: object) -> str:
+    code = str(value or "").strip().lower()
+    if not code:
+        return ""
+    return re.sub(r"[^a-z0-9-]+", "", code)
+
+
+def resolve_enabled_wikidata_languages(language_spec: object) -> tuple[str, ...]:
+    """Resolve enabled Wikidata languages from dict/list specs.
+
+    - Dict input: includes keys where value is truthy.
+    - Iterable input: includes non-empty values.
+    - Empty resolved set raises ValueError with a user-facing message.
+    """
+    if isinstance(language_spec, dict):
+        enabled = {
+            _normalize_language_code(lang)
+            for lang, flag in language_spec.items()
+            if bool(flag) and _normalize_language_code(lang)
+        }
+    else:
+        try:
+            enabled = {
+                _normalize_language_code(lang)
+                for lang in (language_spec or [])
+                if _normalize_language_code(lang)
+            }
+        except TypeError:
+            enabled = set()
+
+    if not enabled:
+        raise ValueError("Please define at least one language")
+
+    return tuple(sorted(enabled))
+
+
+def set_active_wikidata_languages(language_spec: object) -> tuple[str, ...]:
+    """Set active Wikidata languages used across extraction and matching helpers."""
+    global _ACTIVE_WIKIDATA_LANGUAGES
+    _ACTIVE_WIKIDATA_LANGUAGES = resolve_enabled_wikidata_languages(language_spec)
+    return _ACTIVE_WIKIDATA_LANGUAGES
+
+
+def get_active_wikidata_languages() -> tuple[str, ...]:
+    """Return currently active Wikidata languages for this process."""
+    return _ACTIVE_WIKIDATA_LANGUAGES
+
+
+def active_wikidata_languages_with_default() -> tuple[str, ...]:
+    """Return active languages plus the language-agnostic fallback bucket."""
+    values = set(_ACTIVE_WIKIDATA_LANGUAGES)
+    values.add(DEFAULT_WIKIDATA_FALLBACK_LANGUAGE)
+    return tuple(sorted(values))
+
+
+def projection_languages() -> tuple[str, ...]:
+    """Return configured languages used for language-specific projection fields."""
+    return get_active_wikidata_languages()
+
+
+def language_projection_suffix(language_code: str) -> str:
+    """Normalize language token for projection column/file suffixes."""
+    token = _normalize_language_code(language_code).replace("-", "_")
+    return token
 
 
 def normalize_text(value: str) -> str:
@@ -153,14 +222,19 @@ def iter_entity_texts(entity_doc: dict) -> Iterable[str]:
     Yields:
         Text strings (labels and aliases) in the order they appear in the entity.
     """
+    allowed = set(active_wikidata_languages_with_default())
     labels = entity_doc.get("labels", {})
-    for info in labels.values():
+    for lang, info in labels.items():
+        if allowed and str(lang or "").strip().lower() not in allowed:
+            continue
         value = info.get("value", "")
         if value:
             yield value
 
     aliases = entity_doc.get("aliases", {})
-    for alias_items in aliases.values():
+    for lang, alias_items in aliases.items():
+        if allowed and str(lang or "").strip().lower() not in allowed:
+            continue
         for info in alias_items:
             value = info.get("value", "")
             if value:
@@ -180,14 +254,8 @@ def pick_entity_label(entity_doc: dict) -> str:
     Returns:
         Selected label string, or empty string if no labels exist.
     """
-    for lang in ("de", "en"):
+    for lang in list(get_active_wikidata_languages()) + [DEFAULT_WIKIDATA_FALLBACK_LANGUAGE]:
         value = entity_doc.get("labels", {}).get(lang, {}).get("value")
-        if value:
-            return value
-
-    labels = entity_doc.get("labels", {})
-    for info in labels.values():
-        value = info.get("value")
         if value:
             return value
 

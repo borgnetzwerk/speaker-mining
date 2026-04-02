@@ -52,22 +52,45 @@ def _infer_network_metadata(url: str) -> tuple[str, str, str, str]:
 	host = (parsed.netloc or "").lower()
 	path = parsed.path or ""
 	query_map = parse_qs(parsed.query or "")
-	endpoint = "wikidata_api" if "wikidata.org" in host and "Special:EntityData" in path else "wikidata_sparql"
+	is_wikidata_api = (
+		"wikidata.org" in host
+		and (
+			"Special:EntityData" in path
+			or path.rstrip("/").endswith("/w/api.php")
+		)
+	)
+	endpoint = "wikidata_api" if is_wikidata_api else "wikidata_sparql"
 	request_kind = "sparql_query"
 	query_identity = parsed.query or path
 	entity_qid = ""
 
 	if endpoint == "wikidata_api":
-		request_kind = "entity_or_property_by_id"
-		last_token = path.rstrip("/").split("/")[-1]
-		if last_token.endswith(".json"):
-			last_token = last_token[:-5]
-		entity_qid = canonical_qid(last_token)
-		if entity_qid.startswith("Q"):
-			request_kind = "entity_by_qid"
-		elif entity_qid.startswith("P"):
-			request_kind = "property_by_pid"
-		query_identity = entity_qid or last_token or parsed.query or path
+		action = str(query_map.get("action", [""])[0] or "").strip().lower()
+		ids_raw = str(query_map.get("ids", [""])[0] or "").strip()
+		id_token = ids_raw.split("|")[0] if ids_raw else ""
+		qid_from_ids = canonical_qid(id_token)
+		if action == "wbgetentities":
+			request_kind = "entity_or_property_by_id"
+			entity_qid = qid_from_ids
+			if entity_qid.startswith("Q"):
+				request_kind = "entity_by_qid"
+			elif str(id_token).upper().startswith("P"):
+				request_kind = "property_by_pid"
+			query_identity = parsed.query or path
+		elif action == "wbsearchentities":
+			request_kind = "label_search"
+			query_identity = parsed.query or path
+		else:
+			request_kind = "entity_or_property_by_id"
+			last_token = path.rstrip("/").split("/")[-1]
+			if last_token.endswith(".json"):
+				last_token = last_token[:-5]
+			entity_qid = canonical_qid(last_token)
+			if entity_qid.startswith("Q"):
+				request_kind = "entity_by_qid"
+			elif entity_qid.startswith("P"):
+				request_kind = "property_by_pid"
+			query_identity = entity_qid or last_token or parsed.query or path
 	else:
 		raw_query = ""
 		if "query" in query_map and query_map.get("query"):

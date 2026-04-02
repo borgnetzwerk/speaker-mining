@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from .cache import _atomic_write_df, _atomic_write_text
+from .common import language_projection_suffix, projection_languages
 from .schemas import build_artifact_paths, canonical_class_filename
 
 _QID_RE = re.compile(r"^Q[1-9][0-9]*$")
@@ -59,11 +60,47 @@ def ensure_output_bootstrap(repo_root: Path) -> None:
     paths.checkpoints_dir.mkdir(parents=True, exist_ok=True)
     paths.archive_dir.mkdir(parents=True, exist_ok=True)
 
-    _empty_csv(paths.classes_csv, ["id", "label_en", "label_de", "description_en", "description_de", "alias_en", "alias_de", "path_to_core_class", "subclass_of_core_class", "discovered_count", "expanded_count"])
-    _empty_csv(paths.instances_csv, ["id", "class_id", "class_filename", "label_en", "label_de", "description_en", "description_de", "alias_en", "alias_de", "path_to_core_class", "discovered_at_utc", "expanded_at_utc"])
-    _empty_csv(paths.properties_csv, ["id", "label_en", "label_de", "description_en", "description_de", "alias_en", "alias_de"])
-    _empty_csv(paths.aliases_en_csv, ["alias", "qid"])
-    _empty_csv(paths.aliases_de_csv, ["alias", "qid"])
+    language_suffixes = [language_projection_suffix(lang) for lang in projection_languages()]
+    label_columns = [f"label_{lang}" for lang in language_suffixes]
+    description_columns = [f"description_{lang}" for lang in language_suffixes]
+    alias_columns = [f"alias_{lang}" for lang in language_suffixes]
+
+    _empty_csv(
+        paths.classes_csv,
+        [
+            "id",
+            *label_columns,
+            *description_columns,
+            *alias_columns,
+            "path_to_core_class",
+            "subclass_of_core_class",
+            "discovered_count",
+            "expanded_count",
+        ],
+    )
+    _empty_csv(
+        paths.instances_csv,
+        [
+            "id",
+            "class_id",
+            "class_filename",
+            *label_columns,
+            *description_columns,
+            *alias_columns,
+            "path_to_core_class",
+            "discovered_at_utc",
+            "expanded_at_utc",
+        ],
+    )
+    _empty_csv(paths.properties_csv, ["id", *label_columns, *description_columns, *alias_columns])
+    active_alias_files: set[str] = set()
+    for suffix in language_suffixes:
+        alias_filename = f"aliases_{suffix}.csv"
+        active_alias_files.add(alias_filename)
+        _empty_csv(paths.projections_dir / alias_filename, ["alias", "qid"])
+    for alias_path in paths.projections_dir.glob("aliases_*.csv"):
+        if alias_path.name not in active_alias_files and alias_path.is_file():
+            alias_path.unlink()
     _empty_csv(paths.triples_csv, ["subject", "predicate", "object", "discovered_at_utc", "source_query_file"])
     _empty_csv(paths.query_inventory_csv, ["endpoint", "query_hash", "normalized_query", "key", "status", "timestamp_utc", "source_step"])
     _empty_csv(paths.graph_stage_resolved_targets_csv, ["mention_id", "mention_type", "mention_label", "candidate_id", "candidate_label", "source", "context"])
