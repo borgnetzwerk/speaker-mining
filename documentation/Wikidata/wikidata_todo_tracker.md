@@ -9,6 +9,18 @@ Scope: Wikidata candidate-generation and graph-quality tasks only
 - [~] in progress
 - [x] completed
 
+## Migration Triage Policy (v3)
+
+- Preserve behavior that is already working in v2.
+- Fix low-hanging issues when implementation is localized and low risk.
+- Do not block migration rollout on known unsolved legacy issues.
+- Validate v3 primarily on its own correctness guarantees (event integrity, determinism, recovery, handler correctness).
+- When comparing v2 and v3 outputs, classify mismatches as:
+  1. preserved behavior
+  2. intentional low-hanging fix
+  3. known unresolved legacy issue
+  4. new regression (must fix before rollout)
+
 ## Priority Items
 
 ### WDT-001: Re-evaluate prior eligibility decisions when class lineage improves

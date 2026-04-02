@@ -15,6 +15,7 @@
 | [02_GAP_ANALYSIS.md](02_GAP_ANALYSIS.md) | Current v2 vs. proposed v3 detailed comparison | Architects, tech leads |
 | [03_MIGRATION_SEQUENCE.md](03_MIGRATION_SEQUENCE.md) | Step-by-step implementation plan (3 phases) | Project managers, engineers |
 | [04_OPEN_QUESTIONS.md](04_OPEN_QUESTIONS.md) | Resolved decision register for implementation | Decision-makers, architects |
+| [05_EXECUTION_READINESS.md](05_EXECUTION_READINESS.md) | Verified code mapping, baseline status, and action-log protocol | Implementers, reviewers |
 
 ---
 
@@ -26,6 +27,7 @@ Required behavior:
 - No concept is considered clarified until [00_OVERVIEW.md](00_OVERVIEW.md), [01_SPECIFICATION.md](01_SPECIFICATION.md), [02_GAP_ANALYSIS.md](02_GAP_ANALYSIS.md), [03_MIGRATION_SEQUENCE.md](03_MIGRATION_SEQUENCE.md), and [04_OPEN_QUESTIONS.md](04_OPEN_QUESTIONS.md) reflect the same understanding.
 - If documents conflict, [01_SPECIFICATION.md](01_SPECIFICATION.md) is the technical source, and other docs must be updated to match.
 - Clarification updates should be done in the same change set whenever possible.
+- Execution progress and implementation decisions should be tracked in [05_EXECUTION_READINESS.md](05_EXECUTION_READINESS.md) during migration delivery.
 
 ---
 
