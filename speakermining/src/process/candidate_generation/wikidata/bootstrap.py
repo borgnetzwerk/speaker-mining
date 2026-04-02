@@ -109,12 +109,6 @@ def ensure_output_bootstrap(repo_root: Path) -> None:
     _empty_csv(paths.fallback_stage_eligible_for_expansion_csv, ["candidate_id"])
     _empty_csv(paths.fallback_stage_ineligible_csv, ["candidate_id"])
 
-    if not paths.entities_json.exists():
-        _atomic_write_text(paths.entities_json, '{"entities": {}}')
-    if not paths.properties_json.exists():
-        _atomic_write_text(paths.properties_json, '{"properties": {}}')
-    if not paths.triples_events_json.exists():
-        _atomic_write_text(paths.triples_events_json, "[]")
     if not paths.summary_json.exists():
         _atomic_write_text(paths.summary_json, "{}")
 

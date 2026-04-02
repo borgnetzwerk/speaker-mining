@@ -5,7 +5,6 @@ Tests for Phase 1 fixes:
 - F6: Handler materializations use atomic writes for resilience
 """
 
-import json
 import tempfile
 from pathlib import Path
 
@@ -19,10 +18,10 @@ from process.candidate_generation.wikidata.handlers.triple_handler import Triple
 
 
 class TestInstancesHandlerOutputContract:
-    """Verify InstancesHandler outputs both instances.csv and entities.json."""
+    """Verify InstancesHandler outputs instances.csv deterministically."""
 
-    def test_instances_handler_materializes_entities_json(self, tmp_path: Path) -> None:
-        """InstancesHandler.materialize() should produce both instances.csv and entities.json."""
+    def test_instances_handler_materializes_instances_csv(self, tmp_path: Path) -> None:
+        """InstancesHandler.materialize() should produce instances.csv."""
         handler = InstancesHandler(tmp_path)
         
         # Process an entity_fetch query_response event
@@ -62,19 +61,6 @@ class TestInstancesHandlerOutputContract:
         assert list(df_instances.columns) == expected_columns, f"instances.csv columns mismatch: {list(df_instances.columns)} != {expected_columns}"
         assert len(df_instances) == 1
         assert df_instances.iloc[0]["qid"] == "Q100"
-        
-        # Assert entities.json exists and contains full entity payload
-        entities_json_path = output_csv.parent / "entities.json"
-        assert entities_json_path.exists(), "entities.json should be created"
-        
-        with open(entities_json_path, "r", encoding="utf-8") as f:
-            entities_data = json.load(f)
-        
-        assert isinstance(entities_data, dict), "entities.json should contain a dict"
-        assert "Q100" in entities_data, "Q100 should be in entities.json"
-        entity_doc = entities_data["Q100"]
-        assert entity_doc.get("id") == "Q100", "Entity document should contain original Wikidata structure"
-        assert "labels" in entity_doc, "Entity document should have labels"
 
 
 class TestClassesHandlerOutputContract:
@@ -294,4 +280,3 @@ class TestHandlerAtomicWrites:
         
         # Assert final files exist
         assert output_csv.exists(), "instances.csv should exist"
-        assert (output_csv.parent / "entities.json").exists(), "entities.json should exist"

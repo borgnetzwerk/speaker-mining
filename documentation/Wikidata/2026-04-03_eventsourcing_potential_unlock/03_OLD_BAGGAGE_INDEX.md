@@ -115,6 +115,7 @@ Goal: stop rewriting plain JSON artifacts on every discovered node, triple, or i
   - Task: remove the `entities.json` sidecar as part of the projection contract after the new handler path is stable.
   - Category: `B6`, `B8`
   - Impact: P2
+  - Status: completed; `InstancesHandler` now writes only `instances.csv`.
 
 ### Commit 3 - Finish incremental projection cutover
 

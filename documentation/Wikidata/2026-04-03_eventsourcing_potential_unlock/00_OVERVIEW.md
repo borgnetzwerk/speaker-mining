@@ -46,6 +46,31 @@ This folder provides a concrete remediation sequence with quick wins first, expe
 
 ---
 
+## Progress Update
+
+Completed and validated:
+
+1. Cache lookup indexing now avoids repeated full event-history scans.
+2. Event writes reuse a cached EventStore per repository root.
+3. Node and triple store updates are buffered and flushed at stage boundaries.
+4. Query inventory is maintained incrementally instead of being rebuilt from all events.
+5. Empty JSON sidecar bootstrap has been removed; the stores are now lazy.
+6. InstancesHandler no longer writes a compatibility entities.json sidecar; the CSV projection is the remaining handler output.
+
+Validation completed:
+
+- Notebook 21 ran end-to-end with `max_queries_per_run = 5` after the cleanup.
+- Regression tests passed for buffering, checkpoint reset, bootstrap, and append-only event writing.
+- Handler output tests now pass with `InstancesHandler` writing only `instances.csv`.
+
+Next cleanup target:
+
+1. Remove the remaining runtime mutable JSON sidecar compatibility path entirely once every consumer can read from event-backed or handler-backed projections.
+2. Delete sidecar-specific restore and fallback logic after the final consumer cutover.
+3. Retain only replayable event logs plus deterministic projections as the runtime contract.
+
+---
+
 ## Policy Alignment
 
 This plan follows migration policy for v3 rollout:

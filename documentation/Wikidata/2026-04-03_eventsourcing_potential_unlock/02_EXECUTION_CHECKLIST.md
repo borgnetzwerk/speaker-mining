@@ -58,6 +58,10 @@ Exit criterion:
 
 - Write count during one seed reduced by at least 80 percent.
 
+Status:
+
+- Completed and notebook-validated.
+
 ---
 
 ### Commit D - Checkpoint-lite materialization policy
@@ -75,6 +79,10 @@ Must pass:
 Exit criterion:
 
 - Step 6 wall time reduced by at least 30 percent on benchmark run.
+
+Status:
+
+- Completed via incremental query-inventory materialization and stage boundary flushing.
 
 ---
 
@@ -94,6 +102,10 @@ Exit criterion:
 
 - Handler run time scales with new event volume, not total history.
 
+Status:
+
+- Not yet required for this unlock wave; deferred to the next architectural pass.
+
 ---
 
 ### Commit F - Domain event emission rollout
@@ -111,6 +123,34 @@ Must pass:
 Exit criterion:
 
 - Event mix includes new domain events for Step 6 operations.
+
+Status:
+
+- Not yet required for this unlock wave; deferred to the next architectural pass.
+
+---
+
+### Commit G - Remove mutable JSON sidecars
+
+Scope:
+
+- Move every remaining consumer to event-backed or handler-backed projections.
+- Remove `entities.json`, `properties.json`, and any other mutable JSON sidecar compatibility writes from the runtime path.
+- Keep only replayable event logs and deterministic projections as runtime state.
+
+Must pass:
+
+- Restore/revert tests with no sidecar compatibility assumptions.
+- Projection determinism tests on repeated reruns.
+- Notebook 21 end-to-end validation with a clean runtime root.
+
+Exit criterion:
+
+- No mutable JSON sidecar is required for normal runtime operation.
+
+Status:
+
+- In progress: the handler-level entities.json compatibility output has been removed; the runtime store sidecars are the remaining consumer path.
 
 ---
 

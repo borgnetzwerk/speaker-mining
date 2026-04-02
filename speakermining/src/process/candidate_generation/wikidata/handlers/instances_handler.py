@@ -1,4 +1,4 @@
-"""InstancesHandler: Reads entity query_response events and maintains instances.csv and entities.json."""
+"""InstancesHandler: Reads entity query_response events and maintains instances.csv."""
 
 from __future__ import annotations
 
@@ -15,13 +15,12 @@ from process.candidate_generation.wikidata.handler_registry import HandlerRegist
 
 
 class InstancesHandler(EventHandler):
-    """Handler that maintains instances.csv and entities.json from entity query responses.
+    """Handler that maintains instances.csv from entity query responses.
     
     Processes query_response events where source_step="entity_fetch" and status="success",
     extracting and maintaining:
     - In-memory entity map (QID -> entity data)
     - instances.csv (denormalized entity metadata)
-    - entities.json (full entity payloads)
     """
 
     def __init__(self, repo_root: Path, handler_registry: Optional[HandlerRegistry] = None):
@@ -29,7 +28,6 @@ class InstancesHandler(EventHandler):
         self.handler_registry = handler_registry
         self._last_seq = 0
         self.entities: dict[str, dict] = {}  # QID -> denormalized record (for CSV)
-        self.full_entities: dict[str, dict] = {}  # QID -> full Wikidata entity (for JSON)
 
     def name(self) -> str:
         return "InstancesHandler"
@@ -85,11 +83,10 @@ class InstancesHandler(EventHandler):
             }
 
             self.entities[qid] = instance_record
-            self.full_entities[qid] = entity_data  # Store full Wikidata payload for entities.json
             self._last_seq = event.get("sequence_num", self._last_seq)
 
     def materialize(self, output_path: Path) -> None:
-        """Write instances.csv and entities.json deterministically (sorted by QID)."""
+        """Write instances.csv deterministically (sorted by QID)."""
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Sort for determinism
@@ -106,21 +103,6 @@ class InstancesHandler(EventHandler):
             df = pd.DataFrame(rows)
 
         _atomic_write_df(output_path, df)
-
-        # Write entities.json next to the materialized instances CSV.
-        entities_json_path = output_path.with_name("entities.json")
-        entities_json_path.parent.mkdir(parents=True, exist_ok=True)
-        entities_dict = {qid: self.full_entities[qid] for qid in sorted_qids}
-        entities_tmp = entities_json_path.with_suffix(".json.tmp")
-        try:
-            with open(entities_tmp, "w", encoding="utf-8") as f:
-                json.dump(entities_dict, f, indent=2, ensure_ascii=False)
-            entities_tmp.replace(entities_json_path)
-        except Exception as e:
-            # Clean up temp file if something went wrong
-            if entities_tmp.exists():
-                entities_tmp.unlink()
-            raise
 
     def update_progress(self, last_seq: int) -> None:
         """Update handler progress in registry."""

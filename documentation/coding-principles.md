@@ -64,6 +64,20 @@ Governance reference model:
 4. On the next run, guarded writers/loaders must detect recovery snapshots first, restore/merge them back into the primary file, and only then proceed.
 5. New process modules must not introduce unguarded output writes; migrations of legacy direct writes should be tracked in `open-tasks.md`.
 
+## Event-Sourcing Principles
+
+1. When event sourcing is in place, treat the append-only event log as the source of truth and treat CSV/JSON outputs as projections, caches, or snapshots unless a file is explicitly defined as canonical input.
+2. Prefer appending a domain event over mutating derived state in place; if a decision matters for replay, make it an event.
+3. Rebuild derived state from events, not from other derived state, unless the derived file is explicitly a cache or stage-local convenience artifact.
+4. Keep event append operations O(1) in the hot path; any required index, deduplication, or projection work should be incremental and flushed at clear boundaries.
+5. Make projections idempotent and replay-safe; rerunning the same event slice should produce the same output bytes or a documented equivalent ordering.
+6. Keep bootstrap and restart logic lazy and deterministic; do not require eager creation of empty sidecars when the runtime can create them on first write or restore.
+7. On restart, revert, or snapshot restore, clear in-memory caches before loading from disk so stale state cannot outlive the event stream.
+8. If a file is only a view of event data, do not use it as a write target in the hot loop.
+9. If a new behavior cannot be reconstructed from events, it is not yet an event-sourced behavior and should be modeled before implementation.
+10. Once event-backed or handler-backed projections exist for a workflow, remove mutable JSON sidecars and compatibility writes rather than preserving them as permanent runtime state.
+11. Transitional sidecars are acceptable only until the last consumer has moved to replayable projections; at that point they become technical debt and should be deleted.
+
 ## Notebook Observability Principles
 
 1. Production notebooks with network activity must emit append-only runtime events into `data/logs/notebooks/*.events.jsonl`.

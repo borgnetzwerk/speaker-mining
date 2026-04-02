@@ -102,7 +102,7 @@ Projection artifacts (`projections/`):
 1. `classes.csv`
 2. `core_classes.csv`
 3. `instances.csv`
-4. `entities.json`
+4. `entities.json` (lazy runtime sidecar; created on first write or snapshot restore)
 5. `triples.csv`
 6. `query_inventory.csv`
 7. `fallback_stage_candidates.csv`
@@ -111,9 +111,10 @@ Projection artifacts (`projections/`):
 10. `graph_stage_resolved_targets.csv`
 11. `graph_stage_unresolved_targets.csv`
 12. `properties.csv`
-13. `aliases_en.csv`
-14. `aliases_de.csv`
-15. `summary.json`
+13. `properties.json` (lazy runtime sidecar; created on first write or snapshot restore)
+14. `aliases_en.csv`
+15. `aliases_de.csv`
+16. `summary.json`
 
 Legacy note:
 
@@ -133,6 +134,11 @@ Legacy note:
 10. `graph_stage_resolved_targets.csv`: `mention_id`, `mention_type`, `mention_label`, `candidate_id`, `candidate_label`, `source`, `context`
 11. `graph_stage_unresolved_targets.csv`: `mention_id`, `mention_type`, `mention_label`, `context`
 
+Lazy sidecar note:
+
+1. `entities.json`, `properties.json`, and `triple_events.json` are runtime sidecars that are created on first write or when a checkpoint snapshot restores them.
+2. Bootstrap must not eagerly create empty copies of those sidecars.
+
 Eventstore envelope requirements (JSONL chunks):
 
 1. Required fields: `sequence_num`, `event_version`, `event_type`, `timestamp_utc`, `recorded_at`, `payload`
@@ -145,3 +151,4 @@ Eventstore envelope requirements (JSONL chunks):
 2. Projections are deterministic handler outputs rebuilt from eventstore events.
 3. Cache-hit and fallback-read telemetry do not create legacy v2 raw query files.
 4. Seed filtering and materialization path resolution run cache-first without uncapped network fetches.
+5. Runtime sidecars are allowed to be absent immediately after bootstrap; first write or restore creates them.

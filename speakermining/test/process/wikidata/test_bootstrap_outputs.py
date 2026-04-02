@@ -26,8 +26,9 @@ def test_empty_target_bootstraps_required_tree(tmp_path: Path) -> None:
     assert paths.fallback_stage_candidates_csv.exists()
     assert paths.fallback_stage_eligible_for_expansion_csv.exists()
     assert paths.fallback_stage_ineligible_csv.exists()
-    assert paths.entities_json.exists()
-    assert paths.properties_json.exists()
+    assert not paths.entities_json.exists()
+    assert not paths.properties_json.exists()
+    assert not paths.triples_events_json.exists()
 
 
 def test_initialize_bootstrap_files_does_not_overwrite_existing_runtime_refs(tmp_path: Path) -> None:
