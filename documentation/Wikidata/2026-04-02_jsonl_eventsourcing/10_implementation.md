@@ -1,5 +1,180 @@
 # Implementation
 
+## Action Log - 2026-04-02 (Session 6) - Phase 2.1/2.3/2.4: Event Expansion & Integration Testing
+
+- Summary:
+  - Confirmed Phase 2.1 (expansion engine event emission) already complete via write_query_event() in event_log.py.
+  - Implemented Phase 2.3: Extended event taxonomy with candidate_matched event type.
+  - Added write_candidate_matched_event() function for fallback matcher integration.
+  - Updated CandidatesHandler to process candidate_matched events with full schema (mention_id, mention_type, mention_label, candidate_id, candidate_label, source, context).
+  - Implemented comprehensive Phase 2.4 full integration tests on realistic sample data:
+    - Test emits query_response events (entity_fetch, inlinks) and candidate_matched events
+    - Runs full handler orchestrator pipeline
+    - Validates all projection outputs (instances, classes, triples, query_inventory, candidates)
+    - Verifies determinism: re-run produces byte-identical outputs
+    - Validates handler registry progress tracking
+  - Full Wikidata test suite now passes at **106 passed, 0 failed**.
+- Files created:
+  - `speakermining/test/process/wikidata/test_candidate_matched_events.py` — 3 event emission tests
+  - `speakermining/test/process/wikidata/test_phase2_full_integration.py` — 2 comprehensive integration tests
+- Files changed:
+  - `speakermining/src/process/candidate_generation/wikidata/event_log.py`
+    - Added "candidate_matched" to _EVENT_TYPES
+    - Added write_candidate_matched_event() function for fallback matcher
+  - `speakermining/src/process/candidate_generation/wikidata/handlers/candidates_handler.py`
+    - Updated process_batch() to read candidate fields directly from events (not in payload)
+    - Updated materialize() to write full candidate schema (mention_id, mention_type, mention_label, candidate_id, candidate_label, source, context)
+  - `speakermining/test/process/wikidata/test_candidates_handler.py`
+    - Updated tests to use new candidate_matched event structure
+- Contract updates:
+  - candidate_matched event type: emitted by fallback_matcher when string matches are found.
+  - CandidatesHandler: now materializes full candidate record with source and context.
+  - Phase 2.4 acceptance test: verifies end-to-end handler pipeline produces deterministic outputs.
+- Validation:
+  - Command: `.venv/Scripts/python.exe -m pytest speakermining/test/process/wikidata/test_candidate_matched_events.py -v`
+  - Result: `3 passed`
+  - Command: `.venv/Scripts/python.exe -m pytest speakermining/test/process/wikidata/test_phase2_full_integration.py -v`
+  - Result: `2 passed`
+  - Command: `.venv/Scripts/python.exe -m pytest speakermining/test/process/wikidata -q`
+  - Result: **106 passed, 0 failed**
+- Risks / follow-up:
+  - Phase 2.2 (checkpoint/resume integration) deferred; handler registry already provides resume capability
+  - Phase 2.5-2.6 (performance benchmarking, CI setup) deferred to Phase 2 optional work
+  - Ready for Phase 3 data migration or immediate production integration testing
+
+---
+
+## Action Log - 2026-04-02 (Session 5) - Phase 1.5/1.6/1.7: Shutdown + Checksums + Acceptance Gate
+
+- Summary:
+  - Implemented graceful shutdown primitives (`graceful_shutdown.py`) with SIGINT/SIGTERM support and `.shutdown` file monitoring.
+  - Implemented checksum utilities (`checksums.py`) using SHA256 and registry file `eventstore_checksums.txt`.
+  - Wired event-store chunk rotation to persist closed-chunk checksums immediately after emitting `eventstore_closed`.
+  - Added termination guard to event append path; writes are refused when termination is requested.
+  - Added Phase 1 acceptance determinism gate test to verify byte-identical orchestrated outputs across independent runs.
+  - Full Wikidata suite now passes at **101 passed, 0 failed**.
+- Files created:
+  - `speakermining/src/process/candidate_generation/wikidata/graceful_shutdown.py`
+  - `speakermining/src/process/candidate_generation/wikidata/checksums.py`
+  - `speakermining/test/process/wikidata/test_graceful_shutdown.py`
+  - `speakermining/test/process/wikidata/test_checksums.py`
+  - `speakermining/test/process/wikidata/test_phase1_acceptance_gate.py`
+- Files changed:
+  - `speakermining/src/process/candidate_generation/wikidata/event_writer.py`
+    - Added termination check before `append_event` writes.
+    - Added checksum persistence during `rotate_chunk` for closed chunk.
+- Contract updates:
+  - Graceful shutdown contract established: `should_terminate()` gates write operations; external stop via `.shutdown` file is supported.
+  - Checksum contract established: closed chunks are registered in `eventstore_checksums.txt` and can be validated by hash.
+  - Phase-1 acceptance determinism gate codified in test suite.
+- Validation:
+  - Command: `.venv/Scripts/python.exe -m pytest speakermining/test/process/wikidata/test_graceful_shutdown.py speakermining/test/process/wikidata/test_checksums.py -q`
+  - Result: `6 passed`
+  - Command: `.venv/Scripts/python.exe -m pytest speakermining/test/process/wikidata/test_phase1_acceptance_gate.py -q`
+  - Result: `1 passed`
+  - Command: `.venv/Scripts/python.exe -m pytest speakermining/test/process/wikidata -q`
+  - Result: **101 passed, 0 failed**
+- Risks / follow-up:
+  - Remaining work shifts to Phase 2 integration: emit richer event types from runtime paths and converge projections to handler-first orchestration.
+  - Operational runbook updates should document checksum validation and shutdown file usage.
+
+---
+
+## Action Log - 2026-04-02 (Session 4) - Phase 1.3 Completion + Phase 1.4 Orchestrator
+
+- Summary:
+  - Implemented remaining Phase 1.3 handlers: `ClassesHandler`, `TripleHandler`, and `CandidatesHandler` (stub).
+  - Implemented Phase 1.4 orchestrator (`handlers/orchestrator.py`) for deterministic sequential handler execution.
+  - Orchestrator now registers handlers, reads chunk events, resumes from `eventhandler.csv`, materializes outputs, and updates progress.
+  - Added 10 targeted tests for new handlers and 2 integration tests for orchestrator sequencing/idempotent resume.
+  - Full Wikidata test suite now passes at **94 passed, 0 failed**.
+- Files created:
+  - `speakermining/src/process/candidate_generation/wikidata/handlers/classes_handler.py`
+  - `speakermining/src/process/candidate_generation/wikidata/handlers/triple_handler.py`
+  - `speakermining/src/process/candidate_generation/wikidata/handlers/candidates_handler.py`
+  - `speakermining/src/process/candidate_generation/wikidata/handlers/orchestrator.py`
+  - `speakermining/test/process/wikidata/test_classes_handler.py`
+  - `speakermining/test/process/wikidata/test_triple_handler.py`
+  - `speakermining/test/process/wikidata/test_candidates_handler.py`
+  - `speakermining/test/process/wikidata/test_orchestrator_handlers.py`
+- Contract updates:
+  - `ClassesHandler`: class rollup projection with deterministic class ordering and core-path resolution.
+  - `TripleHandler`: deduplicated triple projection from entity claim edges (`subject`, `predicate`, `object`).
+  - `CandidatesHandler`: phase-1 stub that materializes stable empty schema and accepts `candidate_matched` events.
+  - `run_handlers(repo_root, batch_size=1000)`: canonical sequential runner for handler progress + materialization.
+- Validation:
+  - Command: `.venv/Scripts/python.exe -m pytest speakermining/test/process/wikidata/test_classes_handler.py speakermining/test/process/wikidata/test_triple_handler.py speakermining/test/process/wikidata/test_candidates_handler.py -q`
+  - Result: `10 passed`
+  - Command: `.venv/Scripts/python.exe -m pytest speakermining/test/process/wikidata/test_orchestrator_handlers.py -q`
+  - Result: `2 passed`
+  - Command: `.venv/Scripts/python.exe -m pytest speakermining/test/process/wikidata -q`
+  - Result: **94 passed, 0 failed**
+- Risks / follow-up:
+  - Phase 1.5 still open: graceful shutdown wiring (SIGINT/SIGTERM + `.shutdown`).
+  - Phase 1.6 still open: checksum integration for closed chunks.
+  - Phase 1.7 still open: final acceptance-gate tests (determinism + resume interruption scenarios at phase level).
+
+---
+
+## Action Log - 2026-04-02 (Session 3 cont'd) - Phase 1.3.4: QueryInventoryHandler
+
+- Summary:
+  - Implemented QueryInventoryHandler: reads all query_response events, deduplicates by query_hash, maintains status preference.
+  - Added 9 comprehensive tests (dedup, status ranking, count tracking, materialization, determinism, sorting).
+  - Achieved **82 tests passing, 0 failed** (up from 73; +9 handler tests).
+  - Now completed: EventHandler base + InstancesHandler + QueryInventoryHandler.
+  - Ready for remaining 3 handlers (ClassesHandler, TripleHandler, CandidatesHandler stub).
+- Files created:
+  - `speakermining/src/process/candidate_generation/wikidata/handlers/query_inventory_handler.py` — query dedup handler (Phase 1.3.4)
+  - `speakermining/test/process/wikidata/test_query_inventory_handler.py` — 9 handler tests
+- Contract updates:
+  - QueryInventoryHandler: deduplicates by query_hash; keeps highest-rank status (success > cache_hit > fallback_cache > error).
+  - Materializes query_inventory.csv sorted by endpoint + normalized_query + query_hash for determinism.
+- Validation:
+  - Command: `.venv/Scripts/python.exe -m pytest speakermining/test/process/wikidata/test_query_inventory_handler.py -v`
+  - Result: `9 passed`
+  - Command: `.venv/Scripts/python.exe -m pytest speakermining/test/process/wikidata/ -q`
+  - Result: **82 passed, 0 failed**
+- Risks / follow-up:
+  - ClassesHandler (Phase 1.3.2) and TripleHandler (Phase 1.3.3) next; require class hierarchy reasoning.
+  - CandidatesHandler (Phase 1.3.5) is a stub for now (fallback matching events don't exist until Phase 3).
+  - Orchestrator, graceful shutdown, checksums deferred to Phase 1.4+.
+
+---
+
+## Action Log - 2026-04-02 (Session 3) - Phase 1.2-1.3.1: Handler Infrastructure + InstancesHandler
+
+- Summary:
+  - Implemented EventHandler base class with standard interface (name, last_processed_sequence, process_batch, materialize, update_progress).
+  - Implemented HandlerRegistry for tracking progress in eventhandler.csv with atomic read-modify-write semantics.
+  - Implemented InstancesHandler: reads entity_fetch query_response events and maintains instances.csv + entity metadata.
+  - Added 10 comprehensive handler registry tests (initialization, registration, progress tracking, recovery, CSV format).
+  - Added 9 comprehensive InstancesHandler tests (metadata extraction, filtering, materialization, determinism, language support).
+  - Achieved **73 tests passing, 0 failed** (up from 64; +10 registry + 9 handler tests).
+  - Foundation complete for remaining handlers (ClassesHandler, TripleHandler, QueryInventoryHandler, CandidatesHandler).
+- Files created:
+  - `speakermining/src/process/candidate_generation/wikidata/event_handler.py` — base class with abstract interface
+  - `speakermining/src/process/candidate_generation/wikidata/handler_registry.py` — eventhandler.csv tracker with atomic updates
+  - `speakermining/src/process/candidate_generation/wikidata/handlers/instances_handler.py` — entity metadata handler (Phase 1.3.1)
+  - `speakermining/test/process/wikidata/test_handler_registry.py` — 10 registry tests
+  - `speakermining/test/process/wikidata/test_instances_handler.py` — 9 handler tests
+- Contract updates:
+  - EventHandler interface: name(), last_processed_sequence(), process_batch(events), materialize(path), update_progress(seq)
+  - HandlerRegistry: manages eventhandler.csv with atomic row updates and recovery from corruption
+  - InstancesHandler: materializes instances.csv deterministically (sorted by QID) from entity_fetch events
+- Validation:
+  - Command: `.venv/Scripts/python.exe -m pytest speakermining/test/process/wikidata/test_handler_registry.py -v`
+  - Result: `10 passed`
+  - Command: `.venv/Scripts/python.exe -m pytest speakermining/test/process/wikidata/test_instances_handler.py -v`
+  - Result: `9 passed`
+  - Command: `.venv/Scripts/python.exe -m pytest speakermining/test/process/wikidata/ -q`
+  - Result: **73 passed, 0 failed**
+- Risks / follow-up:
+  - Remaining handlers (ClassesHandler, TripleHandler, QueryInventoryHandler, CandidatesHandler stub) follow same pattern.
+  - Orchestrator runner to execute handlers in sequence and track progress remains.
+  - Graceful shutdown (signal handling) and checksums integration deferred to Phase 1.4+.
+
+---
 ## Action Log - 2026-04-02 (Session 2) - Runtime Rewiring: v2 Dependency Removal & Full Test Suite Green
 
 - Summary:
