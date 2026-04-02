@@ -104,7 +104,7 @@ Exit criterion:
 
 Status:
 
-- Not yet required for this unlock wave; deferred to the next architectural pass.
+- Not yet required for this unlock wave; deferred to the next architectural pass and likely not completed within this month.
 
 ---
 

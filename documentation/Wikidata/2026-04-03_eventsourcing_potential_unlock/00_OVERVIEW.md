@@ -69,6 +69,16 @@ Next cleanup target:
 2. Delete sidecar-specific restore and fallback logic after the final consumer cutover.
 3. Retain only replayable event logs plus deterministic projections as the runtime contract.
 
+Untapped event-sourcing potential (important):
+
+1. Runtime still logs mostly `query_response`, which is insufficient for rich operational statistics and decision-level replay diagnostics.
+2. Because domain decision events are missing, heartbeat and minute-level runtime summaries are weaker than they should be.
+3. This gap affects observability, performance analysis, and historical reasoning about why expansion decisions happened.
+4. Commit F (domain events) remains a major architecture unlock and should be treated as a deliberate later-wave deliverable, not expected to be fully closed this month.
+
+Correct event sourcing would mean every decision that has future implications is logged: Candidate found for expansion, candidate matched, instance found to be a class, path to core class found, etc.
+These are the fundamental building blocks of eventsourcing: eventhandlers reading AND WRITING events.
+
 ---
 
 ## Policy Alignment

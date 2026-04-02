@@ -23,6 +23,60 @@ Scope: Wikidata candidate-generation and graph-quality tasks only
 
 ## Priority Items
 
+### WDT-007: Graceful notebook exit without hard interrupt corruption
+
+- Status: [ ]
+- Priority: P0
+- Owner: unassigned
+- Problem:
+  Notebook execution currently depends on hard `CTRL+C` interruption, which can break writes in progress and leave partial runtime state.
+- Requirements:
+  1. Add a graceful termination path that does not rely on process-kill semantics.
+  2. Use a cooperative stop signal checked during long loops (for example a shutdown marker file or equivalent runtime flag).
+  3. Ensure write paths complete atomic sections before exit.
+  4. Emit a clear stop reason in checkpoint/event logs when graceful termination is requested.
+- Acceptance criteria:
+  1. User can request termination without forcing `KeyboardInterrupt`.
+  2. Run exits at a safe boundary with deterministic state.
+  3. No partial-write corruption appears in projections or event chunks after graceful stop.
+
+### WDT-008: Restore runtime heartbeat and operator progress visibility
+
+- Status: [ ]
+- Priority: P0
+- Owner: unassigned
+- Problem:
+  Heartbeat/progress output regressed, reducing operator visibility during long Stage A runs.
+- Requirements:
+  1. Restore periodic progress heartbeat during graph expansion and integrity/fallback stages.
+  2. Report at minimum: current seed, network calls used, elapsed time, and approximate rate.
+  3. Keep output cadence configurable (reuse existing progress settings where possible).
+  4. Preserve low overhead so heartbeat logging does not materially slow runtime.
+- Acceptance criteria:
+  1. Long-running notebook cells produce regular status output without waiting for stage completion.
+  2. Heartbeat output is present in Notebook 21 and useful for operational monitoring.
+  3. Progress output remains stable across append/restart/revert modes.
+* note: the eventsourcing should theoretically provide plenty of information for the heartbeat to communicate what happened in the last minute. But due to Issues such as WDT-009, many events that should be logged are currently not logged. While this is the case, we can't really unlock the full potential of the heartbeat.
+
+### WDT-009: Expand event model beyond query_response (deferred)
+
+- Status: [ ]
+- Priority: P1
+- Owner: unassigned
+- Problem:
+  Event sourcing remains underused because runtime currently persists mostly `query_response` events and misses many durable decision events.
+- Requirements:
+  1. Define and emit domain events for persistent decisions with future implications.
+  2. Candidate minimum set: `entity_discovered`, `entity_expanded`, `triple_discovered`, `class_membership_resolved`, `expansion_decision`, and eligibility transition events.
+  3. Add replay/invariant tests proving these events are sufficient for deterministic analysis and projection diagnostics.
+  4. Keep `query_response` for provenance, but do not rely on it as the only event type.
+- Acceptance criteria:
+  1. Event stream contains domain events that capture runtime decisions and state transitions.
+  2. Heartbeat and statistical summaries can be derived from recent domain events.
+  3. Diagnostic analytics no longer depend on ad-hoc reconstruction from query payloads alone.
+- Delivery note:
+  This is explicitly a later-wave task and is not expected to be fully resolved this month.
+
 ### WDT-006: Checkpoint snapshots must preserve and restore eventlog state
 
 - Status: [x]
