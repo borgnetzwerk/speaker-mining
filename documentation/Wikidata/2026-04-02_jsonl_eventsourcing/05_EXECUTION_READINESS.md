@@ -4,6 +4,8 @@
 **Status:** Ready for Phase 1 implementation kickoff  
 **Scope:** Preparation for implementing and documenting v2 -> v3 JSONL event-sourcing migration
 
+**Runtime Policy:** v2 is decommissioned and will not be executed again. Migration execution is v3-only.
+
 ---
 
 ## 1. Current v2 Code Surface (Verified)
@@ -162,11 +164,10 @@ Template:
 
 ## 6. Immediate Next Steps
 
-- Resolve or quarantine the known fallback-stage baseline test mismatch before parity comparisons.
 - Start Phase 1.1 implementation from `03_MIGRATION_SEQUENCE.md` with event writer + chunk catalog first.
 - Add dedicated tests for:
   - sequence continuity across chunk boundaries
   - catalog rebuild from boundary events
   - incomplete-line recovery
   - deterministic replay byte parity
-- Add a migration validation report template with required mismatch classification fields (preserved, low-hanging fix, known legacy issue, new regression).
+- Use `06_MIGRATION_VALIDATION_REPORT_TEMPLATE.md` for every migration validation run; mismatch classification fields are mandatory.

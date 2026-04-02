@@ -72,12 +72,12 @@ This document now serves as the final decision register for the former open ques
 **Decision:** Implement only baseline, low-effort metrics now; extend later.
 
 ### Q15: Rollback Plan
-**Decision:** Keep v2 path available through transition and maintain backups for rollback.
+**Decision:** Rollback targets v3 snapshots/checkpoints only. v2 runtime path is decommissioned.
 
 ### Q16: Migration Validation Rigor
 **Decision:** Medium validation baseline:
 - Rebuild projections from migrated events
-- Compare against v2 projections
+- Compare against classified baselines and v3 quality gates
 - Escalate to deeper audits if mismatch is detected
 
 ### Q17: Design Review & Approval Process
@@ -87,7 +87,7 @@ This document now serves as the final decision register for the former open ques
 **Decision:** Keep gated phases; allow schedule adjustment without lowering quality gates.
 
 ### Q19: Version Compatibility Strategy
-**Decision:** v3 is the active stable format; future v4 requires explicit migration.
+**Decision:** v3 is the only active runtime format; v2 compatibility is not retained. Future v4 requires explicit migration.
 
 ### Q20: Performance Targets
 **Decision:** Best-effort baseline now; formal SLOs deferred.
@@ -112,7 +112,7 @@ This document now serves as the final decision register for the former open ques
 | Q12 | Test dataset size | Resolved | ~1000 events in Phase 1 |
 | Q13 | Shutdown signaling | Resolved | `.shutdown` file pattern |
 | Q14 | Observability scope | Resolved | Baseline now, expand later |
-| Q15 | Rollback | Resolved | Keep v2 path during transition + backups |
+| Q15 | Rollback | Resolved | Roll back to v3 snapshots only; no v2 runtime path |
 | Q16 | Migration validation | Resolved | Medium baseline validation |
 | Q17 | Governance | Resolved | Approved for implementation |
 | Q18 | Phase flexibility | Resolved | Gated phases with schedule flexibility |

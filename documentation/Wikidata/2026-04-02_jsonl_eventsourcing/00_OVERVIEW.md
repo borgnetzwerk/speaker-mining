@@ -8,6 +8,11 @@
 
 ## Executive Summary
 
+**Policy Clarification (effective immediately):**
+- v2 runtime is decommissioned and will not be executed again.
+- Migration work proceeds as v3-only from this point forward.
+- Legacy v2 query-response data is used only as import input into v3.
+
 This migration evolves the Wikidata candidate generation pipeline from a v2 **checkpoint-based system** with append-only raw query files to a full **JSONL event-sourcing architecture**. The goal is to:
 
 1. **Centralize event management**: Replace scattered JSON files (`raw_queries/`) and CSV aggregates with a single authoritative chunk chain under `chunks/`
@@ -120,14 +125,14 @@ This migration is planned in three phases:
 - Migrate query_inventory rebuilding from current process to InventoryHandler
 - Implement checkpoint/resume using handler sequence numbers
 - Add checksum generation and validation for closed chunks
-- **Completion gate**: New pipeline produces identical output to v2 for a full dataset run
+- **Completion gate**: New pipeline satisfies v3 quality gates and mismatch classification policy
 
 ### Phase 3: Data Migration + Cleanup
 - Migrate all v2 `raw_queries/` events into the new chunk chain as legacy import events
-- Validate projections match the original v2 state
+- Validate projections against v3 quality gates and classified mismatch outcomes
 - Archive old `raw_queries/` for reference
 - Document the transition and establish a v3-only policy
-- **Completion gate**: Full production run successful; v2 code paths removed
+- **Completion gate**: Full production run successful; v2 code paths already removed
 
 ---
 
@@ -162,7 +167,7 @@ This migration is planned in three phases:
 7. **Migration Integrity**: Legacy v2 data migrates without loss; checksums validate on rebuild
 8. **Graceful Termination**: Process can be interrupted and resumed without state corruption
 9. **Performance Parity**: Event-sourced pipeline is as fast or faster than v2 for typical runs
-10. **No Legacy Cruft**: Post-migration, no v2 code paths or compatibility shims remain
+10. **No Legacy Cruft**: v3 runtime contains no v2 code paths or compatibility shims
 
 ---
 

@@ -4,6 +4,8 @@
 **Status:** Specification Phase (Pre-Implementation)  
 **Link to previous migration:** [2026-03-31 v2 Migration](../2026-03-31_transition/)
 
+**Runtime Policy (effective immediately):** v2 will not be executed again. All ongoing and future execution is v3-only. Legacy v2 query-response data is retained only as one-time import input.
+
 ---
 
 ## Quick Links
@@ -16,6 +18,7 @@
 | [03_MIGRATION_SEQUENCE.md](03_MIGRATION_SEQUENCE.md) | Step-by-step implementation plan (3 phases) | Project managers, engineers |
 | [04_OPEN_QUESTIONS.md](04_OPEN_QUESTIONS.md) | Resolved decision register for implementation | Decision-makers, architects |
 | [05_EXECUTION_READINESS.md](05_EXECUTION_READINESS.md) | Verified code mapping, baseline status, and action-log protocol | Implementers, reviewers |
+| [06_MIGRATION_VALIDATION_REPORT_TEMPLATE.md](06_MIGRATION_VALIDATION_REPORT_TEMPLATE.md) | Standard validation report with mandatory mismatch classification | Implementers, reviewers |
 
 ---
 
@@ -321,6 +324,7 @@ If an issue surfaces during implementation:
 - **Phase progress**: Check [03_MIGRATION_SEQUENCE.md](03_MIGRATION_SEQUENCE.md) completion gates
 - **Known decisions**: Check [04_OPEN_QUESTIONS.md](04_OPEN_QUESTIONS.md) resolved items
 - **Risk register**: Check [02_GAP_ANALYSIS.md](02_GAP_ANALYSIS.md) risk assessment table
+- **Validation reporting**: Use [06_MIGRATION_VALIDATION_REPORT_TEMPLATE.md](06_MIGRATION_VALIDATION_REPORT_TEMPLATE.md) for each migration validation cycle
 
 ---
 

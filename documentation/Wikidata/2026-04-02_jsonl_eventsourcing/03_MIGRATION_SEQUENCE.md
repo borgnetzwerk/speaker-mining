@@ -10,6 +10,11 @@
 
 This plan breaks the v3 migration into three sequential phases, each with explicit completion gates. Phases are **not parallel** to minimize integration risk.
 
+Policy clarification (effective immediately):
+- v2 runtime is decommissioned and will not be executed again.
+- No dual-write mode is permitted.
+- Legacy v2 query-response data is import-only input into v3.
+
 ### Canonical Chunk Rule (Applies To All Phases)
 
 - Canonical chunk linkage is stored in boundary events, not in catalog rows:
@@ -44,7 +49,7 @@ Implementation constraints:
 | Phase | Effort | Gate | Outcome |
 |-------|--------|------|---------|
 | Phase 1: Scaffolding | High | Event store + 5 handlers working on test data | Proof of concept for event-driven architecture |
-| Phase 2: Integration | High | Graph expansion emits events; full dataset runs match v2 | Production-ready on new machinery |
+| Phase 2: Integration | High | Graph expansion emits events; full dataset runs pass v3 quality gates | Production-ready on new machinery |
 | Phase 3: Migration | Medium | All v2 data migrated; v2 code removed | v3-only production system |
 
 ---

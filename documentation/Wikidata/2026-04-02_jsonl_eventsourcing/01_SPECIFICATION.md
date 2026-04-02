@@ -646,6 +646,8 @@ Log levels per component:
 
 ## 10. Transitions from V2
 
+**Runtime policy:** v2 is not executed anymore. Legacy v2 data is imported once into v3; runtime compatibility with v2 is out of scope.
+
 ### 10.1 Data Migration (Phase 3)
 For each event in v2 `raw_queries/`:
 ```python
@@ -677,7 +679,7 @@ After migration:
 1. Truncate all projection CSVs
 2. Reset eventhandler.csv to all sequences = 0
 3. Run handlers to rebuild from eventstore
-4. Validate rebuilt CSVs match v2 originals
+4. Validate rebuilt artifacts via v3 quality gates and mismatch-classification reporting
 
 ### 10.3 v3-Only Policy
 Like v2, establish a v3-only policy post-migration:
@@ -751,6 +753,7 @@ See [04_OPEN_QUESTIONS.md](04_OPEN_QUESTIONS.md) for the finalized decision regi
     - Use explicit dependency ordering (not only fixed sequence), because class-resolution and expansion decisions feed later handlers.
 3. **Backward Compatibility with v2**
     - Use a one-time transition/import handler for legacy `raw_queries/*.json` query-response files into v3 events.
+    - Do not keep runtime compatibility code paths for v2 after import.
     - Treat non-response legacy artifacts as rebuildable projections, not canonical source data.
 4. **Snapshot Granularity**
     - Take one snapshot before every run.
@@ -774,7 +777,7 @@ See [04_OPEN_QUESTIONS.md](04_OPEN_QUESTIONS.md) for the finalized decision regi
 - ✅ Graph expansion engine emits events to the chunk chain (not raw_queries/)
 - ✅ Fallback matcher emits candidate_matched events
 - ✅ Checkpoint/resume using handler sequence numbers functional
-- ✅ New pipeline produces identical output to v2 for full dataset
+- ✅ New pipeline satisfies v3 quality gates; mismatches are classified per policy
 - ✅ Determinism tests pass (same input → identical output)
 
 **Phase 3 Completion (Migration & Cleanup):**
