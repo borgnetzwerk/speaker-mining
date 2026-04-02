@@ -2,8 +2,12 @@ from __future__ import annotations
 
 # pyright: reportMissingImports=false
 
+import json
+from datetime import datetime
 from pathlib import Path
+import zipfile
 
+from process.candidate_generation.wikidata.event_log import iter_query_events, write_query_event
 from process.candidate_generation.wikidata.checkpoint import (
     CheckpointManifest,
     clear_runtime_artifacts,
@@ -127,6 +131,85 @@ def test_revert_mode_uses_previous_checkpoint_run_id(tmp_path: Path) -> None:
     assert result.checkpoint_stats["resume_mode"] == "append"
     restored_entities = paths.entities_json.read_text(encoding="utf-8")
     assert '"Q2"' not in restored_entities
+
+
+def test_revert_mode_restores_eventlog_to_previous_checkpoint(tmp_path: Path) -> None:
+    write_query_event(
+        tmp_path,
+        endpoint="wikidata_api",
+        normalized_query="entity Q1",
+        source_step="entity_fetch",
+        status="success",
+        key="Q1",
+        payload={"entities": {"Q1": {"id": "Q1"}}},
+        http_status=200,
+        error=None,
+    )
+
+    first_path = write_checkpoint_manifest(
+        tmp_path,
+        CheckpointManifest(
+            run_id="run-1",
+            start_timestamp="2026-03-31T10:00:00Z",
+            latest_checkpoint_timestamp="2026-03-31T10:01:00Z",
+            stop_reason="seed_complete",
+            seeds_completed=1,
+            seeds_remaining=1,
+            total_nodes_discovered={"items": 1},
+            total_nodes_expanded={"items": 1},
+            total_queries=1,
+            inlinks_cursor=None,
+            incomplete=False,
+        ),
+    )
+    write_checkpoint_snapshot(tmp_path, first_path)
+
+    write_query_event(
+        tmp_path,
+        endpoint="wikidata_api",
+        normalized_query="entity Q2",
+        source_step="entity_fetch",
+        status="success",
+        key="Q2",
+        payload={"entities": {"Q2": {"id": "Q2"}}},
+        http_status=200,
+        error=None,
+    )
+
+    second_path = write_checkpoint_manifest(
+        tmp_path,
+        CheckpointManifest(
+            run_id="run-2",
+            start_timestamp="2026-03-31T11:00:00Z",
+            latest_checkpoint_timestamp="2026-03-31T11:01:00Z",
+            stop_reason="seed_complete",
+            seeds_completed=2,
+            seeds_remaining=0,
+            total_nodes_discovered={"items": 2},
+            total_nodes_expanded={"items": 2},
+            total_queries=2,
+            inlinks_cursor=None,
+            incomplete=False,
+        ),
+    )
+    write_checkpoint_snapshot(tmp_path, second_path)
+
+    run_graph_expansion_stage(
+        tmp_path,
+        seeds=[],
+        targets=[],
+        core_class_qids=set(),
+        config=ExpansionConfig(max_depth=0, max_nodes=0, total_query_budget=0, per_seed_query_budget=0),
+        requested_mode="revert",
+    )
+
+    restored_keys = {
+        str(event.get("payload", {}).get("key", ""))
+        for event in iter_query_events(tmp_path)
+        if isinstance(event, dict)
+    }
+    assert "Q1" in restored_keys
+    assert "Q2" not in restored_keys
 
 
 def test_restart_mode_clears_existing_artifacts(tmp_path: Path) -> None:
@@ -264,3 +347,170 @@ def test_run_seed_expansion_resumes_inlinks_from_cursor_offset(tmp_path: Path, m
 
     assert offsets
     assert offsets[0] == 400
+
+
+def _manifest_for(run_id: str, ts: str, *, total_queries: int = 1) -> CheckpointManifest:
+    return CheckpointManifest(
+        run_id=run_id,
+        start_timestamp=ts,
+        latest_checkpoint_timestamp=ts,
+        stop_reason="seed_complete",
+        seeds_completed=1,
+        seeds_remaining=0,
+        total_nodes_discovered={"items": total_queries},
+        total_nodes_expanded={"items": total_queries},
+        total_queries=total_queries,
+        inlinks_cursor=None,
+        incomplete=False,
+    )
+
+
+def _snapshot_ts(stem_or_zip_stem: str) -> datetime:
+    _prefix, ts_token, _unique = str(stem_or_zip_stem).rsplit("__", 2)
+    return datetime.strptime(ts_token, "%Y%m%dT%H%M%SZ")
+
+
+def test_snapshot_retention_keeps_3_unzipped_and_zips_oldest(tmp_path: Path) -> None:
+    manifests: list[Path] = []
+    for idx, ts in enumerate(
+        [
+            "2026-03-31T10:00:00Z",
+            "2026-03-31T10:01:00Z",
+            "2026-03-31T10:02:00Z",
+            "2026-03-31T10:03:00Z",
+        ],
+        start=1,
+    ):
+        manifests.append(write_checkpoint_manifest(tmp_path, _manifest_for(f"run-{idx}", ts, total_queries=idx)))
+
+    snapshots_dir = build_artifact_paths(tmp_path).checkpoints_dir / "snapshots"
+    unzipped = sorted([path for path in snapshots_dir.iterdir() if path.is_dir()])
+    zipped = sorted([path for path in snapshots_dir.iterdir() if path.suffix == ".zip"])
+
+    assert len(unzipped) == 3
+    assert len(zipped) == 1
+    assert zipped[0].stem == manifests[0].stem
+    assert not (snapshots_dir / manifests[0].stem).exists()
+
+
+def test_snapshot_contains_manifest_and_zip_keeps_manifest(tmp_path: Path) -> None:
+    first_manifest = write_checkpoint_manifest(
+        tmp_path,
+        _manifest_for("run-1", "2026-03-31T10:00:00Z", total_queries=1),
+    )
+    snapshots_dir = build_artifact_paths(tmp_path).checkpoints_dir / "snapshots"
+    first_snapshot_dir = snapshots_dir / first_manifest.stem
+    assert (first_snapshot_dir / first_manifest.name).exists()
+
+    # Create enough checkpoints to force zipping of the first snapshot.
+    for idx, ts in enumerate(
+        [
+            "2026-03-31T10:01:00Z",
+            "2026-03-31T10:02:00Z",
+            "2026-03-31T10:03:00Z",
+        ],
+        start=2,
+    ):
+        write_checkpoint_manifest(tmp_path, _manifest_for(f"run-{idx}", ts, total_queries=idx))
+
+    first_zip = snapshots_dir / f"{first_manifest.stem}.zip"
+    assert first_zip.exists()
+    with zipfile.ZipFile(first_zip, "r") as zf:
+        names = set(zf.namelist())
+    assert f"{first_manifest.stem}/{first_manifest.name}" in names
+
+
+def test_restore_checkpoint_snapshot_works_when_snapshot_is_zipped(tmp_path: Path) -> None:
+    paths = build_artifact_paths(tmp_path)
+
+    first_path = write_checkpoint_manifest(
+        tmp_path,
+        _manifest_for("run-1", "2026-03-31T10:00:00Z", total_queries=1),
+    )
+    paths.entities_json.write_text('{"entities": {"Q1": {"id": "Q1"}}}', encoding="utf-8")
+    write_checkpoint_snapshot(tmp_path, first_path)
+
+    for idx, ts in enumerate(
+        [
+            "2026-03-31T10:01:00Z",
+            "2026-03-31T10:02:00Z",
+            "2026-03-31T10:03:00Z",
+        ],
+        start=2,
+    ):
+        write_checkpoint_manifest(tmp_path, _manifest_for(f"run-{idx}", ts, total_queries=idx))
+
+    snapshots_dir = build_artifact_paths(tmp_path).checkpoints_dir / "snapshots"
+    assert (snapshots_dir / f"{first_path.stem}.zip").exists()
+
+    paths.entities_json.write_text('{"entities": {"Q9": {"id": "Q9"}}}', encoding="utf-8")
+    from process.candidate_generation.wikidata.checkpoint import restore_checkpoint_snapshot
+
+    restore_checkpoint_snapshot(tmp_path, first_path)
+
+    restored_entities = paths.entities_json.read_text(encoding="utf-8")
+    assert '"Q1"' in restored_entities
+    assert '"Q9"' not in restored_entities
+
+
+def test_snapshot_retention_keeps_daily_latest_zips_and_limits_non_daily_to_7(tmp_path: Path) -> None:
+    timestamps = [
+        "2026-03-31T09:00:00Z",
+        "2026-03-31T09:01:00Z",
+        "2026-03-31T09:02:00Z",
+        "2026-03-31T09:03:00Z",
+        "2026-03-31T09:04:00Z",
+        "2026-03-31T09:05:00Z",
+        "2026-03-31T09:06:00Z",
+        "2026-03-31T09:07:00Z",
+        "2026-03-31T09:08:00Z",
+        "2026-03-31T09:09:00Z",
+        "2026-04-01T08:00:00Z",
+        "2026-04-01T08:01:00Z",
+        "2026-04-01T08:02:00Z",
+        "2026-04-01T08:03:00Z",
+        "2026-04-01T08:04:00Z",
+    ]
+
+    for idx, ts in enumerate(timestamps, start=1):
+        write_checkpoint_manifest(tmp_path, _manifest_for(f"run-{idx}", ts, total_queries=idx))
+
+    snapshots_dir = build_artifact_paths(tmp_path).checkpoints_dir / "snapshots"
+    zipped = sorted([path for path in snapshots_dir.iterdir() if path.suffix == ".zip"])
+
+    by_day: dict[str, list[Path]] = {}
+    for path in zipped:
+        ts = _snapshot_ts(path.stem)
+        by_day.setdefault(ts.strftime("%Y-%m-%d"), []).append(path)
+
+    protected: set[Path] = set()
+    for paths_for_day in by_day.values():
+        latest = max(paths_for_day, key=lambda p: _snapshot_ts(p.stem))
+        protected.add(latest)
+
+    non_daily = [path for path in zipped if path not in protected]
+    assert len(non_daily) <= 7
+
+
+def test_checkpoint_creation_log_is_jsonl(tmp_path: Path) -> None:
+    write_checkpoint_manifest(
+        tmp_path,
+        _manifest_for("run-1", "2026-03-31T10:00:00Z", total_queries=1),
+    )
+    write_checkpoint_manifest(
+        tmp_path,
+        _manifest_for("run-2", "2026-03-31T10:01:00Z", total_queries=2),
+    )
+
+    timeline_path = build_artifact_paths(tmp_path).checkpoints_dir / "checkpoint_timeline.jsonl"
+    assert timeline_path.exists()
+
+    events = []
+    for line in timeline_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        events.append(json.loads(line))
+
+    assert len(events) == 2
+    assert all(event.get("event_type") == "checkpoint_created" for event in events)

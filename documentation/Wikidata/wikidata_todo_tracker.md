@@ -23,6 +23,30 @@ Scope: Wikidata candidate-generation and graph-quality tasks only
 
 ## Priority Items
 
+### WDT-006: Checkpoint snapshots must preserve and restore eventlog state
+
+- Status: [x]
+- Priority: P0
+- Owner: unassigned
+- Problem:
+  Checkpoint snapshots currently risk diverging from the actual event-sourced state because eventstore chunk history is not treated as first-class snapshot data.
+- Requirements:
+  1. Snapshot must include eventstore artifacts (`chunks/`, `chunk_catalog.csv`, `eventstore_checksums.txt`).
+  2. Restore/revert must clear current eventstore artifacts and restore them from the selected checkpoint snapshot.
+  3. Regression tests must prove that events appended after checkpoint A are absent after reverting to checkpoint A.
+  4. Keep resume semantics deterministic across append, restart, and revert.
+- Acceptance criteria:
+  1. Revert to previous checkpoint removes post-checkpoint query events from the active eventlog.
+  2. Snapshot/restore preserves eventstore chunk continuity for resumed runs.
+  3. Existing checkpoint tests still pass, plus new eventlog-restore regression coverage.
+  4. Notebook 21 resume/revert behavior stays consistent with restored event history.
+- Implementation notes (2026-04-02):
+  - Completed: checkpoint snapshot/restore now copies and restores eventstore artifacts.
+  - Completed: added checkpoint regression test for eventlog restore on revert.
+  - Completed: snapshot retention policy now keeps 3 newest unzipped snapshots, compresses older snapshots, preserves daily-latest zipped snapshots, and caps additional zipped snapshots to 7.
+  - Completed: each snapshot now stores its checkpoint manifest copy so manifest metadata is included in snapshot zips.
+  - Completed: checkpoint creation history now appends to `checkpoints/checkpoint_timeline.jsonl` (JSONL creation log).
+
 ### WDT-001: Re-evaluate prior eligibility decisions when class lineage improves
 
 - Status: [ ]

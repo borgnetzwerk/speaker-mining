@@ -145,6 +145,18 @@ Eventstore envelope requirements (JSONL chunks):
 2. `event_version` must be `v3`
 3. Chunk boundary events must be represented by `eventstore_opened` and `eventstore_closed`
 
+Checkpoint snapshot retention policy:
+
+1. Checkpoint snapshots are written under `checkpoints/snapshots/<checkpoint_stem>/`.
+2. Each snapshot directory contains a copy of its manifest file (`checkpoint__...json`) so the manifest is preserved in the same lifecycle as the snapshot and included in any zip archive.
+2. The 3 most recent snapshots remain unzipped directories.
+3. When a new snapshot would increase unzipped snapshots above 3, the oldest unzipped snapshot is compressed into `checkpoints/snapshots/<checkpoint_stem>.zip`.
+4. Zipped snapshots keep one protected "daily latest" snapshot per creation day with no hard cap.
+5. Additional zipped snapshots (those that are not the protected daily latest) are capped to the 7 most recent; older ones are deleted.
+6. Restore/revert must work from either an unzipped snapshot directory or a zipped snapshot archive.
+7. Snapshot payload must include runtime projections, legacy raw query snapshot content, and eventstore artifacts (`chunks/`, `chunk_catalog.csv`, `eventstore_checksums.txt`).
+8. Checkpoint creation history is append-only JSONL in `checkpoints/checkpoint_timeline.jsonl`.
+
 ### Runtime semantics
 
 1. `chunks/` is the canonical append-only runtime event log.
