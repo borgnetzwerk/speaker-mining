@@ -22,7 +22,7 @@ Exit criteria:
 ## Wave 1: Immediate Operational Safety
 
 Targets:
-- `WDT-007`
+- `WDT-007`, `WDT-018`, `WDT-019`
 
 Implementation focus:
 1. Integrate cooperative termination checks into stage loops:
@@ -30,6 +30,11 @@ Implementation focus:
    - node integrity discovery/expansion
    - fallback matching
 2. Standardize stop reasons and checkpoint/log propagation (`user_interrupted` path).
+3. Enforce Notebook 21 fallback config integrity:
+   - derive fallback-enabled mention types once,
+   - reuse the same derived value across Step 7 and Step 8,
+   - never override user-configured values silently,
+   - fail fast on invalid user config.
 
 Testing:
 - Simulated shutdown-file stop mid-run.
@@ -38,6 +43,19 @@ Testing:
 Exit criteria:
 - Operator can stop without hard interrupt.
 - No partial-write corruption from cooperative stop.
+- Fallback runtime configuration is deterministic and exactly matches user-defined config.
+
+Execution status (2026-04-07):
+- Core implementation landed for cooperative stop checks in Stage A / node integrity / fallback loops.
+- `user_interrupted` propagation and interruption-aware checkpoint behavior were integrated into graph-stage runtime flow.
+- Targeted regression suite passed (`27 passed`) for checkpoint resume, node integrity, and fallback stage tests.
+- Step 6.5 now handles `KeyboardInterrupt` deterministically (discovery + expansion paths) and exits with `user_interrupted` semantics.
+- Added regression test coverage for interruption during live entity refresh path in node integrity.
+- WDT-019 notebook config-integrity fix is implemented in Notebook 21:
+   - fallback mention types are resolved once in Step 2,
+   - Step 7 and Step 8 both consume `config["fallback_enabled_mention_types_resolved"]`,
+   - invalid config now fails fast with explicit `ValueError`.
+- Wave 1 operational safety and config-integrity targets are now implemented; remaining work is regression monitoring in representative runtime flows.
 
 ## Wave 2: Event-Sourcing Core Unlock (Promoted)
 
@@ -46,12 +64,12 @@ Targets:
 
 Implementation focus:
 1. Introduce domain events beyond `query_response` (staged rollout):
-   - `entity_discovered`
-   - `entity_expanded`
-   - `triple_discovered`
-   - `class_membership_resolved`
-   - `expansion_decision`
-   - eligibility transition events
+   - `entity_discovered` ✅ (Phase 1 complete)
+   - `entity_expanded` ✅ (Phase 1 complete)
+   - `triple_discovered` (Phase 2)
+   - `class_membership_resolved` (Phase 2)
+   - `expansion_decision` (Phase 1, wiring only; finalization TBD)
+   - eligibility transition events (Phase 2)
 2. Shift projection writes toward handler-driven replay/incremental materialization.
 3. Reduce and retire non-eventsourced writes where equivalent handler projection exists.
 
@@ -62,9 +80,22 @@ Testing:
 - Replay determinism tests from event chunks to projections.
 - Invariant tests for handler progress and idempotence.
 
-Exit criteria:
-- Core runtime decisions are representable from event stream.
-- Projection updates no longer depend on full rebuild-only paths.
+**Execution status (2026-04-07 Wave 2 Phase 1 - Domain Event Introduction)**:
+- ✅ Introduced three first-promoted domain events: `entity_discovered`, `entity_expanded`, `expansion_decision` (builder only)
+- ✅ Wired events into Stage A graph expansion (entity discovery/expansion during seed traversal)
+- ✅ Wired events into Step 6.5 node integrity (entity discovery during node repair)
+- ✅ Wired events into Stage B fallback matching (entity discovery via string match)
+- ✅ All 31 tests passing (including WDT-007 integration tests and new domain event instrumentation)
+- ✅ Backward compatibility verified: no breaking changes to existing checkpoint/event structures
+- ✅ Notebook 21 heartbeat helper added and wired after node integrity and fallback stages
+- 📋 Next: Extend event-derived heartbeat to remaining long-running stage cells, wider domain event coverage (triple_discovered, class_membership_resolved), event replay tests
+
+Exit criteria (Phase 1):
+- ✅ Domain events are defined, documented, and wired into orchestration stages
+- ✅ Orchestration logs domain events alongside query_response events
+- ✅ Event stream captures discovery method and expansion context
+- 📋 (Phase 2) Projection updates leverage domain events for derivation
+- ✅ (Phase 2 kickoff) Heartbeat and diagnostics now begin with event-derived Notebook 21 summaries
 
 ## Wave 3: Integrity Evidence Loop On Top Of Events
 
@@ -105,13 +136,15 @@ Exit criteria:
 ## Wave 5: Query Efficiency + Storage Migration
 
 Targets:
-- `WDT-015`, `WDT-013`
+- `WDT-015`, `WDT-016`, `WDT-017`, `WDT-013`
 
 Implementation focus:
 1. Query efficiency:
    - Add batched minimal-entity retrieval strategy where safe.
    - Keep per-entity provenance in events despite batching.
    - Prioritize node-integrity discovery hot path.
+   - Document and mitigate live-read timeout exposure in Step 6.5 / Cell 18.
+   - Limit non-core subclass frontier recursion in node-integrity discovery to reduce low-value class fan-out.
 2. CSV->Parquet migration:
    - Keep explicit Phase 3 CSV handoff artifact.
    - Migrate remaining projections to Parquet with compatibility period.
@@ -120,6 +153,7 @@ Implementation focus:
 Testing:
 - Query volume/time reduction benchmarks.
 - Data-equivalence checks between old CSV and new Parquet projections.
+- Representative long-run node-integrity execution with timeout tolerance/visibility checks.
 
 Exit criteria:
 - Significant query reduction and runtime improvement.
@@ -168,6 +202,10 @@ Exit criteria:
 - `WDT-013`: Wave 5
 - `WDT-014`: Wave 2
 - `WDT-015`: Wave 5 (can prototype in Wave 3/4)
+- `WDT-016`: Wave 5 (timeout resilience alongside query-efficiency work)
+- `WDT-017`: Wave 5 (class-frontier shaping in node-integrity discovery)
+- `WDT-018`: Wave 1 (graceful interruption behavior)
+- `WDT-019`: Wave 1 (notebook config integrity and no-overwrite guarantee)
 - Documentation Overhaul (major TODO): Wave 6
 
 ## Governance Updates Required As Work Lands
@@ -187,11 +225,14 @@ Program-level closeout requirement:
 
 Recommended first implementation slice:
 
-1. `WDT-007` cooperative stop checks + stop reason propagation.
-2. Start Wave 2 domain-event rollout with a minimal first set:
-   - `entity_discovered`
-   - `entity_expanded`
-   - `expansion_decision`
-3. Wire one event-derived heartbeat summary path in Notebook 21 runtime output.
+1. Continue Wave 2 Phase 2 heartbeat rollout (`WDT-008`):
+   - extend event-derived heartbeat summaries to remaining long-running stage cells (including Step 6 / re-entry path)
+   - expose operator-facing heartbeat fields aligned to event stream (`entity_discovered`, `entity_expanded`, `expansion_decision`)
+2. Continue timeout resilience (`WDT-016`) in representative runtime flow:
+   - run long-running Step 6.5 scenario and verify timeout retry/continuation behavior under real network pressure
+   - tune retry/backoff policy if needed based on observed runtime behavior
+3. Advance Wave 2 domain coverage (`WDT-009`):
+   - wire `triple_discovered` and `class_membership_resolved`
+   - begin `expansion_decision` finalization at decision persistence points
 
-This slice preserves the independent safety fix first while immediately moving into the event-sourcing unlock that unblocks multiple remaining items.
+This slice continues active Wave 2 work while hardening the known long-run timeout failure mode in Notebook 21.

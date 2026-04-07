@@ -275,21 +275,128 @@ Risk:
 ## WDT-015 Query Easier For Wikidata (Reduce Massive Minimal Fetch Fan-Out)
 
 Current state:
-- `entity.get_or_fetch_entity` uses single-ID `wbgetentities` calls (`ids=<single qid>`).
-- Node integrity discovery loop can trigger huge volume of small calls.
-- Caching and query inventory dedupe are present, but fetch pattern is still mostly per-node.
+- Implemented `entity.get_or_fetch_entities_batch(...)` for cache-aware multi-QID refreshes in one `wbgetentities` request.
+- `node_integrity.run_node_integrity_pass(...)` now supports batched discovery refresh through `NodeIntegrityConfig.discovery_batch_fetch_size`.
+- Notebook 21 now exposes `node_integrity_batch_fetch_size` (currently set to `25`) and forwards it into Step 6.5 config.
+- Compatibility retained: when only one QID is being refreshed, runtime still uses `get_or_fetch_entity(...)`.
 
 Gap vs requirement:
-- Open optimization space for batched retrieval and staged hydration.
+- Batch retrieval is now implemented for Step 6.5 discovery, but representative runtime closure evidence (throughput and timeout reduction on live workload) still needs to be recorded.
 
 Primary touchpoints:
-- `entity.py` (`get_or_fetch_entity` + URL builder)
+- `entity.py` (`get_or_fetch_entity`, `get_or_fetch_entities_batch`, URL builder)
 - `node_integrity.py` discovery queue
 - `cache.py` request context and budget/rate logic
-- event model/provenance requirements (`WDT-009`)
+- Notebook 21 Step 6.5 config wiring
+- event model/provenance requirements (`WDT-009`) (preserved via per-entity query events)
 
 Risk:
-- Naive batching can reduce traceability if event payloads lose per-entity provenance semantics.
+- Without explicit live benchmark evidence, batching may be functionally correct but still under-tuned for best timeout/throughput behavior.
+
+---
+
+## WDT-016 Read Operation Timed Out During Notebook 21 Cell 18
+
+Current state:
+- Notebook 21 Cell 18 is the Step 6.5 node integrity pass.
+- The recorded failure occurred after many minutes of steady progress and repeated node-integrity heartbeat output.
+- The stack trace ends in `TimeoutError: The read operation timed out` while `node_integrity.run_node_integrity_pass` is waiting on `get_or_fetch_entity(...)`.
+
+Gap vs requirement:
+- The runtime does not yet distinguish this kind of long-running live-read timeout from a generic notebook crash in operator-facing documentation.
+- There is no documented mitigation path yet for keeping the node-integrity pass observable and tolerant enough under representative data volume.
+
+Primary touchpoints:
+- `node_integrity.py` discovery loop
+- `entity.py` / `cache.py` live Wikidata read path
+- Notebook 21 Step 6.5 cell
+- `WDT-008` heartbeat/progress path
+- `WDT-015` query-efficiency path
+
+Risk:
+- Operators may interpret a network-bound timeout as a notebook/kernel failure, even though the underlying work was progressing.
+- Without a mitigation plan, Cell 18 remains vulnerable to long-read stalls on representative runs.
+
+Current mitigation status (2026-04-07):
+- Implemented: `cache._http_get_json(...)` now treats `TimeoutError` as transient/retriable and classifies it explicitly as `timeout` in network events.
+- Added regression coverage for timeout retry success and timeout exhaustion behavior in `test_network_guardrails.py`.
+- Remaining: validate behavior in a representative long-running Notebook 21 Step 6.5 execution and tune retry/time-budget policy if needed.
+
+---
+
+## WDT-017 Limit Subclass-Of Expansion Two Hops Away From Core-Class Instances
+
+Current state:
+- `run_node_integrity_pass(...)` discovery previously expanded class frontier by recursively queuing both `P31` and `P279` references for all refreshed nodes.
+- In representative long runs, this allowed deep traversal into broad non-core subclass trees, inflating pending queue size and low-value class churn.
+
+Gap vs requirement:
+- The previous discovery policy did not distinguish between core-class frontier expansion and non-core class-tree drift.
+- There was no guardrail to stop recursive `P279` expansion from non-core class nodes discovered via second-degree neighborhood paths.
+
+Primary touchpoints:
+- `node_integrity.py` discovery queue expansion policy
+
+Risk:
+- Excessive traversal and low-value class fan-out increases runtime, query load, and queue pressure without proportionate candidate quality gains.
+
+Resolution status (2026-04-07):
+- Implemented class-frontier limiter in `node_integrity.py`:
+  - non-class nodes still contribute direct class references (`P31`/`P279`),
+  - non-core class nodes no longer recursively expand their own subclass frontier,
+  - core-class nodes retain class-frontier expansion behavior.
+- Added regression test in `test_node_integrity.py` to prove non-core class-chain recursion is capped.
+
+---
+
+## WDT-018 Fix Graceful Exiting In Step 6.5
+
+Current state:
+- During live Step 6.5 runs, interrupt behavior could surface as raw `KeyboardInterrupt` traceback while blocked in live HTTP reads.
+- This bypassed deterministic "graceful stop" semantics at the notebook operator level.
+
+Gap vs requirement:
+- Interruption was not consistently converted into `user_interrupted` stop semantics in Step 6.5 when interruption arrived during blocking entity refresh.
+
+Primary touchpoints:
+- `node_integrity.py` discovery refresh error handling
+- `node_integrity.py` per-node expansion loop interruption handling
+
+Risk:
+- Operators experience apparent crash behavior instead of deterministic stop with interruption-safe materialization boundaries.
+
+Resolution status (2026-04-07):
+- Implemented explicit `KeyboardInterrupt` handling in Step 6.5 runtime:
+  - discovery refresh path now converts interruption to `user_interrupted` and exits loop deterministically,
+  - node-integrity expansion loop now traps interruption and exits with `user_interrupted`,
+  - interruption event is emitted for operator/audit visibility,
+  - final materialization remains skipped for `user_interrupted` boundary.
+- Added regression test in `test_node_integrity.py` asserting interruption returns `stop_reason == "user_interrupted"` and skips final materialization.
+
+---
+
+## WDT-019 enabled_mention_types Are Overwritten In Notebook 21
+
+Current state:
+- Notebook 21 now resolves fallback mention types once in Step 2 and persists the resolved value.
+- Step 7 and Step 8 both consume that exact resolved value.
+- Invalid or unsupported config values now fail fast with explicit `ValueError`.
+
+Gap vs requirement:
+- Remaining gap is limited to regression monitoring during representative notebook runs; implementation gap is closed.
+
+Primary touchpoints:
+- Notebook 21 Step 7 cell (class scope + enabled mention type derivation)
+- Notebook 21 Step 8 cell (fallback config assembly)
+- `fallback_matcher.py` config parsing/default behavior
+
+Risk:
+- If future edits reintroduce duplicate fallback derivation, fallback metrics and candidate sets can drift from user intent.
+
+Resolution status (2026-04-07):
+- Implemented single-source fallback config derivation in Step 2 (`config["fallback_enabled_mention_types_resolved"]`).
+- Step 7 and Step 8 now consume only the resolved value and no longer derive independently.
+- Added explicit validation/fail-fast behavior for unsupported mention types and invalid config shapes.
 
 ---
 

@@ -10,9 +10,15 @@ Source: `documentation/Wikidata/wikidata_todo_tracker.md`
   - **Important:** The hearbeat is already back, the aspect of "if we just implement proper eventsourcing, we have our progress visibility for free" aspect remains.
 - `WDT-009` (P1, deferred): Expand event model beyond `query_response`.
   - **Important:** This is likely the time to resolve this. This was deferred, but likely, now is the time to actually solve it, since plenty of other issues could be solved by just solving this one.
+- `WDT-018`: Fix graceful exiting in Notebook 21 Step 6.5 (Ctrl+C / interrupt should produce deterministic graceful stop, not crash tracebacks).
+  - **Important:** Implemented as completed in tracker; keep as regression-control item.
+
+- `WDT-019` (P0): Notebook fallback configuration integrity (`fallback_enabled_mention_types`) is overwritten and duplicated between Step 7 and Step 8.
+  - **Important:** Implemented in Notebook 21 with single-source derivation + fail-fast validation. Keep as regression-control item.
 
 Shared thread:
 - Cooperative stop boundaries, deterministic stop reasons, and event-backed operational telemetry.
+- Deterministic, single-source fallback configuration derivation in Notebook 21 (no silent override).
 
 ## B) Eligibility Reclassification And Integrity Evidence
 
@@ -47,9 +53,15 @@ Shared thread:
 ## E) Query Efficiency And Wikidata Load
 
 - `WDT-015`: Query easier for Wikidata (reduce high-volume minimal payload fetches).
+- `WDT-016`: Read operation timed out during Notebook 21 Cell 18 (Step 6.5 node integrity pass).
+- `WDT-017`: Limit subclass-of expansion for class trees twice removed from core-class instances.
+  - **important**: clarification: instances that are only neighbors of core class instances, but not themselves core class instances, should not have their classes expanded. 
+  - **Status update:** leaf-policy hardening is implemented; keep in this group for representative runtime validation and regression control.
 
 Shared thread:
 - Batch-aware and cache-amortized retrieval strategy, especially in node integrity.
+- Timeout resilience and long-run operability for live Wikidata reads.
+- Frontier-shaping controls to avoid exploding low-value class-tree traversal.
 
 ## F) Completed Baseline Controls (Keep Stable)
 
@@ -87,8 +99,10 @@ Primary files expected to be part of this overhaul:
 3. Then resolve integrity and diagnostics (`WDT-001`, `WDT-002`), with transition evidence emitted as domain events where possible.
 4. Treat `WDT-003` as a validation gate integrated into each wave, not as a large independent stream. If dedicated edge-case tests become redundant after event-level invariants are in place, close or merge it explicitly in tracker governance.
 5. Confirm core-vs-root correctness end-to-end (`WDT-010`) and only then add projections (`WDT-012`).
-6. Execute query-efficiency redesign (`WDT-015`) with event provenance preserved, then storage transition (`WDT-013`) to avoid churn and duplicate migration work.
-7. Documentation overhaul closes the program: publish one clean, accurate state after code/data-contract changes stabilize.
+6. Execute query-efficiency, timeout-resilience, and class-frontier controls (`WDT-015`, `WDT-016`, `WDT-017`) with event provenance preserved, then storage transition (`WDT-013`) to avoid churn and duplicate migration work.
+7. Ensure interruption behavior remains deterministic and operator-safe in long-running notebook cells (`WDT-018`) as a standing operational guardrail.
+8. Keep notebook fallback config-integrity behavior (`WDT-019`) under regression monitoring while advancing Wave 2/5 work.
+9. Documentation overhaul closes the program: publish one clean, accurate state after code/data-contract changes stabilize.
 
 ## Migration-Learning Inputs Used For This Rework
 
