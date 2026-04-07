@@ -267,7 +267,59 @@ Execution Summary:
   stage_elapsed_seconds          221.72
 
 
-  
+### WDT-015 Query easier for Wikidata
+We currently have about 80.000 queries to Wikidata pending (see context below).
+Most of these queries are of the same nature: minimal payload restored.
+This means that currently, we send Wikidata 80.000 almost identical queries for all of these items to retrieve the bare minimum of data.
+This is both slow (~30 hours) as well as probably not the best way wikidata could handle our request. There mus be a better way that is better for both services: Both wikidata, by processing a bunch of similar queries without the overhead of processing each query individually, as well as us, by progressing faster.
+
+Context below:
+
+[notebook] Step 6.5 start: node integrity pass
+[notebook] Step 6.5 budget planning: stage_a_queries_this_run=0, node_integrity_budget=unlimited
+[node_integrity:discovery] Network calls used: 26 / unlimited elapsed=60.1s rate=25.97/min
+[node_integrity:discovery] heartbeat: checked=36 pending=87784 known=87820 repaired=28 newly_discovered=28
+[node_integrity:discovery] example: minimal payload restored for Q100154476 -> label="How Propaganda Works"; p31=Q47461344; p279=<none>
+[node_integrity:discovery] Network calls used: 50 / unlimited elapsed=88.9s rate=33.75/min
+[node_integrity:discovery] heartbeat: checked=100 pending=87738 known=87838 repaired=78 newly_discovered=78
+[node_integrity:discovery] example: minimal payload restored for Q100382 -> label="Johannes Kreidler"; p31=Q5; p279=<none>
+[node_integrity:discovery] Network calls used: 98 / unlimited elapsed=149.8s rate=39.26/min
+[node_integrity:discovery] Network calls used: 100 / unlimited elapsed=152.2s rate=39.43/min
+[node_integrity:discovery] heartbeat: checked=168 pending=87683 known=87851 repaired=132 newly_discovered=132
+[node_integrity:discovery] example: minimal payload restored for Q1006733 -> label="Grasland"; p31=<none>; p279=Q101998,Q2083910
+[node_integrity:discovery] Network calls used: 150 / unlimited elapsed=212.2s rate=42.41/min
+[node_integrity:discovery] heartbeat: checked=226 pending=87634 known=87860 repaired=183 newly_discovered=183
+[node_integrity:discovery] example: minimal payload restored for Q100783589 -> label="Wirtschaft Sachsen-Anhalts"; p31=Q100773131; p279=Q8046
+[node_integrity:discovery] Network calls used: 199 / unlimited elapsed=273.1s rate=43.72/min
+[node_integrity:discovery] Network calls used: 200 / unlimited elapsed=274.3s rate=43.75/min
+[node_integrity:discovery] heartbeat: checked=293 pending=87578 known=87871 repaired=239 newly_discovered=239
+[node_integrity:discovery] example: minimal payload restored for Q10092859 -> label="Kategorie:Politische Macht"; p31=Q4167836; p279=<none>
+[node_integrity:discovery] Network calls used: 249 / unlimited elapsed=335.4s rate=44.55/min
+[node_integrity:discovery] Network calls used: 250 / unlimited elapsed=336.6s rate=44.56/min
+[node_integrity:discovery] heartbeat: checked=361 pending=87518 known=87879 repaired=292 newly_discovered=292
+[node_integrity:discovery] example: minimal payload restored for Q101247458 -> label="FAO representation in Kenya"; p31=Q245065; p279=<none>
+[node_integrity:discovery] Network calls used: 300 / unlimited elapsed=396.9s rate=45.35/min
+[node_integrity:discovery] heartbeat: checked=426 pending=87462 known=87888 repaired=346 newly_discovered=346
+[node_integrity:discovery] example: expanded class frontier from Q101565734: +1 class qids
+[node_integrity:discovery] Network calls used: 350 / unlimited elapsed=457.3s rate=45.92/min
+[node_integrity:discovery] heartbeat: checked=485 pending=87416 known=87901 repaired=402 newly_discovered=402
+[node_integrity:discovery] example: minimal payload restored for Q10185 -> label="Berliner Zeitung"; p31=Q1110794; p279=<none>
+[node_integrity:discovery] Network calls used: 400 / unlimited elapsed=517.4s rate=46.39/min
+[node_integrity:discovery] heartbeat: checked=559 pending=87354 known=87913 repaired=461 newly_discovered=461
+[node_integrity:discovery] example: minimal payload restored for Q102139 -> label="Margrethe II."; p31=Q5; p279=<none>
+[node_integrity:discovery] Network calls used: 450 / unlimited elapsed=577.4s rate=46.76/min
+[node_integrity:discovery] heartbeat: checked=623 pending=87302 known=87925 repaired=519 newly_discovered=519
+[node_integrity:discovery] example: minimal payload restored for Q1023141 -> label="CDU Hamburg"; p31=Q18744396; p279=<none>
+[node_integrity:discovery] Network calls used: 500 / unlimited elapsed=637.5s rate=47.06/min
+[node_integrity:discovery] heartbeat: checked=686 pending=87255 known=87941 repaired=571 newly_discovered=571
+[node_integrity:discovery] example: minimal payload restored for Q102542 -> label="Julius Lehr"; p31=Q5; p279=<none>
+[node_integrity:discovery] Network calls used: 550 / unlimited elapsed=697.6s rate=47.30/min
+[node_integrity:discovery] heartbeat: checked=752 pending=87205 known=87957 repaired=623 newly_discovered=623
+[node_integrity:discovery] example: minimal payload restored for Q102775317 -> label="Katharina Eck"; p31=Q5; p279=<none>
+[node_integrity:discovery] Network calls used: 600 / unlimited elapsed=757.8s rate=47.50/min
+[node_integrity:discovery] heartbeat: checked=815 pending=87153 known=87968 repaired=675 newly_discovered=675
+[node_integrity:discovery] example: expanded class frontier from Q1029421: +3 class qids
+[node_integrity:discovery] Network calls used: 650 / unlimited elapsed=818.0s rate=47.68/min
 
 ## Notes
 
