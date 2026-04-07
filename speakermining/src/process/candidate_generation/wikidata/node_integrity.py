@@ -4,6 +4,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+import csv
 
 from .bootstrap import load_core_classes, load_seed_instances
 from .cache import begin_request_context, end_request_context
@@ -18,10 +19,12 @@ from .common import (
 from .entity import get_or_build_outlinks, get_or_fetch_entity
 from .expansion_engine import ExpansionConfig, is_expandable_target, run_seed_expansion
 from .materializer import materialize_final
-from .node_store import get_item, iter_items, upsert_discovered_item
-from .triple_store import has_direct_link_to_any_seed, iter_unique_triples, record_item_edges
+from .node_store import flush_node_store, get_item, iter_items, upsert_discovered_item
+from .triple_store import iter_unique_triples, record_item_edges
+from .triple_store import flush_triple_events
 from time import perf_counter
 from ...notebook_event_log import NOTEBOOK_21_ID, get_or_create_notebook_logger
+from .schemas import build_artifact_paths
 
 
 @dataclass(frozen=True)
@@ -77,22 +80,66 @@ def _p31_core_match(entity_doc: dict, core_class_qids: set[str]) -> bool:
     return bool(_claim_qids(entity_doc, "P31") & effective_core_class_qids(core_class_qids))
 
 
-def _p31_core_match_with_subclass_resolution(repo_root: Path, entity_doc: dict, core_class_qids: set[str]) -> bool:
+def _load_projected_class_resolution(repo_root: Path) -> dict[str, bool]:
+    """Load projected class->subclass_of_core_class decisions if available."""
+    paths = build_artifact_paths(Path(repo_root))
+    path = paths.class_hierarchy_csv
+    if not path.exists():
+        return {}
+
+    projected: dict[str, bool] = {}
+    with path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            class_qid = canonical_qid(str(row.get("class_id", "") or ""))
+            if not class_qid:
+                continue
+            flag = str(row.get("subclass_of_core_class", "") or "").strip().lower()
+            projected[class_qid] = flag in {"true", "1", "yes"}
+    return projected
+
+
+def _p31_core_match_with_subclass_resolution(
+    repo_root: Path,
+    entity_doc: dict,
+    core_class_qids: set[str],
+    *,
+    class_resolution_cache: dict[str, bool] | None = None,
+    projected_class_resolution: dict[str, bool] | None = None,
+) -> bool:
     core_qids = effective_core_class_qids(core_class_qids)
     if not core_qids:
         return False
     if _p31_core_match(entity_doc, core_qids):
         return True
 
+    class_resolution_cache = class_resolution_cache if class_resolution_cache is not None else {}
+    projected_class_resolution = projected_class_resolution if projected_class_resolution is not None else {}
+
     def _resolver(qid: str) -> dict:
         return get_item(repo_root, qid)
 
     for class_qid in sorted(_claim_qids(entity_doc, "P31")):
+        if class_qid in class_resolution_cache:
+            if class_resolution_cache[class_qid]:
+                return True
+            continue
+
+        if class_qid in projected_class_resolution:
+            is_subclass_of_core = bool(projected_class_resolution[class_qid])
+            class_resolution_cache[class_qid] = is_subclass_of_core
+            if is_subclass_of_core:
+                return True
+            continue
+
         class_doc = get_item(repo_root, class_qid)
         if not isinstance(class_doc, dict) or not class_doc:
+            class_resolution_cache[class_qid] = False
             continue
         resolution = resolve_class_path(class_doc, core_qids, _resolver)
-        if bool(resolution.get("subclass_of_core_class", False)):
+        is_subclass_of_core = bool(resolution.get("subclass_of_core_class", False))
+        class_resolution_cache[class_qid] = is_subclass_of_core
+        if is_subclass_of_core:
             return True
     return False
 
@@ -165,6 +212,29 @@ def _known_qids(repo_root: Path, seed_qids: set[str], core_class_qids: set[str])
         if obj:
             known.add(obj)
     return known
+
+
+def _qids_directly_linked_to_seeds(repo_root: Path, seed_qids: set[str]) -> set[str]:
+    """Return all QIDs that have a direct triple edge to any seed QID.
+
+    This computes a reusable index in one pass to avoid repeatedly scanning
+    the entire triple store for each candidate node during eligibility checks.
+    """
+    seeds = {canonical_qid(qid) for qid in (seed_qids or set()) if canonical_qid(qid)}
+    if not seeds:
+        return set()
+
+    linked: set[str] = set()
+    for triple in iter_unique_triples(repo_root):
+        subj = canonical_qid(triple.get("subject", ""))
+        obj = canonical_qid(triple.get("object", ""))
+        if not subj or not obj:
+            continue
+        if subj in seeds:
+            linked.add(obj)
+        if obj in seeds:
+            linked.add(subj)
+    return linked
 
 
 def _resolve_runtime_seed_and_core_classes(repo_root: Path, seed_qids: set[str] | None, core_class_qids: set[str] | None) -> tuple[set[str], set[str]]:
@@ -312,6 +382,10 @@ def run_node_integrity_pass(
             },
         )
 
+    direct_seed_link_qids = _qids_directly_linked_to_seeds(repo_root, resolved_seed_qids)
+    projected_class_resolution = _load_projected_class_resolution(repo_root)
+    class_resolution_cache: dict[str, bool] = {}
+
     eligible_unexpanded_qids: list[str] = []
     for item in iter_items(repo_root):
         qid = canonical_qid(item.get("id", ""))
@@ -322,8 +396,14 @@ def run_node_integrity_pass(
         if is_expandable_target(
             qid,
             seed_qids=resolved_seed_qids,
-            has_direct_link_to_seed=has_direct_link_to_any_seed(repo_root, qid, resolved_seed_qids),
-            p31_core_match=_p31_core_match_with_subclass_resolution(repo_root, item, resolved_core_classes),
+            has_direct_link_to_seed=(qid in direct_seed_link_qids),
+            p31_core_match=_p31_core_match_with_subclass_resolution(
+                repo_root,
+                item,
+                resolved_core_classes,
+                class_resolution_cache=class_resolution_cache,
+                projected_class_resolution=projected_class_resolution,
+            ),
             is_class_node=_is_class_node(item),
         ):
             eligible_unexpanded_qids.append(qid)
@@ -354,39 +434,49 @@ def run_node_integrity_pass(
     expansion_progress_interval_seconds = 60.0
     expansion_latest_action = "startup: waiting for first expansion"
     notebook_logger.log_phase_started("node_integrity_expansion", message="node integrity expansion started")
-    for idx, qid in enumerate(eligible_unexpanded_qids, start=1):
-        now_progress = perf_counter()
-        if now_progress - expansion_progress_last_emit >= expansion_progress_interval_seconds:
-            print(
-                (
-                    "[node_integrity:expansion] heartbeat: "
-                    f"processed={idx - 1}/{len(eligible_unexpanded_qids)} expanded={len(expanded_qids)} "
-                    f"network_queries_expansion={network_queries_expansion}"
-                ),
-                flush=True,
+    expansion_flush_every = 100
+    try:
+        for idx, qid in enumerate(eligible_unexpanded_qids, start=1):
+            now_progress = perf_counter()
+            if now_progress - expansion_progress_last_emit >= expansion_progress_interval_seconds:
+                print(
+                    (
+                        "[node_integrity:expansion] heartbeat: "
+                        f"processed={idx - 1}/{len(eligible_unexpanded_qids)} expanded={len(expanded_qids)} "
+                        f"network_queries_expansion={network_queries_expansion}"
+                    ),
+                    flush=True,
+                )
+                print(f"[node_integrity:expansion] example: {expansion_latest_action}", flush=True)
+                expansion_progress_last_emit = now_progress
+            if expansion_budget_remaining == 0:
+                break
+            summary = run_seed_expansion(
+                repo_root,
+                seed={"wikidata_id": qid},
+                seed_qids=resolved_seed_qids,
+                core_class_qids=resolved_core_classes,
+                total_budget_remaining=expansion_budget_remaining,
+                config=per_node_expansion_config,
+                resume_inlinks_cursor=None,
+                flush_persistence=False,
+                event_emitter=notebook_logger.append_event,
+                event_phase="node_integrity_expansion",
             )
-            print(f"[node_integrity:expansion] example: {expansion_latest_action}", flush=True)
-            expansion_progress_last_emit = now_progress
-        if expansion_budget_remaining == 0:
-            break
-        summary = run_seed_expansion(
-            repo_root,
-            seed={"wikidata_id": qid},
-            seed_qids=resolved_seed_qids,
-            core_class_qids=resolved_core_classes,
-            total_budget_remaining=expansion_budget_remaining,
-            config=per_node_expansion_config,
-            resume_inlinks_cursor=None,
-            event_emitter=notebook_logger.append_event,
-            event_phase="node_integrity_expansion",
-        )
-        used = int(summary.get("network_queries", 0))
-        network_queries_expansion += used
-        expanded_now = {canonical_qid(x) for x in summary.get("expanded_qids", set()) if canonical_qid(x)}
-        expanded_qids |= expanded_now
-        expansion_latest_action = f"expanded seed {qid}: +{len(expanded_now)} qids, network_queries={used}"
-        if expansion_budget_remaining > 0:
-            expansion_budget_remaining = max(0, expansion_budget_remaining - used)
+            used = int(summary.get("network_queries", 0))
+            network_queries_expansion += used
+            expanded_now = {canonical_qid(x) for x in summary.get("expanded_qids", set()) if canonical_qid(x)}
+            expanded_qids |= expanded_now
+            expansion_latest_action = f"expanded seed {qid}: +{len(expanded_now)} qids, network_queries={used}"
+            if expansion_budget_remaining > 0:
+                expansion_budget_remaining = max(0, expansion_budget_remaining - used)
+
+            if idx % expansion_flush_every == 0:
+                flush_node_store(repo_root)
+                flush_triple_events(repo_root)
+    finally:
+        flush_node_store(repo_root)
+        flush_triple_events(repo_root)
 
     run_id = f"node_integrity_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
     materialize_stats = materialize_final(repo_root, run_id=run_id)

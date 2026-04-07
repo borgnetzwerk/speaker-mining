@@ -7,6 +7,7 @@ from time import perf_counter
 import pandas as pd
 
 from .cache import _atomic_write_df, _atomic_write_text, _entity_from_payload
+from .bootstrap import load_core_classes, load_other_interesting_classes, load_root_classes
 from .class_resolver import compute_class_rollups, resolve_class_path
 from .common import (
     DEFAULT_WIKIDATA_FALLBACK_LANGUAGE,
@@ -76,20 +77,32 @@ def _extract_claim_qids(claims: dict, pid: str) -> list[str]:
 
 
 def _class_filename_lookup(repo_root: Path) -> dict[str, str]:
-    path = Path(repo_root) / "data" / "00_setup" / "classes.csv"
-    if not path.exists():
-        return {}
-    try:
-        df = pd.read_csv(path)
-    except Exception:
-        return {}
     lookup: dict[str, str] = {}
-    for _, row in df.iterrows():
+    setup_rows = load_core_classes(repo_root) + load_root_classes(repo_root) + load_other_interesting_classes(repo_root)
+    for row in setup_rows:
         qid = canonical_qid(str(row.get("wikidata_id", "") or ""))
         filename = str(row.get("filename", "") or "")
         if qid and filename:
             lookup[qid] = filename
     return lookup
+
+
+def _core_class_qids(repo_root: Path) -> set[str]:
+    return effective_core_class_qids(
+        {
+            canonical_qid(str(row.get("wikidata_id", "") or ""))
+            for row in load_core_classes(repo_root)
+            if canonical_qid(str(row.get("wikidata_id", "") or ""))
+        }
+    )
+
+
+def _root_class_qids(repo_root: Path) -> set[str]:
+    return {
+        canonical_qid(str(row.get("wikidata_id", "") or ""))
+        for row in load_root_classes(repo_root)
+        if canonical_qid(str(row.get("wikidata_id", "") or ""))
+    }
 
 
 def _latest_entity_cache_docs(repo_root: Path) -> dict[str, dict]:
@@ -261,6 +274,78 @@ def _build_triples_df(repo_root: Path) -> pd.DataFrame:
     return df[columns].sort_values(["subject", "predicate", "object"]).reset_index(drop=True)
 
 
+def _build_class_hierarchy_df(repo_root: Path, core_class_qids: set[str], root_class_qids: set[str]) -> pd.DataFrame:
+    columns = [
+        "class_id",
+        "class_filename",
+        "path_to_core_class",
+        "subclass_of_core_class",
+        "is_core_class",
+        "is_root_class",
+        "parent_count",
+        "parent_qids",
+    ]
+    class_filename_lookup = _class_filename_lookup(repo_root)
+    items = list(iter_items(repo_root))
+    item_by_id = {
+        canonical_qid(str(item.get("id", "") or "")): item
+        for item in items
+        if canonical_qid(str(item.get("id", "") or ""))
+    }
+    latest_entity_docs = _latest_entity_cache_docs(repo_root)
+
+    def _get_entity(qid: str) -> dict | None:
+        qid_norm = canonical_qid(qid)
+        if not qid_norm:
+            return None
+        node = item_by_id.get(qid_norm)
+        if node:
+            return node
+        node_doc = latest_entity_docs.get(qid_norm)
+        if isinstance(node_doc, dict):
+            return node_doc
+        return None
+
+    candidate_class_qids: set[str] = set()
+    for item in items:
+        qid = canonical_qid(str(item.get("id", "") or ""))
+        if not qid:
+            continue
+        claims = item.get("claims", {}) if isinstance(item.get("claims"), dict) else {}
+        p31 = _extract_claim_qids(claims, "P31")
+        p279 = _extract_claim_qids(claims, "P279")
+        if p279:
+            candidate_class_qids.add(qid)
+        candidate_class_qids.update(p31)
+        candidate_class_qids.update(p279)
+
+    rows: list[dict] = []
+    for class_qid in sorted(candidate_class_qids):
+        class_doc = _get_entity(class_qid) or {}
+        claims = class_doc.get("claims", {}) if isinstance(class_doc.get("claims"), dict) else {}
+        parent_qids = _extract_claim_qids(claims, "P279")
+        resolution = resolve_class_path(class_doc, core_class_qids, _get_entity) if class_doc else {
+            "path_to_core_class": "",
+            "subclass_of_core_class": False,
+        }
+        rows.append(
+            {
+                "class_id": class_qid,
+                "class_filename": class_filename_lookup.get(class_qid, ""),
+                "path_to_core_class": str(resolution.get("path_to_core_class", "") or ""),
+                "subclass_of_core_class": bool(resolution.get("subclass_of_core_class", False)),
+                "is_core_class": bool(class_qid in core_class_qids),
+                "is_root_class": bool(class_qid in root_class_qids),
+                "parent_count": int(len(parent_qids)),
+                "parent_qids": "|".join(parent_qids),
+            }
+        )
+
+    if not rows:
+        return pd.DataFrame(columns=columns)
+    return pd.DataFrame(rows)[columns].sort_values(["is_core_class", "subclass_of_core_class", "class_id"], ascending=[False, False, True]).reset_index(drop=True)
+
+
 def _write_summary(paths, run_id: str, stage: str, stats: dict) -> None:
     summary = {
         "run_id": run_id,
@@ -276,8 +361,8 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
     flush_node_store(repo_root)
     flush_triple_events(repo_root)
     paths = build_artifact_paths(Path(repo_root))
-    class_filename_lookup = _class_filename_lookup(repo_root)
-    core_class_qids = effective_core_class_qids(set(class_filename_lookup.keys()))
+    core_class_qids = _core_class_qids(repo_root)
+    root_class_qids = _root_class_qids(repo_root)
 
     t0 = perf_counter()
     instances_df = _build_instances_df(repo_root, core_class_qids)
@@ -297,6 +382,9 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
     triples_df = _build_triples_df(repo_root)
     print(f"[materializer] build triples done in {perf_counter() - t0:.2f}s", flush=True)
     t0 = perf_counter()
+    class_hierarchy_df = _build_class_hierarchy_df(repo_root, core_class_qids, root_class_qids)
+    print(f"[materializer] build class_hierarchy done in {perf_counter() - t0:.2f}s", flush=True)
+    t0 = perf_counter()
     query_inventory_df = materialize_query_inventory(repo_root)
     print(f"[materializer] build query_inventory done in {perf_counter() - t0:.2f}s", flush=True)
 
@@ -313,6 +401,7 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
         active_alias_files.add(alias_filename)
     _remove_stale_alias_projections(paths, active_alias_files)
     _atomic_write_df(paths.triples_csv, triples_df)
+    _atomic_write_df(paths.class_hierarchy_csv, class_hierarchy_df)
     _atomic_write_df(paths.query_inventory_csv, query_inventory_df)
     print(f"[materializer] write csv artifacts done in {perf_counter() - t0:.2f}s", flush=True)
 

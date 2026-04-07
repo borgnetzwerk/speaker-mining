@@ -17,12 +17,12 @@ def _empty_csv(path: Path, columns: list[str]) -> None:
         _atomic_write_df(path, pd.DataFrame(columns=columns))
 
 
-def load_core_classes(repo_root: Path) -> list[dict]:
-    path = Path(repo_root) / "data" / "00_setup" / "classes.csv"
+def _load_class_setup_rows(repo_root: Path, setup_filename: str) -> list[dict]:
+    path = Path(repo_root) / "data" / "00_setup" / setup_filename
     if not path.exists():
         return []
     df = pd.read_csv(path)
-    rows = []
+    rows: list[dict] = []
     for _, row in df.iterrows():
         filename = canonical_class_filename(str(row.get("filename", "") or row.get("name", "")))
         rows.append(
@@ -33,6 +33,35 @@ def load_core_classes(repo_root: Path) -> list[dict]:
             }
         )
     return rows
+
+
+def load_core_classes(repo_root: Path) -> list[dict]:
+    # Preferred split-aware setup layout.
+    rows = _load_class_setup_rows(repo_root, "core_classes.csv")
+    if rows:
+        return rows
+
+    # Backward-compatible fallback for older setup files.
+    legacy_rows = _load_class_setup_rows(repo_root, "classes.csv")
+    if not legacy_rows:
+        return []
+    return [row for row in legacy_rows if str(row.get("filename", "")) not in {"entities", "privacy_properties"}]
+
+
+def load_root_classes(repo_root: Path) -> list[dict]:
+    rows = _load_class_setup_rows(repo_root, "root_class.csv")
+    if rows:
+        return rows
+    legacy_rows = _load_class_setup_rows(repo_root, "classes.csv")
+    return [row for row in legacy_rows if str(row.get("filename", "")) == "entities"]
+
+
+def load_other_interesting_classes(repo_root: Path) -> list[dict]:
+    rows = _load_class_setup_rows(repo_root, "other_interesting_classes.csv")
+    if rows:
+        return rows
+    legacy_rows = _load_class_setup_rows(repo_root, "classes.csv")
+    return [row for row in legacy_rows if str(row.get("filename", "")) == "privacy_properties"]
 
 
 def load_seed_instances(repo_root: Path) -> tuple[list[dict], list[dict]]:
@@ -79,6 +108,19 @@ def ensure_output_bootstrap(repo_root: Path) -> None:
         ],
     )
     _empty_csv(
+        paths.class_hierarchy_csv,
+        [
+            "class_id",
+            "class_filename",
+            "path_to_core_class",
+            "subclass_of_core_class",
+            "is_core_class",
+            "is_root_class",
+            "parent_count",
+            "parent_qids",
+        ],
+    )
+    _empty_csv(
         paths.instances_csv,
         [
             "id",
@@ -115,7 +157,10 @@ def ensure_output_bootstrap(repo_root: Path) -> None:
 
 def initialize_bootstrap_files(repo_root: Path, core_classes: list[dict], seeds: list[dict]) -> None:
     paths = build_artifact_paths(Path(repo_root))
-    if not paths.core_classes_csv.exists():
-        _atomic_write_df(paths.core_classes_csv, pd.DataFrame(core_classes))
+    root_classes = load_root_classes(repo_root)
+    other_interesting_classes = load_other_interesting_classes(repo_root)
+    _atomic_write_df(paths.core_classes_csv, pd.DataFrame(core_classes))
+    _atomic_write_df(paths.root_class_csv, pd.DataFrame(root_classes))
+    _atomic_write_df(paths.other_interesting_classes_csv, pd.DataFrame(other_interesting_classes))
     if not paths.broadcasting_programs_csv.exists():
         _atomic_write_df(paths.broadcasting_programs_csv, pd.DataFrame(seeds))

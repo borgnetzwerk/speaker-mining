@@ -37,12 +37,15 @@ class ArtifactPaths:
     aliases_en_csv: Path
     aliases_de_csv: Path
     triples_csv: Path
+    class_hierarchy_csv: Path
     entities_json: Path
     properties_json: Path
     triples_events_json: Path
     query_inventory_csv: Path
     summary_json: Path
     core_classes_csv: Path
+    root_class_csv: Path
+    other_interesting_classes_csv: Path
     broadcasting_programs_csv: Path
     graph_stage_resolved_targets_csv: Path
     graph_stage_unresolved_targets_csv: Path
@@ -76,12 +79,15 @@ def build_artifact_paths(repo_root: Path) -> ArtifactPaths:
         aliases_en_csv=projections_dir / "aliases_en.csv",
         aliases_de_csv=projections_dir / "aliases_de.csv",
         triples_csv=projections_dir / "triples.csv",
+        class_hierarchy_csv=projections_dir / "class_hierarchy.csv",
         entities_json=projections_dir / "entities.json",
         properties_json=projections_dir / "properties.json",
         triples_events_json=projections_dir / "triple_events.json",
         query_inventory_csv=projections_dir / "query_inventory.csv",
         summary_json=projections_dir / "summary.json",
         core_classes_csv=projections_dir / "core_classes.csv",
+        root_class_csv=projections_dir / "root_class.csv",
+        other_interesting_classes_csv=projections_dir / "other_interesting_classes.csv",
         broadcasting_programs_csv=projections_dir / "broadcasting_programs.csv",
         graph_stage_resolved_targets_csv=projections_dir / "graph_stage_resolved_targets.csv",
         graph_stage_unresolved_targets_csv=projections_dir / "graph_stage_unresolved_targets.csv",

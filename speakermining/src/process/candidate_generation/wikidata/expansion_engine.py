@@ -271,6 +271,7 @@ def run_seed_expansion(
     total_budget_remaining: int,
     config: ExpansionConfig,
     resume_inlinks_cursor: dict | None = None,
+    flush_persistence: bool = True,
     event_emitter=None,
     event_phase: str = "stage_a_graph_expansion",
 ) -> dict:
@@ -494,8 +495,9 @@ def run_seed_expansion(
                 break
     finally:
         network_queries = int(end_request_context())
-        flush_node_store(repo_root)
-        flush_triple_events(repo_root)
+        if flush_persistence:
+            flush_node_store(repo_root)
+            flush_triple_events(repo_root)
 
     # Distinguish a fully processed seed frontier from other completion cases.
     if stop_reason == "seed_complete" and not queue:
@@ -790,6 +792,26 @@ def run_graph_expansion_stage(
             seeds_done = seed_index + 1
         else:
             seeds_done = seed_index
+
+        # Persist the final seed boundary before the expensive checkpoint materialization step.
+        # If materialization is interrupted, resume can still skip this completed seed.
+        if seed_index + 1 == len(seeds) and last_stop_reason == "seed_complete":
+            checkpoint_ts = _iso_now()
+            seed_boundary_manifest = CheckpointManifest(
+                run_id=run_id,
+                start_timestamp=start_timestamp,
+                latest_checkpoint_timestamp=checkpoint_ts,
+                stop_reason=last_stop_reason,
+                seeds_completed=seeds_done,
+                seeds_remaining=max(0, len(seed_qids) - seeds_done),
+                total_nodes_discovered={"items": int(len(newly_discovered_qids))},
+                total_nodes_expanded={"items": int(len(expanded_qids))},
+                total_queries=total_queries_used,
+                inlinks_cursor=last_cursor,
+                incomplete=False,
+            )
+            print("[graph_stage] Final seed boundary checkpoint start", flush=True)
+            write_checkpoint_manifest(repo_root, seed_boundary_manifest)
 
         checkpoint_ts = _iso_now()
         print("[graph_stage] Materialize checkpoint start", flush=True)

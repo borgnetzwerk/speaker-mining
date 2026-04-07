@@ -184,8 +184,90 @@ Scope: Wikidata candidate-generation and graph-quality tasks only
   * Removed cross-language alias leakage (`mapping.values()` merge across all languages).
   * Added regression tests for alias fallback and language filtering.
 
+### WDT-010: clear differentiation between "core classes" and "root classes"
+Person, Organization, Episode - those are core classes. They are what we are intrerested in
+
+Entity - thats a root class. Very likely, everything is a subclass or instance of this. Conflating a root class with a core class could mean we're exploring thousands of nodes and their neighbors despite us actually not being interested in them.
+
+we need a dedicated cell early in the notebook to clear all those conflations and missconcptions up.
+
+### WDT-011: Full eventsourcing implementation identification
+Actual everntsourcing could be identified by a notebook (excluding setup) mostly being one line of code: start event handlers. everything else would be them resolving the event log and their respective reactions
+
+### WDT-012: Low Hanging fruit: We could use more projections
+* One projection per core class for all instance of that core class.
+* One projection for all leftover instances that are neither classes nor instances of a core class.
+
+### WDT-013: Transition from CSV to Parquet 
+* CSVs are particularly bad at handling Lists. This is a problem for columns such as "Guests" or "Topcis"
+* As the input for Phase 3, we need a CSV file. Everywhere else, we can use Parquet instead of CSVs.
+
+### WDT-014: Deprecate any non-eventsourced file writing.
+Everything that writes to a file should be eventsourced. There is plenty of code labeled "materialize" or similar that just recreates entire csv files without doing proper Event-Sourcing. Entire files are rebuild over and over again despite non of the events they are build from having changed. Some examples:
+
+[notebook] Step 6 start: graph-first expansion
+Target rows from episodes.csv: 27390
+[notebook] -> run_graph_expansion_stage
+[graph_stage] Starting graph expansion stage
+[graph_stage] Resume mode=append has_checkpoint=True
+[graph_stage] Seed 12/12 start qid=Q2108918
+[graph_stage] Seed 12/12 done stop_reason=queue_exhausted network_queries=0 elapsed=59.43s
+[graph_stage] Materialize checkpoint start
+[materializer] Start stage=checkpoint:2026-04-07T09:52:49Z run_id=20260402T194346Z_4f3e95f1
+[materializer] build instances done in 34.53s
+[materializer] build classes done in 0.22s
+[materializer] build properties done in 0.00s
+[materializer] build aliases done in 1.03s
+[materializer] build triples done in 1.28s
+[materializer] build class_hierarchy done in 28.98s
+[materializer] build query_inventory done in 0.37s
+[materializer] write csv artifacts done in 0.78s
+[materializer] Completed stage=checkpoint:2026-04-07T09:52:49Z in 67.21s
+[materializer][warning] Stage checkpoint:2026-04-07T09:52:49Z exceeded 20s target (67.21s)
+[graph_stage] Materialize checkpoint done in 67.34s
+[graph_stage] Final materialization start
+[materializer] Start stage=final run_id=20260402T194346Z_4f3e95f1
+[materializer] build instances done in 36.16s
+[materializer] build classes done in 0.21s
+[materializer] build properties done in 0.00s
+[materializer] build aliases done in 1.02s
+[materializer] build triples done in 1.29s
+[materializer] build class_hierarchy done in 30.77s
+[materializer] build query_inventory done in 0.04s
+[materializer] write csv artifacts done in 0.74s
+[materializer] Completed stage=final in 70.24s
+[materializer][warning] Stage final exceeded 20s target (70.24s)
+[graph_stage] Final materialization done in 70.37s
+[graph_stage] Completed graph expansion stage in 221.72s with total_queries=1043
+
+[notebook] Step 6 complete
+[notebook] Step 6 elapsed seconds: 222.04
+Execution Summary:
+==================================================
+  seed_id                        None
+  instances_rows                 13737
+  classes_rows                   4114
+  properties_rows                221
+  triples_rows                   209793
+  query_inventory_rows           6811
+  run_id                         20260402T194346Z_4f3e95f1
+  resume_mode                    append
+  resume_has_checkpoint          True
+  seeds_completed                11
+  seeds_remaining                1
+  stop_reason                    queue_exhausted
+  total_nodes_discovered         342
+  total_nodes_expanded           1
+  total_queries                  1043
+  stage_a_network_queries        1043
+  total_queries_before_run       1043
+  stage_a_network_queries_this_run 0
+  start_seed_index               11
+  seed_count                     12
+  stage_elapsed_seconds          221.72
 
 
+  
 
 ## Notes
 

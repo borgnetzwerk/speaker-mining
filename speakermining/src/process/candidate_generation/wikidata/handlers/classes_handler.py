@@ -8,6 +8,7 @@ from typing import Optional
 import pandas as pd
 
 from process.candidate_generation.wikidata.cache import _atomic_write_df
+from process.candidate_generation.wikidata.bootstrap import load_core_classes, load_other_interesting_classes, load_root_classes
 from process.candidate_generation.wikidata.class_resolver import resolve_class_path
 from process.candidate_generation.wikidata.common import canonical_qid, effective_core_class_qids
 from process.candidate_generation.wikidata.event_handler import EventHandler
@@ -55,15 +56,9 @@ def _alias_pipe(mapping: dict, lang: str) -> str:
 
 
 def _class_filename_lookup(repo_root: Path) -> dict[str, str]:
-    path = Path(repo_root) / "data" / "00_setup" / "classes.csv"
-    if not path.exists():
-        return {}
-    try:
-        df = pd.read_csv(path)
-    except Exception:
-        return {}
     lookup: dict[str, str] = {}
-    for _, row in df.iterrows():
+    setup_rows = load_core_classes(repo_root) + load_root_classes(repo_root) + load_other_interesting_classes(repo_root)
+    for row in setup_rows:
         qid = canonical_qid(str(row.get("wikidata_id", "") or ""))
         filename = str(row.get("filename", "") or "")
         if qid and filename:
