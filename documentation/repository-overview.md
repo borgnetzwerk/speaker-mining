@@ -7,7 +7,7 @@ This document explains how the repository currently works end-to-end.
 1. Optional pre-phase (`10_text_extraction.ipynb`) converts raw archive PDFs into canonical `*.pdf_episodes.txt` files.
 2. Phase 1 (`10_mention_detection.ipynb`) parses archive text into structured mention tables.
 3. Optional inspection (`19_analysis.ipynb`) provides lightweight, confidence-aware checks over Phase 1 outputs.
-4. Phase 2 (`20_` to `23_` candidate-generation notebooks) prepares lookup tables and source-specific candidate search inputs; `22_candidate_generation_fernsehserien_de.ipynb` exists as an unexecuted scaffold.
+4. Phase 2 (`20_` to `23_` candidate-generation notebooks) prepares lookup tables and source-specific candidate search inputs; `22_candidate_generation_fernsehserien_de.ipynb` is the active fernsehserien.de stage-2 pipeline notebook.
 5. Phase 3 (`30_`, `31_`) contains manual reconciliation and deduplication decisions.
 6. Phase 4 (`40_`) produces relation/link outputs.
 

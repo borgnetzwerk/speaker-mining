@@ -26,6 +26,7 @@ Governance reference model:
 5. Keep temporary exploratory cells separate from production cells.
 6. Do not hardcode display-only row limits in notebooks (for example `.head(10)` before `display(...)`) unless explicitly required by the task.
 7. Always expose real DataFrames to notebook viewers so sorting/filtering/search can operate on full data.
+8. For network-backed workflows, test cache-first compatibility before new fetches whenever possible by running at least one validation pass with `max_network_calls=0`.
 
 ### Notebook Setup Conventions
 
@@ -77,6 +78,9 @@ Governance reference model:
 9. If a new behavior cannot be reconstructed from events, it is not yet an event-sourced behavior and should be modeled before implementation.
 10. Once event-backed or handler-backed projections exist for a workflow, remove mutable JSON sidecars and compatibility writes rather than preserving them as permanent runtime state.
 11. Transitional sidecars are acceptable only until the last consumer has moved to replayable projections; at that point they become technical debt and should be deleted.
+12. No future event-sourced architecture may ship without persistent handler progress tracking. Event handlers must persist at least `handler_name`, `last_processed_sequence`, `artifact_path`, and `updated_at` so incremental replay/resume remains deterministic and auditable.
+13. Cached source pages and append-only event logs are immutable runtime assets: once downloaded/appended, they must not be deleted during normal notebook/process execution.
+14. If a reset is needed for testing, delete only derived projections/artifacts; never delete cache or event history.
 
 ## Notebook Observability Principles
 
@@ -103,3 +107,4 @@ Governance reference model:
 3. CSV headers still match contract docs or contract docs updated.
 4. New work item entered in `open-tasks.md`.
 5. Remaining work entered in `open-tasks.md`.
+6. For network-backed changes, include evidence of a cache-only validation pass (`max_network_calls=0`) whenever feasible.

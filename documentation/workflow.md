@@ -19,14 +19,14 @@ Active notebook implementation order:
 3. `speakermining/src/process/notebooks/19_analysis.ipynb` (optional lightweight inspection of Phase 1 outputs)
 4. `speakermining/src/process/notebooks/20_candidate_generation_wikibase.ipynb`
 5. `speakermining/src/process/notebooks/21_candidate_generation_wikidata.ipynb`
+6. `speakermining/src/process/notebooks/22_candidate_generation_fernsehserien_de.ipynb`
 
 Placeholder notebooks (not implemented yet):
 
-1. `speakermining/src/process/notebooks/22_candidate_generation_fernsehserien_de.ipynb` (scaffolded, currently unexecuted)
-2. `speakermining/src/process/notebooks/23_candidate_generation_other.ipynb`
-3. `speakermining/src/process/notebooks/30_entity_disambiguation.ipynb`
-4. `speakermining/src/process/notebooks/31_entity_deduplication.ipynb`
-5. `speakermining/src/process/notebooks/40_link_prediction.ipynb`
+1. `speakermining/src/process/notebooks/23_candidate_generation_other.ipynb`
+2. `speakermining/src/process/notebooks/30_entity_disambiguation.ipynb`
+3. `speakermining/src/process/notebooks/31_entity_deduplication.ipynb`
+4. `speakermining/src/process/notebooks/40_link_prediction.ipynb`
 
 Historical notebook (legacy placeholder):
 

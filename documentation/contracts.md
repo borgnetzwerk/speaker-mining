@@ -66,6 +66,44 @@ Note: `institutions.csv` is not currently produced by active Phase 1 workflow.
 6. `person_duplicates_for_phase1_feedback.csv`: `mention_id`, `episode_id`, `name`, `name_cleaned`, `beschreibung`, `kept_mention_id`, `kept_beschreibung`, `duplicate_reason`, `sendungstitel`, `season`
 7. `candidates.csv`: `mention_id`, `mention_type`, `mention_label`, `candidate_id`, `candidate_label`, `source`, `context`
 
+## Phase 2 Fernsehserien Runtime Contract (Stage-2)
+
+Canonical target path:
+
+1. `data/20_candidate_generation/fernsehserien_de/`
+
+Required runtime artifacts:
+
+1. `chunks/chunk_000001.jsonl`
+2. `eventhandler.csv`
+3. `cache/pages/*.html`
+4. `projections/summary.json`
+
+Required projection artifacts (`projections/`):
+
+1. `program_pages.csv`
+2. `episode_index_pages.csv`
+3. `episode_urls.csv`
+4. `episode_metadata_discovered.csv`
+5. `episode_guests_discovered.csv`
+6. `episode_broadcasts_discovered.csv`
+7. `episode_metadata_normalized.csv`
+8. `episode_guests_normalized.csv`
+9. `episode_broadcasts_normalized.csv`
+
+Required minimum event families:
+
+1. lifecycle: `eventstore_opened`, `eventstore_closed`, `projection_checkpoint_written`
+2. discovery: `program_root_discovered`, `episode_index_page_discovered`, `episode_url_discovered`
+3. network: `network_request_skipped_cache_hit`, `network_request_performed`
+4. extraction/normalization: `episode_description_discovered`, `episode_guest_discovered`, `episode_broadcast_discovered`, `episode_description_normalized`, `episode_guest_normalized`, `episode_broadcast_normalized`
+
+Operational semantics:
+
+1. `max_network_calls=0` is cache-only execution.
+2. `max_network_calls>0` is bounded network execution.
+3. `max_network_calls<0` is unlimited network execution.
+
 ## Phase 3/4
 
 These phases are present in workflow structure but no stable, repository-wide schema contract is documented yet from generated files in this repository state.
