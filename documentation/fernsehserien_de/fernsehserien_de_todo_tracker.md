@@ -156,5 +156,34 @@ Resolution note:
 1. Notebook execution now appends `run_finished` with final run summary metrics.
 2. Emission is deduplicated per `run_id` in the notebook session, so repeated execution of the workflow cell does not write duplicate `run_finished` events.
 
-### FST-011 Output heartbeat
+### FST-011 Output heartbeat (DONE)
 Cell 9 (`## 3) Execute Workflow`) needs to print some output during execution. Right now, we only have outputs once everything is done - but we need heartbeat outputs every minute as well as every 50 network calls.
+
+Resolution note:
+1. Cell 9 now passes a heartbeat callback into `run_fernsehserien_pipeline(...)`.
+2. Runtime emits heartbeat events to notebook output every minute and at each 50-network-call milestone.
+3. Normalization and checkpoint creation also emit progress heartbeat lines.
+
+### FST-012 Backup Event Store (DONE)
+From the wikidata logic:
+
+Checkpoint snapshot retention policy:
+
+1. Checkpoint snapshots are written under `checkpoints/snapshots/<checkpoint_stem>/`.
+2. Each snapshot directory contains a copy of its manifest file (`checkpoint__...json`) so the manifest is preserved in the same lifecycle as the snapshot and included in any zip archive.
+2. The 3 most recent snapshots remain unzipped directories.
+3. When a new snapshot would increase unzipped snapshots above 3, the oldest unzipped snapshot is compressed into `checkpoints/snapshots/<checkpoint_stem>.zip`.
+4. Zipped snapshots keep one protected "daily latest" snapshot per creation day with no hard cap.
+5. Additional zipped snapshots (those that are not the protected daily latest) are capped to the 7 most recent; older ones are deleted.
+6. Restore/revert must work from either an unzipped snapshot directory or a zipped snapshot archive.
+7. Snapshot payload must include runtime projections, legacy raw query snapshot content, and eventstore artifacts (`chunks/`, `chunk_catalog.csv`, `eventstore_checksums.txt`).
+8. Checkpoint creation history is append-only JSONL in `checkpoints/checkpoint_timeline.jsonl`.
+
+This should also be added to the coding-principles. Every eventsourced system should backup their events like this.
+
+Resolution note:
+1. Added fernsehserien checkpoint snapshot module with Wikidata-aligned retention policy and append-only `checkpoint_timeline.jsonl`.
+2. Snapshot payload now includes projections, `raw_queries/` snapshot content (when present), and eventstore artifacts (`chunks/`, `chunk_catalog.csv`, `eventstore_checksums.txt`).
+3. Restore supports both unzipped snapshot directories and zipped snapshot archives.
+4. Pipeline now writes a checkpoint manifest and snapshot automatically at run completion and returns checkpoint references.
+5. Repository event-sourcing principles now require this backup policy for all event-sourced workflows.

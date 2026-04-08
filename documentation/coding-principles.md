@@ -81,6 +81,7 @@ Governance reference model:
 12. No future event-sourced architecture may ship without persistent handler progress tracking. Event handlers must persist at least `handler_name`, `last_processed_sequence`, `artifact_path`, and `updated_at` so incremental replay/resume remains deterministic and auditable.
 13. Cached source pages and append-only event logs are immutable runtime assets: once downloaded/appended, they must not be deleted during normal notebook/process execution.
 14. If a reset is needed for testing, delete only derived projections/artifacts; never delete cache or event history.
+15. Every event-sourced workflow must provide checkpoint snapshots with dual-form restore support (directory and zip), include eventstore payload (`chunks/`, `chunk_catalog.csv`, `eventstore_checksums.txt`) plus runtime projections, keep append-only checkpoint timeline history, and enforce retention: 3 newest unzipped, one protected daily-latest zip per day, plus 7 newest additional zipped snapshots.
 
 ## Notebook Observability Principles
 

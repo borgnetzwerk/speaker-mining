@@ -28,7 +28,16 @@ class FernsehserienPaths:
     def eventhandler_csv(self) -> Path:
         return self.runtime_root / "eventhandler.csv"
 
+    @property
+    def checkpoints_dir(self) -> Path:
+        return self.runtime_root / "checkpoints"
+
+    @property
+    def raw_queries_dir(self) -> Path:
+        return self.runtime_root / "raw_queries"
+
     def ensure(self) -> None:
         self.chunks_dir.mkdir(parents=True, exist_ok=True)
         self.projections_dir.mkdir(parents=True, exist_ok=True)
         self.cache_pages_dir.mkdir(parents=True, exist_ok=True)
+        self.checkpoints_dir.mkdir(parents=True, exist_ok=True)

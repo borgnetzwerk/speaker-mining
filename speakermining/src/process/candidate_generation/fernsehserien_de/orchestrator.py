@@ -4,11 +4,14 @@ from datetime import datetime, timezone
 from datetime import timedelta
 from pathlib import Path
 import re
+import time
 from urllib.parse import urljoin
+from uuid import uuid4
 
 import pandas as pd
 
 from .config import FernsehserienRunConfig
+from .checkpoint import FernsehserienCheckpointManifest, write_checkpoint_manifest
 from .event_store import FernsehserienEventStore
 from .fetcher import FernsehserienFetcher
 from .parser import (
@@ -38,6 +41,47 @@ def _is_budget_exhausted(*, max_network_calls: int, network_calls_used: int) -> 
     if int(max_network_calls) < 0:
         return False
     return network_calls_used >= int(max_network_calls)
+
+
+def _emit_heartbeat_if_due(
+    *,
+    heartbeat_callback,
+    heartbeat_state: dict,
+    network_calls_used: int,
+    programs_processed: int,
+    phase: str,
+) -> None:
+    if heartbeat_callback is None:
+        return
+    now = time.monotonic()
+    started_at = float(heartbeat_state.get("started_at", now))
+
+    last_minute = float(heartbeat_state.get("last_minute_emit", started_at))
+    if now - last_minute >= 60.0:
+        heartbeat_callback(
+            {
+                "kind": "minute",
+                "phase": phase,
+                "elapsed_seconds": int(now - started_at),
+                "network_calls_used": int(network_calls_used),
+                "programs_processed": int(programs_processed),
+            }
+        )
+        heartbeat_state["last_minute_emit"] = now
+
+    last_network_bucket = int(heartbeat_state.get("last_network_bucket", 0))
+    current_bucket = int(network_calls_used) // 50
+    if current_bucket > last_network_bucket:
+        heartbeat_callback(
+            {
+                "kind": "network_50",
+                "phase": phase,
+                "elapsed_seconds": int(now - started_at),
+                "network_calls_used": int(network_calls_used),
+                "programs_processed": int(programs_processed),
+            }
+        )
+        heartbeat_state["last_network_bucket"] = current_bucket
 
 
 def _normalize_duration_minutes(duration_raw: str) -> float | None:
@@ -338,6 +382,7 @@ def run_fernsehserien_extraction_phase(
     *,
     config: FernsehserienRunConfig,
     notebook_logger=None,
+    heartbeat_callback=None,
 ) -> dict:
     """Run extraction/discovery phase and emit *_discovered events."""
     repo_root = Path(config.repo_root)
@@ -364,8 +409,21 @@ def run_fernsehserien_extraction_phase(
 
     programs = _load_programs(repo_root)
     selected = _select_programs(programs, config.max_programs)
+    heartbeat_state = {
+        "started_at": time.monotonic(),
+        "last_minute_emit": time.monotonic(),
+        "last_network_bucket": 0,
+    }
+    processed_programs = 0
 
     for _, row in selected.iterrows():
+        _emit_heartbeat_if_due(
+            heartbeat_callback=heartbeat_callback,
+            heartbeat_state=heartbeat_state,
+            network_calls_used=fetcher.network_calls_used,
+            programs_processed=processed_programs,
+            phase="extraction",
+        )
         program_name = str(row.get("name", "")).strip()
         fernsehserien_de_id = str(row.get("fernsehserien_de_id", "")).strip()
         root_url = f"https://www.fernsehserien.de/{fernsehserien_de_id}/"
@@ -408,6 +466,13 @@ def run_fernsehserien_extraction_phase(
         # Priority-based loop: parse discovered episodes before discovering more.
         # This ensures leaf data extraction happens before discovery exhausts the budget.
         while True:
+            _emit_heartbeat_if_due(
+                heartbeat_callback=heartbeat_callback,
+                heartbeat_state=heartbeat_state,
+                network_calls_used=fetcher.network_calls_used,
+                programs_processed=processed_programs,
+                phase="extraction",
+            )
             # PRIORITY 1: Parse any discovered episodes that haven't been parsed yet.
             unparsed_urls = sorted(seen_episode_urls - parsed_episode_urls)
             for episode_url in unparsed_urls:
@@ -417,6 +482,13 @@ def run_fernsehserien_extraction_phase(
                     url=episode_url,
                     phase="episode_leaf_parsing",
                     request_kind="episode_leaf_html",
+                )
+                _emit_heartbeat_if_due(
+                    heartbeat_callback=heartbeat_callback,
+                    heartbeat_state=heartbeat_state,
+                    network_calls_used=fetcher.network_calls_used,
+                    programs_processed=processed_programs,
+                    phase="extraction",
                 )
                 if leaf_fetch.status in {"success", "cache_hit"}:
                     parsed = parse_episode_leaf_fields(html_text=leaf_fetch.content)
@@ -512,6 +584,13 @@ def run_fernsehserien_extraction_phase(
                 phase="episode_index_discovery",
                 request_kind="episodenguide_html",
             )
+            _emit_heartbeat_if_due(
+                heartbeat_callback=heartbeat_callback,
+                heartbeat_state=heartbeat_state,
+                network_calls_used=fetcher.network_calls_used,
+                programs_processed=processed_programs,
+                phase="extraction",
+            )
             if index_fetch.status not in {"success", "cache_hit"}:
                 continue
 
@@ -547,6 +626,8 @@ def run_fernsehserien_extraction_phase(
             if fallback_pending:
                 fallback_pending = False
 
+        processed_programs += 1
+
     projection_result = build_projections(paths=paths, event_store=event_store)
     event_store.append(
         event_type="projection_checkpoint_written",
@@ -579,7 +660,7 @@ def run_fernsehserien_extraction_phase(
     }
 
 
-def run_fernsehserien_normalization_phase(*, config: FernsehserienRunConfig, notebook_logger=None) -> dict:
+def run_fernsehserien_normalization_phase(*, config: FernsehserienRunConfig, notebook_logger=None, heartbeat_callback=None) -> dict:
     """Normalize discovered events and emit *_normalized events only."""
     del notebook_logger
     repo_root = Path(config.repo_root)
@@ -598,6 +679,14 @@ def run_fernsehserien_normalization_phase(*, config: FernsehserienRunConfig, not
     )
 
     normalized_emitted = _emit_normalized_events(event_store=event_store)
+    if heartbeat_callback is not None:
+        heartbeat_callback(
+            {
+                "kind": "phase",
+                "phase": "normalization",
+                "normalized_events_emitted": int(normalized_emitted),
+            }
+        )
 
     projection_result = build_projections(paths=paths, event_store=event_store)
     event_store.append(
@@ -630,11 +719,30 @@ def run_fernsehserien_normalization_phase(*, config: FernsehserienRunConfig, not
     }
 
 
-def run_fernsehserien_pipeline(*, config: FernsehserienRunConfig, notebook_logger=None) -> dict:
+def run_fernsehserien_pipeline(*, config: FernsehserienRunConfig, notebook_logger=None, heartbeat_callback=None) -> dict:
     """Run extraction then normalization phases."""
-    extraction = run_fernsehserien_extraction_phase(config=config, notebook_logger=notebook_logger)
-    normalization = run_fernsehserien_normalization_phase(config=config, notebook_logger=notebook_logger)
-    return {
+    extraction = run_fernsehserien_extraction_phase(
+        config=config,
+        notebook_logger=notebook_logger,
+        heartbeat_callback=heartbeat_callback,
+    )
+    normalization = run_fernsehserien_normalization_phase(
+        config=config,
+        notebook_logger=notebook_logger,
+        heartbeat_callback=heartbeat_callback,
+    )
+
+    checkpoint_manifest = FernsehserienCheckpointManifest(
+        run_id=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + uuid4().hex[:8],
+        latest_checkpoint_timestamp=_iso_now(),
+        phase="pipeline",
+        programs_processed=int(extraction.get("programs_processed", 0)),
+        network_calls_used=int(extraction.get("network_calls_used", 0)),
+        normalized_events_emitted=int(normalization.get("normalized_events_emitted", 0)),
+    )
+    checkpoint_path = write_checkpoint_manifest(Path(config.repo_root), checkpoint_manifest)
+
+    result = {
         "phase": "pipeline",
         "extraction": extraction,
         "normalization": normalization,
@@ -646,4 +754,16 @@ def run_fernsehserien_pipeline(*, config: FernsehserienRunConfig, notebook_logge
         "max_network_calls": extraction.get("max_network_calls", int(config.max_network_calls)),
         "programs_processed": extraction.get("programs_processed", 0),
         "normalized_events_emitted": normalization.get("normalized_events_emitted", 0),
+        "checkpoint_manifest_path": str(checkpoint_path),
+        "checkpoint_snapshot_ref": Path(checkpoint_path).parent.name,
     }
+    if heartbeat_callback is not None:
+        heartbeat_callback(
+            {
+                "kind": "checkpoint",
+                "phase": "pipeline",
+                "checkpoint_manifest_path": result["checkpoint_manifest_path"],
+                "checkpoint_snapshot_ref": result["checkpoint_snapshot_ref"],
+            }
+        )
+    return result

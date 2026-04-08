@@ -78,6 +78,10 @@ Required runtime artifacts:
 2. `eventhandler.csv`
 3. `cache/pages/*.html`
 4. `projections/summary.json`
+5. `checkpoints/checkpoint_timeline.jsonl`
+6. `checkpoints/snapshots/` (unzipped snapshot directories and/or zipped snapshot archives)
+7. `chunk_catalog.csv`
+8. `eventstore_checksums.txt`
 
 Required projection artifacts (`projections/`):
 

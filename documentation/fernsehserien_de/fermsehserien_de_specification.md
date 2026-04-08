@@ -119,6 +119,14 @@ Canonical append-only event store:
 
 1. `data/20_candidate_generation/fernsehserien_de/chunks/*.jsonl`
 
+Checkpoint snapshot contract:
+
+1. Checkpoint manifests and snapshots are written under `data/20_candidate_generation/fernsehserien_de/checkpoints/`.
+2. Snapshot payload must include runtime projections, legacy raw query snapshot content (when present), and eventstore artifacts (`chunks/`, `chunk_catalog.csv`, `eventstore_checksums.txt`).
+3. Restore/revert must work from both unzipped snapshot directories and zipped snapshot archives.
+4. `checkpoint_timeline.jsonl` is append-only history of created checkpoints.
+5. Retention policy: keep 3 newest unzipped snapshots; zip older ones; keep one protected daily-latest zip per day; cap additional zipped snapshots to 7 newest.
+
 Required event envelope fields:
 
 1. `sequence_num`

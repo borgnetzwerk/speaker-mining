@@ -6,6 +6,10 @@ import json
 from pathlib import Path
 
 from process.candidate_generation.fernsehserien_de.config import FernsehserienRunConfig
+from process.candidate_generation.fernsehserien_de.checkpoint import (
+    FernsehserienCheckpointManifest,
+    write_checkpoint_manifest,
+)
 from process.candidate_generation.fernsehserien_de.event_store import FernsehserienEventStore
 from process.candidate_generation.fernsehserien_de.orchestrator import (
     _emit_normalized_events,
@@ -182,3 +186,35 @@ def test_program_page_projection_dedupes_by_unique_program_id(tmp_path: Path) ->
     program_pages = pd.read_csv(paths.projections_dir / "program_pages.csv")
     assert list(program_pages["fernsehserien_de_id"].unique()) == ["markus-lanz"]
     assert len(program_pages) == 1
+
+
+def test_checkpoint_manifest_writes_snapshot_with_eventstore_payload(tmp_path: Path) -> None:
+    repo_root = tmp_path
+    paths = FernsehserienPaths(repo_root=repo_root)
+    paths.ensure()
+
+    # Minimal runtime artifacts
+    (paths.projections_dir / "summary.json").write_text("{}\n", encoding="utf-8")
+    (paths.chunks_dir / "chunk_000001.jsonl").write_text(
+        '{"sequence_num":1,"event_type":"eventstore_opened","payload":{}}\n',
+        encoding="utf-8",
+    )
+
+    manifest = FernsehserienCheckpointManifest(
+        run_id="run_test",
+        latest_checkpoint_timestamp="2026-04-08T15:00:00Z",
+        phase="pipeline",
+        programs_processed=1,
+        network_calls_used=0,
+        normalized_events_emitted=0,
+    )
+    checkpoint_path = write_checkpoint_manifest(repo_root, manifest)
+
+    snapshot_dir = checkpoint_path.parent
+    assert snapshot_dir.exists()
+    assert (snapshot_dir / checkpoint_path.name).exists()
+    assert (snapshot_dir / "files" / "summary.json").exists()
+    assert (snapshot_dir / "eventstore" / "chunks" / "chunk_000001.jsonl").exists()
+    assert (snapshot_dir / "eventstore" / "chunk_catalog.csv").exists()
+    assert (snapshot_dir / "eventstore" / "eventstore_checksums.txt").exists()
+    assert (paths.checkpoints_dir / "checkpoint_timeline.jsonl").exists()
