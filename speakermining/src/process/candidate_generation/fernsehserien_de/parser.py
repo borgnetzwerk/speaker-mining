@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 
 _EPISODENGUIDE_HREF_RE = re.compile(
@@ -84,6 +84,14 @@ _NAV_EPISODE_LINK_RE = re.compile(
 )
 
 
+def canonicalize_url(url: str, *, base_url: str | None = None) -> str:
+    raw = str(url or "").strip()
+    if base_url:
+        raw = urljoin(base_url, raw)
+    split = urlsplit(raw)
+    return urlunsplit((split.scheme, split.netloc, split.path, split.query, ""))
+
+
 def _clean_html_text(raw_html: str) -> str:
     plain = _TAG_RE.sub(" ", str(raw_html or ""))
     return " ".join(plain.split()).strip()
@@ -119,12 +127,16 @@ def extract_episodenguide_urls(*, html_text: str, base_url: str) -> list[str]:
     return out
 
 
-def extract_episode_urls(*, html_text: str, base_url: str) -> list[str]:
+def extract_episode_urls(*, html_text: str, base_url: str, fragment_sink: set[str] | None = None) -> list[str]:
     """Extract episode leaf URLs from episodenguide HTML."""
     seen: set[str] = set()
     out: list[str] = []
     for match in _EPISODE_HREF_RE.finditer(html_text or ""):
-        absolute_url = urljoin(base_url, match.group("href").strip())
+        raw_absolute_url = urljoin(base_url, match.group("href").strip())
+        fragment = urlsplit(raw_absolute_url).fragment.strip()
+        if fragment and fragment_sink is not None:
+            fragment_sink.add(fragment)
+        absolute_url = canonicalize_url(raw_absolute_url)
         if absolute_url in seen:
             continue
         seen.add(absolute_url)
@@ -132,7 +144,7 @@ def extract_episode_urls(*, html_text: str, base_url: str) -> list[str]:
     return out
 
 
-def extract_neighbor_episode_urls(*, html_text: str, base_url: str) -> list[str]:
+def extract_neighbor_episode_urls(*, html_text: str, base_url: str, fragment_sink: set[str] | None = None) -> list[str]:
     """Extract neighboring episode links from leaf-page navigation anchors."""
     seen: set[str] = set()
     out: list[str] = []
@@ -140,7 +152,11 @@ def extract_neighbor_episode_urls(*, html_text: str, base_url: str) -> list[str]
         label = _clean_html_text(match.group("label")).lower()
         if "weiter" not in label and "zur" not in label:
             continue
-        absolute_url = urljoin(base_url, match.group("href").strip())
+        raw_absolute_url = urljoin(base_url, match.group("href").strip())
+        fragment = urlsplit(raw_absolute_url).fragment.strip()
+        if fragment and fragment_sink is not None:
+            fragment_sink.add(fragment)
+        absolute_url = canonicalize_url(raw_absolute_url)
         if absolute_url in seen:
             continue
         seen.add(absolute_url)
@@ -153,13 +169,13 @@ def infer_episode_url_from_leaf_html(*, html_text: str, base_url: str = "https:/
     html = html_text or ""
     canonical = _CANONICAL_EPISODE_URL_RE.search(html)
     if canonical:
-        return urljoin(base_url, canonical.group("url").strip())
+        return canonicalize_url(canonical.group("url").strip(), base_url=base_url)
     og_url = _OG_URL_RE.search(html)
     if og_url:
-        return urljoin(base_url, og_url.group("url").strip())
+        return canonicalize_url(og_url.group("url").strip(), base_url=base_url)
     fallback = _FALLBACK_EPISODE_HREF_RE.search(html)
     if fallback:
-        return urljoin(base_url, fallback.group("href").strip())
+        return canonicalize_url(fallback.group("href").strip(), base_url=base_url)
     return None
 
 

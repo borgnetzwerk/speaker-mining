@@ -4,23 +4,26 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-
 from process.candidate_generation.fernsehserien_de.config import FernsehserienRunConfig
 from process.candidate_generation.fernsehserien_de.checkpoint import (
     FernsehserienCheckpointManifest,
     write_checkpoint_manifest,
 )
 from process.candidate_generation.fernsehserien_de.event_store import FernsehserienEventStore
+from process.candidate_generation.fernsehserien_de.fragment_cleanup import apply_fragment_url_cleanup
 from process.candidate_generation.fernsehserien_de.orchestrator import (
     _emit_normalized_events,
     _import_legacy_cached_episode_urls,
     _is_budget_exhausted,
 )
 from process.candidate_generation.fernsehserien_de.parser import (
+    extract_episode_urls,
     extract_neighbor_episode_urls,
     infer_episode_url_from_leaf_html,
     parse_episode_leaf_fields,
 )
+from process.candidate_generation.fernsehserien_de.fetcher import normalize_url
+from process.candidate_generation.fernsehserien_de.notebook_runtime import run_pipeline_with_notebook_heartbeat
 from process.candidate_generation.fernsehserien_de.paths import FernsehserienPaths
 from process.candidate_generation.fernsehserien_de.projection import build_projections
 
@@ -73,6 +76,41 @@ def test_leaf_navigation_neighbor_extraction() -> None:
     )
     assert len(neighbors) == 2
     assert neighbors[0].startswith("https://www.fernsehserien.de/markus-lanz/folgen/")
+
+
+def test_extract_episode_urls_collapses_cast_crew_fragment() -> None:
+    html = """
+    <a href="/markus-lanz/folgen/2193-sendung-vom-05-03-2026-1861331">Episode</a>
+    <a href="/markus-lanz/folgen/2193-sendung-vom-05-03-2026-1861331#Cast-Crew">Cast</a>
+    """
+    urls = extract_episode_urls(
+        html_text=html,
+        base_url="https://www.fernsehserien.de/markus-lanz/episodenguide",
+    )
+    assert urls == [
+        "https://www.fernsehserien.de/markus-lanz/folgen/2193-sendung-vom-05-03-2026-1861331"
+    ]
+
+
+def test_extract_episode_urls_tracks_fragment_strings() -> None:
+    html = """
+    <a href="/markus-lanz/folgen/2193-sendung-vom-05-03-2026-1861331#Cast-Crew">Cast</a>
+    <a href="/markus-lanz/folgen/2194-sendung-vom-06-03-2026-1861332#Sendetermine">Termine</a>
+    """
+    fragments: set[str] = set()
+    _ = extract_episode_urls(
+        html_text=html,
+        base_url="https://www.fernsehserien.de/markus-lanz/episodenguide",
+        fragment_sink=fragments,
+    )
+    assert fragments == {"Cast-Crew", "Sendetermine"}
+
+
+def test_fetch_normalize_url_strips_fragment() -> None:
+    normalized = normalize_url(
+        "https://www.fernsehserien.de/markus-lanz/folgen/2193-sendung-vom-05-03-2026-1861331#Cast-Crew"
+    )
+    assert normalized == "https://www.fernsehserien.de/markus-lanz/folgen/2193-sendung-vom-05-03-2026-1861331"
 
 
 def test_legacy_cache_import_emits_events(tmp_path: Path) -> None:
@@ -218,3 +256,127 @@ def test_checkpoint_manifest_writes_snapshot_with_eventstore_payload(tmp_path: P
     assert (snapshot_dir / "eventstore" / "chunk_catalog.csv").exists()
     assert (snapshot_dir / "eventstore" / "eventstore_checksums.txt").exists()
     assert (paths.checkpoints_dir / "checkpoint_timeline.jsonl").exists()
+
+
+def test_fragment_cleanup_archives_and_promotes_cache(tmp_path: Path) -> None:
+    repo_root = tmp_path
+    paths = FernsehserienPaths(repo_root=repo_root)
+    paths.ensure()
+    event_store = FernsehserienEventStore(paths)
+
+    fragment_url = "https://www.fernsehserien.de/markus-lanz/folgen/2193-sendung-vom-05-03-2026-1861331#Cast-Crew"
+    fragment_cache = paths.cache_pages_dir / "fragment_cache.html"
+    fragment_cache.write_text("<html>same page</html>", encoding="utf-8")
+
+    event_store.append(
+        event_type="network_request_performed",
+        payload={
+            "url": fragment_url,
+            "cache_path": str(fragment_cache),
+        },
+    )
+
+    result = apply_fragment_url_cleanup(paths=paths, event_store=event_store)
+    assert result["affected_network_events"] == 1
+    assert "Cast-Crew" in result["fragments"]
+    assert fragment_cache.exists() is False
+
+
+def test_build_projections_prunes_fragment_tainted_rows(tmp_path: Path) -> None:
+    repo_root = tmp_path
+    paths = FernsehserienPaths(repo_root=repo_root)
+    paths.ensure()
+    event_store = FernsehserienEventStore(paths)
+
+    # Tainted discovery event (fragment URL)
+    event_store.append(
+        event_type="episode_url_discovered",
+        payload={
+            "program_name": "Markus Lanz",
+            "fernsehserien_de_id": "markus-lanz",
+            "episode_url": "https://www.fernsehserien.de/markus-lanz/folgen/2193-sendung-vom-05-03-2026-1861331#Cast-Crew",
+            "discovery_path": "episodenguide",
+            "discovered_at_utc": "2026-04-08T10:00:00Z",
+        },
+    )
+    # Clean discovery event (canonical URL)
+    event_store.append(
+        event_type="episode_url_discovered",
+        payload={
+            "program_name": "Markus Lanz",
+            "fernsehserien_de_id": "markus-lanz",
+            "episode_url": "https://www.fernsehserien.de/markus-lanz/folgen/2193-sendung-vom-05-03-2026-1861331",
+            "discovery_path": "episodenguide",
+            "discovered_at_utc": "2026-04-08T10:01:00Z",
+        },
+    )
+
+    result = build_projections(paths=paths, event_store=event_store)
+    assert result.summary["episode_urls_rows"] == 1
+
+
+def test_event_store_buffered_append_flushes_on_iter(tmp_path: Path) -> None:
+    paths = FernsehserienPaths(repo_root=tmp_path)
+    paths.ensure()
+    event_store = FernsehserienEventStore(paths)
+
+    event_store.append(event_type="a", payload={"x": 1})
+    event_store.append(event_type="b", payload={"x": 2})
+    assert event_store.chunk_path.exists() is False
+
+    events = list(event_store.iter_events())
+    assert len(events) == 2
+    assert event_store.chunk_path.exists() is True
+
+
+def test_event_store_recent_activity_snapshot(tmp_path: Path) -> None:
+    paths = FernsehserienPaths(repo_root=tmp_path)
+    paths.ensure()
+    event_store = FernsehserienEventStore(paths)
+
+    event_store.append(event_type="alpha", payload={"n": 1})
+    event_store.append(event_type="beta", payload={"n": 2})
+    event_store.append(event_type="alpha", payload={"n": 3})
+
+    activity = event_store.get_recent_activity(window_seconds=120.0)
+    assert activity["events_in_window"] == 3
+    assert activity["event_type_counts"].get("alpha") == 2
+    assert activity["event_type_counts"].get("beta") == 1
+    assert activity["last_event"]["event_type"] == "alpha"
+    assert activity["last_event"]["payload"]["n"] == 3
+
+
+def test_notebook_runtime_graceful_interrupt_emits_interrupted_run_finished(monkeypatch, tmp_path: Path) -> None:
+    config = FernsehserienRunConfig(repo_root=tmp_path, max_network_calls=7)
+
+    class _FakeLogger:
+        notebook_id = "nb"
+        run_id = "run"
+
+        def __init__(self) -> None:
+            self.events: list[dict] = []
+
+        def append_event(self, **kwargs):
+            self.events.append(kwargs)
+
+    logger = _FakeLogger()
+
+    def _raise_interrupt(*, config, notebook_logger, heartbeat_callback):  # noqa: ARG001
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(
+        "process.candidate_generation.fernsehserien_de.notebook_runtime.importlib.reload",
+        lambda module: module,
+    )
+    monkeypatch.setattr(
+        "process.candidate_generation.fernsehserien_de.orchestrator.run_fernsehserien_pipeline",
+        _raise_interrupt,
+    )
+
+    result = run_pipeline_with_notebook_heartbeat(config=config, logger=logger)
+    assert result.get("status") == "interrupted"
+    assert int(result.get("max_network_calls", 0)) == 7
+
+    run_finished_events = [e for e in logger.events if e.get("event_type") == "run_finished"]
+    assert len(run_finished_events) == 1
+    assert run_finished_events[0]["result"]["status"] == "interrupted"

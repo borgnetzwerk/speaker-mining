@@ -9,12 +9,15 @@ from urllib.parse import urljoin
 from uuid import uuid4
 
 import pandas as pd
+from process.io_guardrails import atomic_write_csv
 
 from .config import FernsehserienRunConfig
 from .checkpoint import FernsehserienCheckpointManifest, write_checkpoint_manifest
 from .event_store import FernsehserienEventStore
 from .fetcher import FernsehserienFetcher
+from .fragment_cleanup import apply_fragment_url_cleanup
 from .parser import (
+    canonicalize_url,
     extract_neighbor_episode_urls,
     extract_episodenguide_urls,
     extract_first_episodenguide_url,
@@ -43,6 +46,20 @@ def _is_budget_exhausted(*, max_network_calls: int, network_calls_used: int) -> 
     return network_calls_used >= int(max_network_calls)
 
 
+def _write_url_fragment_diagnostics(*, paths: FernsehserienPaths, fragments: set[str]) -> None:
+    diagnostics_dir = paths.runtime_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    fragment_path = diagnostics_dir / "url_fragments_observed.csv"
+    rows = [
+        {
+            "fragment": fragment,
+            "observed_at_utc": _iso_now(),
+        }
+        for fragment in sorted({str(fragment).strip() for fragment in fragments if str(fragment).strip()})
+    ]
+    atomic_write_csv(fragment_path, pd.DataFrame(rows, columns=["fragment", "observed_at_utc"]), index=False)
+
+
 def _emit_heartbeat_if_due(
     *,
     heartbeat_callback,
@@ -50,6 +67,7 @@ def _emit_heartbeat_if_due(
     network_calls_used: int,
     programs_processed: int,
     phase: str,
+    event_store: FernsehserienEventStore | None = None,
 ) -> None:
     if heartbeat_callback is None:
         return
@@ -58,6 +76,7 @@ def _emit_heartbeat_if_due(
 
     last_minute = float(heartbeat_state.get("last_minute_emit", started_at))
     if now - last_minute >= 60.0:
+        activity = event_store.get_recent_activity(window_seconds=60.0) if event_store is not None else {}
         heartbeat_callback(
             {
                 "kind": "minute",
@@ -65,6 +84,9 @@ def _emit_heartbeat_if_due(
                 "elapsed_seconds": int(now - started_at),
                 "network_calls_used": int(network_calls_used),
                 "programs_processed": int(programs_processed),
+                "events_in_window": int(activity.get("events_in_window", 0)),
+                "event_type_counts": activity.get("event_type_counts", {}),
+                "last_event": activity.get("last_event", {}),
             }
         )
         heartbeat_state["last_minute_emit"] = now
@@ -72,6 +94,7 @@ def _emit_heartbeat_if_due(
     last_network_bucket = int(heartbeat_state.get("last_network_bucket", 0))
     current_bucket = int(network_calls_used) // 50
     if current_bucket > last_network_bucket:
+        activity = event_store.get_recent_activity(window_seconds=60.0) if event_store is not None else {}
         heartbeat_callback(
             {
                 "kind": "network_50",
@@ -79,6 +102,9 @@ def _emit_heartbeat_if_due(
                 "elapsed_seconds": int(now - started_at),
                 "network_calls_used": int(network_calls_used),
                 "programs_processed": int(programs_processed),
+                "events_in_window": int(activity.get("events_in_window", 0)),
+                "event_type_counts": activity.get("event_type_counts", {}),
+                "last_event": activity.get("last_event", {}),
             }
         )
         heartbeat_state["last_network_bucket"] = current_bucket
@@ -121,7 +147,7 @@ def _known_episode_urls_for_program(event_store: FernsehserienEventStore, progra
             continue
         episode_url = str(payload.get("episode_url", "")).strip()
         if episode_url:
-            known.add(episode_url)
+            known.add(canonicalize_url(episode_url))
     return known
 
 
@@ -137,7 +163,7 @@ def _already_extracted_episode_urls(event_store: FernsehserienEventStore, progra
             continue
         episode_url = str(payload.get("episode_url", "")).strip()
         if episode_url:
-            extracted.add(episode_url)
+            extracted.add(canonicalize_url(episode_url))
     return extracted
 
 
@@ -164,6 +190,7 @@ def _import_legacy_cached_episode_urls(
         inferred_url = infer_episode_url_from_leaf_html(html_text=html)
         if not inferred_url:
             continue
+        inferred_url = canonicalize_url(inferred_url)
         if f"/{slug}/folgen/" not in inferred_url:
             continue
         if inferred_url in known_episode_urls:
@@ -390,6 +417,7 @@ def run_fernsehserien_extraction_phase(
     paths.ensure()
 
     event_store = FernsehserienEventStore(paths)
+    cleanup_summary = apply_fragment_url_cleanup(paths=paths, event_store=event_store)
     fetcher = FernsehserienFetcher(
         config=config,
         paths=paths,
@@ -409,6 +437,7 @@ def run_fernsehserien_extraction_phase(
 
     programs = _load_programs(repo_root)
     selected = _select_programs(programs, config.max_programs)
+    observed_url_fragments: set[str] = set()
     heartbeat_state = {
         "started_at": time.monotonic(),
         "last_minute_emit": time.monotonic(),
@@ -416,72 +445,181 @@ def run_fernsehserien_extraction_phase(
     }
     processed_programs = 0
 
-    for _, row in selected.iterrows():
-        _emit_heartbeat_if_due(
-            heartbeat_callback=heartbeat_callback,
-            heartbeat_state=heartbeat_state,
-            network_calls_used=fetcher.network_calls_used,
-            programs_processed=processed_programs,
-            phase="extraction",
-        )
-        program_name = str(row.get("name", "")).strip()
-        fernsehserien_de_id = str(row.get("fernsehserien_de_id", "")).strip()
-        root_url = f"https://www.fernsehserien.de/{fernsehserien_de_id}/"
-
-        fetch = fetcher.fetch_url(
-            url=root_url,
-            phase="program_root_discovery",
-            request_kind="program_root_html",
-        )
-        if fetch.status not in {"success", "cache_hit"}:
-            continue
-
-        root_event = event_store.append(
-            event_type="program_root_discovered",
-            payload={
-                "program_name": program_name,
-                "fernsehserien_de_id": fernsehserien_de_id,
-                "root_url": root_url,
-                "fetched_at_utc": fetch.fetched_at_utc,
-            },
-        )
-
-        index_url = extract_first_episodenguide_url(html_text=fetch.content, root_url=root_url)
-        if not index_url:
-            continue
-
-        seen_index_urls: set[str] = set()
-        queue_index_urls: list[str] = [index_url]
-        seen_episode_urls: set[str] = set(_known_episode_urls_for_program(event_store, program_name))
-        _import_legacy_cached_episode_urls(
-            paths=paths,
-            event_store=event_store,
-            program_name=program_name,
-            fernsehserien_de_id=fernsehserien_de_id,
-            known_episode_urls=seen_episode_urls,
-        )
-        parsed_episode_urls: set[str] = set(_already_extracted_episode_urls(event_store, program_name))
-        fallback_pending = False
-
-        # Priority-based loop: parse discovered episodes before discovering more.
-        # This ensures leaf data extraction happens before discovery exhausts the budget.
-        while True:
+    try:
+        for _, row in selected.iterrows():
             _emit_heartbeat_if_due(
                 heartbeat_callback=heartbeat_callback,
                 heartbeat_state=heartbeat_state,
                 network_calls_used=fetcher.network_calls_used,
                 programs_processed=processed_programs,
                 phase="extraction",
+                event_store=event_store,
             )
+            program_name = str(row.get("name", "")).strip()
+            fernsehserien_de_id = str(row.get("fernsehserien_de_id", "")).strip()
+            root_url = f"https://www.fernsehserien.de/{fernsehserien_de_id}/"
+
+            fetch = fetcher.fetch_url(
+                url=root_url,
+                phase="program_root_discovery",
+                request_kind="program_root_html",
+            )
+            if fetch.status not in {"success", "cache_hit"}:
+                continue
+
+            root_event = event_store.append(
+                event_type="program_root_discovered",
+                payload={
+                    "program_name": program_name,
+                    "fernsehserien_de_id": fernsehserien_de_id,
+                    "root_url": root_url,
+                    "fetched_at_utc": fetch.fetched_at_utc,
+                },
+            )
+
+            index_url = extract_first_episodenguide_url(html_text=fetch.content, root_url=root_url)
+            if not index_url:
+                continue
+
+            seen_index_urls: set[str] = set()
+            queue_index_urls: list[str] = [index_url]
+            seen_episode_urls: set[str] = set(_known_episode_urls_for_program(event_store, program_name))
+            _import_legacy_cached_episode_urls(
+                paths=paths,
+                event_store=event_store,
+                program_name=program_name,
+                fernsehserien_de_id=fernsehserien_de_id,
+                known_episode_urls=seen_episode_urls,
+            )
+            parsed_episode_urls: set[str] = set(_already_extracted_episode_urls(event_store, program_name))
+            fallback_pending = False
+
+            # Priority-based loop: parse discovered episodes before discovering more.
+            # This ensures leaf data extraction happens before discovery exhausts the budget.
+            while True:
+                _emit_heartbeat_if_due(
+                    heartbeat_callback=heartbeat_callback,
+                    heartbeat_state=heartbeat_state,
+                    network_calls_used=fetcher.network_calls_used,
+                    programs_processed=processed_programs,
+                    phase="extraction",
+                    event_store=event_store,
+                )
             # PRIORITY 1: Parse any discovered episodes that haven't been parsed yet.
-            unparsed_urls = sorted(seen_episode_urls - parsed_episode_urls)
-            for episode_url in unparsed_urls:
+                unparsed_urls = sorted(seen_episode_urls - parsed_episode_urls)
+                for episode_url in unparsed_urls:
+                    if _is_budget_exhausted(max_network_calls=config.max_network_calls, network_calls_used=fetcher.network_calls_used):
+                        break
+                    leaf_fetch = fetcher.fetch_url(
+                        url=episode_url,
+                        phase="episode_leaf_parsing",
+                        request_kind="episode_leaf_html",
+                    )
+                    _emit_heartbeat_if_due(
+                        heartbeat_callback=heartbeat_callback,
+                        heartbeat_state=heartbeat_state,
+                        network_calls_used=fetcher.network_calls_used,
+                        programs_processed=processed_programs,
+                        phase="extraction",
+                        event_store=event_store,
+                    )
+                    if leaf_fetch.status in {"success", "cache_hit"}:
+                        parsed = parse_episode_leaf_fields(html_text=leaf_fetch.content)
+                        event_store.append(
+                            event_type="episode_description_discovered",
+                            payload={
+                                "program_name": program_name,
+                                "episode_url": episode_url,
+                                "episode_title_raw": str(parsed.get("episode_title_raw", parsed.get("episode_label", ""))),
+                                "duration_raw": str(parsed.get("duration_raw", "")),
+                                "description_raw_text": str(parsed.get("description_raw_text", parsed.get("description_text", ""))),
+                                "description_source_raw": str(parsed.get("description_source_raw", "")),
+                                "premiere_date_raw": str(parsed.get("premiere_date_raw", parsed.get("publication_text", ""))),
+                                "premiere_broadcaster_raw": str(parsed.get("premiere_broadcaster_raw", "")),
+                                "raw_extra_json": str(parsed.get("raw_extra_json", "{}")),
+                                "parsed_at_utc": _iso_now(),
+                                "parser_rule": str(parsed.get("parser_rule", "")),
+                                "confidence": parsed.get("confidence", ""),
+                            },
+                        )
+
+                        for guest in parsed.get("guests_raw", []):
+                            if not isinstance(guest, dict):
+                                continue
+                            event_store.append(
+                                event_type="episode_guest_discovered",
+                                payload={
+                                    "program_name": program_name,
+                                    "episode_url": episode_url,
+                                    "guest_name_raw": str(guest.get("guest_name_raw", "")),
+                                    "guest_role_raw": str(guest.get("guest_role_raw", "")),
+                                    "guest_description_raw": str(guest.get("guest_description_raw", "")),
+                                    "guest_url_raw": str(guest.get("guest_url_raw", "")),
+                                    "guest_image_url_raw": str(guest.get("guest_image_url_raw", "")),
+                                    "guest_order": int(guest.get("guest_order", 0) or 0),
+                                    "parsed_at_utc": _iso_now(),
+                                    "parser_rule": str(parsed.get("parser_rule", "")),
+                                    "confidence": guest.get("confidence", parsed.get("confidence", "")),
+                                },
+                            )
+
+                        for broadcast in parsed.get("broadcasts_raw", []):
+                            if not isinstance(broadcast, dict):
+                                continue
+                            event_store.append(
+                                event_type="episode_broadcast_discovered",
+                                payload={
+                                    "program_name": program_name,
+                                    "episode_url": episode_url,
+                                    "broadcast_start_datetime_raw": str(broadcast.get("broadcast_start_datetime_raw", "")),
+                                    "broadcast_end_datetime_raw": str(broadcast.get("broadcast_end_datetime_raw", "")),
+                                    "broadcast_broadcaster_raw": str(broadcast.get("broadcast_broadcaster_raw", "")),
+                                    "broadcast_is_premiere_raw": str(broadcast.get("broadcast_is_premiere_raw", "")),
+                                    "broadcast_order": int(broadcast.get("broadcast_order", 0) or 0),
+                                    "parsed_at_utc": _iso_now(),
+                                    "parser_rule": str(parsed.get("parser_rule", "")),
+                                    "confidence": broadcast.get("confidence", parsed.get("confidence", "")),
+                                },
+                            )
+
+                        if str(config.fallback_traversal_policy).strip().lower() == "on_gap":
+                            for neighbor_url in extract_neighbor_episode_urls(
+                                html_text=leaf_fetch.content,
+                                base_url=episode_url,
+                                fragment_sink=observed_url_fragments,
+                            ):
+                                if neighbor_url in seen_episode_urls:
+                                    continue
+                                seen_episode_urls.add(neighbor_url)
+                                fallback_pending = True
+                                event_store.append(
+                                    event_type="episode_url_discovered",
+                                    payload={
+                                        "program_name": program_name,
+                                        "episode_url": neighbor_url,
+                                        "discovery_path": "episode_chain_fallback",
+                                        "discovered_at_utc": _iso_now(),
+                                    },
+                                )
+                    parsed_episode_urls.add(episode_url)
+
+                # Stop if out of budget.
                 if _is_budget_exhausted(max_network_calls=config.max_network_calls, network_calls_used=fetcher.network_calls_used):
                     break
-                leaf_fetch = fetcher.fetch_url(
-                    url=episode_url,
-                    phase="episode_leaf_parsing",
-                    request_kind="episode_leaf_html",
+
+                # PRIORITY 2: Discover more episodes only if parsing is caught up.
+                if not queue_index_urls:
+                    break
+
+                current_index_url = queue_index_urls.pop(0)
+                if current_index_url in seen_index_urls:
+                    continue
+                seen_index_urls.add(current_index_url)
+
+                index_fetch = fetcher.fetch_url(
+                    url=current_index_url,
+                    phase="episode_index_discovery",
+                    request_kind="episodenguide_html",
                 )
                 _emit_heartbeat_if_due(
                     heartbeat_callback=heartbeat_callback,
@@ -489,112 +627,12 @@ def run_fernsehserien_extraction_phase(
                     network_calls_used=fetcher.network_calls_used,
                     programs_processed=processed_programs,
                     phase="extraction",
+                    event_store=event_store,
                 )
-                if leaf_fetch.status in {"success", "cache_hit"}:
-                    parsed = parse_episode_leaf_fields(html_text=leaf_fetch.content)
-                    event_store.append(
-                        event_type="episode_description_discovered",
-                        payload={
-                            "program_name": program_name,
-                            "episode_url": episode_url,
-                            "episode_title_raw": str(parsed.get("episode_title_raw", parsed.get("episode_label", ""))),
-                            "duration_raw": str(parsed.get("duration_raw", "")),
-                            "description_raw_text": str(parsed.get("description_raw_text", parsed.get("description_text", ""))),
-                            "description_source_raw": str(parsed.get("description_source_raw", "")),
-                            "premiere_date_raw": str(parsed.get("premiere_date_raw", parsed.get("publication_text", ""))),
-                            "premiere_broadcaster_raw": str(parsed.get("premiere_broadcaster_raw", "")),
-                            "raw_extra_json": str(parsed.get("raw_extra_json", "{}")),
-                            "parsed_at_utc": _iso_now(),
-                            "parser_rule": str(parsed.get("parser_rule", "")),
-                            "confidence": parsed.get("confidence", ""),
-                        },
-                    )
+                if index_fetch.status not in {"success", "cache_hit"}:
+                    continue
 
-                    for guest in parsed.get("guests_raw", []):
-                        if not isinstance(guest, dict):
-                            continue
-                        event_store.append(
-                            event_type="episode_guest_discovered",
-                            payload={
-                                "program_name": program_name,
-                                "episode_url": episode_url,
-                                "guest_name_raw": str(guest.get("guest_name_raw", "")),
-                                "guest_role_raw": str(guest.get("guest_role_raw", "")),
-                                "guest_description_raw": str(guest.get("guest_description_raw", "")),
-                                "guest_url_raw": str(guest.get("guest_url_raw", "")),
-                                "guest_image_url_raw": str(guest.get("guest_image_url_raw", "")),
-                                "guest_order": int(guest.get("guest_order", 0) or 0),
-                                "parsed_at_utc": _iso_now(),
-                                "parser_rule": str(parsed.get("parser_rule", "")),
-                                "confidence": guest.get("confidence", parsed.get("confidence", "")),
-                            },
-                        )
-
-                    for broadcast in parsed.get("broadcasts_raw", []):
-                        if not isinstance(broadcast, dict):
-                            continue
-                        event_store.append(
-                            event_type="episode_broadcast_discovered",
-                            payload={
-                                "program_name": program_name,
-                                "episode_url": episode_url,
-                                "broadcast_start_datetime_raw": str(broadcast.get("broadcast_start_datetime_raw", "")),
-                                "broadcast_end_datetime_raw": str(broadcast.get("broadcast_end_datetime_raw", "")),
-                                "broadcast_broadcaster_raw": str(broadcast.get("broadcast_broadcaster_raw", "")),
-                                "broadcast_is_premiere_raw": str(broadcast.get("broadcast_is_premiere_raw", "")),
-                                "broadcast_order": int(broadcast.get("broadcast_order", 0) or 0),
-                                "parsed_at_utc": _iso_now(),
-                                "parser_rule": str(parsed.get("parser_rule", "")),
-                                "confidence": broadcast.get("confidence", parsed.get("confidence", "")),
-                            },
-                        )
-
-                    if str(config.fallback_traversal_policy).strip().lower() == "on_gap":
-                        for neighbor_url in extract_neighbor_episode_urls(html_text=leaf_fetch.content, base_url=episode_url):
-                            if neighbor_url in seen_episode_urls:
-                                continue
-                            seen_episode_urls.add(neighbor_url)
-                            fallback_pending = True
-                            event_store.append(
-                                event_type="episode_url_discovered",
-                                payload={
-                                    "program_name": program_name,
-                                    "episode_url": neighbor_url,
-                                    "discovery_path": "episode_chain_fallback",
-                                    "discovered_at_utc": _iso_now(),
-                                },
-                            )
-                parsed_episode_urls.add(episode_url)
-
-            # Stop if out of budget.
-            if _is_budget_exhausted(max_network_calls=config.max_network_calls, network_calls_used=fetcher.network_calls_used):
-                break
-
-            # PRIORITY 2: Discover more episodes only if parsing is caught up.
-            if not queue_index_urls:
-                break
-
-            current_index_url = queue_index_urls.pop(0)
-            if current_index_url in seen_index_urls:
-                continue
-            seen_index_urls.add(current_index_url)
-
-            index_fetch = fetcher.fetch_url(
-                url=current_index_url,
-                phase="episode_index_discovery",
-                request_kind="episodenguide_html",
-            )
-            _emit_heartbeat_if_due(
-                heartbeat_callback=heartbeat_callback,
-                heartbeat_state=heartbeat_state,
-                network_calls_used=fetcher.network_calls_used,
-                programs_processed=processed_programs,
-                phase="extraction",
-            )
-            if index_fetch.status not in {"success", "cache_hit"}:
-                continue
-
-            event_store.append(
+                event_store.append(
                 event_type="episode_index_page_discovered",
                 payload={
                     "program_name": program_name,
@@ -604,60 +642,79 @@ def run_fernsehserien_extraction_phase(
                     "discovery_path": "episodenguide_traversal",
                     "source_program_root_sequence": int(root_event.get("sequence_num", 0)),
                 },
+                )
+
+                for episode_url in extract_episode_urls(
+                    html_text=index_fetch.content,
+                    base_url=current_index_url,
+                    fragment_sink=observed_url_fragments,
+                ):
+                    if episode_url not in seen_episode_urls:
+                        seen_episode_urls.add(episode_url)
+                        event_store.append(
+                            event_type="episode_url_discovered",
+                            payload={
+                                "program_name": program_name,
+                                "episode_url": episode_url,
+                                "discovery_path": "episodenguide",
+                                "discovered_at_utc": _iso_now(),
+                            },
+                        )
+
+                for next_index_url in extract_episodenguide_urls(html_text=index_fetch.content, base_url=current_index_url):
+                    if next_index_url not in seen_index_urls:
+                        queue_index_urls.append(next_index_url)
+
+                if fallback_pending:
+                    fallback_pending = False
+
+            processed_programs += 1
+
+        _write_url_fragment_diagnostics(paths=paths, fragments=observed_url_fragments)
+        if observed_url_fragments:
+            event_store.append(
+                event_type="url_fragments_observed",
+                payload={
+                    "observed_at_utc": _iso_now(),
+                    "fragment_count": int(len(observed_url_fragments)),
+                    "fragments": sorted(observed_url_fragments),
+                    "diagnostics_path": str(paths.runtime_root / "diagnostics" / "url_fragments_observed.csv"),
+                },
             )
 
-            for episode_url in extract_episode_urls(html_text=index_fetch.content, base_url=current_index_url):
-                if episode_url not in seen_episode_urls:
-                    seen_episode_urls.add(episode_url)
-                    event_store.append(
-                        event_type="episode_url_discovered",
-                        payload={
-                            "program_name": program_name,
-                            "episode_url": episode_url,
-                            "discovery_path": "episodenguide",
-                            "discovered_at_utc": _iso_now(),
-                        },
-                    )
+        projection_result = build_projections(paths=paths, event_store=event_store)
+        event_store.append(
+            event_type="projection_checkpoint_written",
+            payload={
+                "written_at_utc": _iso_now(),
+                "phase": "extraction",
+                "summary_path": str(projection_result.summary_path),
+                "summary": projection_result.summary,
+            },
+        )
+        event_store.append(
+            event_type="eventstore_closed",
+            payload={
+                "closed_at_utc": _iso_now(),
+                "phase": "extraction",
+                "network_calls_used": fetcher.network_calls_used,
+            },
+        )
 
-            for next_index_url in extract_episodenguide_urls(html_text=index_fetch.content, base_url=current_index_url):
-                if next_index_url not in seen_index_urls:
-                    queue_index_urls.append(next_index_url)
-
-            if fallback_pending:
-                fallback_pending = False
-
-        processed_programs += 1
-
-    projection_result = build_projections(paths=paths, event_store=event_store)
-    event_store.append(
-        event_type="projection_checkpoint_written",
-        payload={
-            "written_at_utc": _iso_now(),
+        final_projection = build_projections(paths=paths, event_store=event_store)
+        return {
             "phase": "extraction",
-            "summary_path": str(projection_result.summary_path),
-            "summary": projection_result.summary,
-        },
-    )
-    event_store.append(
-        event_type="eventstore_closed",
-        payload={
-            "closed_at_utc": _iso_now(),
-            "phase": "extraction",
+            "runtime_root": str(paths.runtime_root),
+            "chunk_path": str(event_store.chunk_path),
+            "summary_path": str(final_projection.summary_path),
+            "summary": final_projection.summary,
             "network_calls_used": fetcher.network_calls_used,
-        },
-    )
-
-    final_projection = build_projections(paths=paths, event_store=event_store)
-    return {
-        "phase": "extraction",
-        "runtime_root": str(paths.runtime_root),
-        "chunk_path": str(event_store.chunk_path),
-        "summary_path": str(final_projection.summary_path),
-        "summary": final_projection.summary,
-        "network_calls_used": fetcher.network_calls_used,
-        "max_network_calls": int(config.max_network_calls),
-        "programs_processed": int(len(selected)),
-    }
+            "max_network_calls": int(config.max_network_calls),
+            "programs_processed": int(len(selected)),
+            "cleanup": cleanup_summary,
+        }
+    finally:
+        event_store.close()
 
 
 def run_fernsehserien_normalization_phase(*, config: FernsehserienRunConfig, notebook_logger=None, heartbeat_callback=None) -> dict:
@@ -678,45 +735,52 @@ def run_fernsehserien_normalization_phase(*, config: FernsehserienRunConfig, not
         },
     )
 
-    normalized_emitted = _emit_normalized_events(event_store=event_store)
-    if heartbeat_callback is not None:
-        heartbeat_callback(
-            {
-                "kind": "phase",
+    try:
+        normalized_emitted = _emit_normalized_events(event_store=event_store)
+        if heartbeat_callback is not None:
+            activity = event_store.get_recent_activity(window_seconds=60.0)
+            heartbeat_callback(
+                {
+                    "kind": "phase",
+                    "phase": "normalization",
+                    "normalized_events_emitted": int(normalized_emitted),
+                    "events_in_window": int(activity.get("events_in_window", 0)),
+                    "event_type_counts": activity.get("event_type_counts", {}),
+                    "last_event": activity.get("last_event", {}),
+                }
+            )
+
+        projection_result = build_projections(paths=paths, event_store=event_store)
+        event_store.append(
+            event_type="projection_checkpoint_written",
+            payload={
+                "written_at_utc": _iso_now(),
                 "phase": "normalization",
-                "normalized_events_emitted": int(normalized_emitted),
-            }
+                "summary_path": str(projection_result.summary_path),
+                "summary": projection_result.summary,
+            },
+        )
+        event_store.append(
+            event_type="eventstore_closed",
+            payload={
+                "closed_at_utc": _iso_now(),
+                "phase": "normalization",
+                "network_calls_used": 0,
+                "normalized_events_emitted": normalized_emitted,
+            },
         )
 
-    projection_result = build_projections(paths=paths, event_store=event_store)
-    event_store.append(
-        event_type="projection_checkpoint_written",
-        payload={
-            "written_at_utc": _iso_now(),
+        final_projection = build_projections(paths=paths, event_store=event_store)
+        return {
             "phase": "normalization",
-            "summary_path": str(projection_result.summary_path),
-            "summary": projection_result.summary,
-        },
-    )
-    event_store.append(
-        event_type="eventstore_closed",
-        payload={
-            "closed_at_utc": _iso_now(),
-            "phase": "normalization",
-            "network_calls_used": 0,
+            "runtime_root": str(paths.runtime_root),
+            "chunk_path": str(event_store.chunk_path),
+            "summary_path": str(final_projection.summary_path),
+            "summary": final_projection.summary,
             "normalized_events_emitted": normalized_emitted,
-        },
-    )
-
-    final_projection = build_projections(paths=paths, event_store=event_store)
-    return {
-        "phase": "normalization",
-        "runtime_root": str(paths.runtime_root),
-        "chunk_path": str(event_store.chunk_path),
-        "summary_path": str(final_projection.summary_path),
-        "summary": final_projection.summary,
-        "normalized_events_emitted": normalized_emitted,
-    }
+        }
+    finally:
+        event_store.close()
 
 
 def run_fernsehserien_pipeline(*, config: FernsehserienRunConfig, notebook_logger=None, heartbeat_callback=None) -> dict:

@@ -29,7 +29,9 @@ def normalize_url(url: str) -> str:
         raise ValueError(f"URL must include scheme: {url}")
     if not parsed.netloc:
         raise ValueError(f"URL must include host: {url}")
-    return parsed.geturl()
+    # URL fragments (e.g. #Cast-Crew) are client-side anchors and must not
+    # create distinct fetch/cache identities for the same page.
+    return parsed._replace(fragment="").geturl()
 
 
 @dataclass(frozen=True)

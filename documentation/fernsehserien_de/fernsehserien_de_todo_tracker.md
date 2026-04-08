@@ -187,3 +187,57 @@ Resolution note:
 3. Restore supports both unzipped snapshot directories and zipped snapshot archives.
 4. Pipeline now writes a checkpoint manifest and snapshot automatically at run completion and returns checkpoint references.
 5. Repository event-sourcing principles now require this backup policy for all event-sourced workflows.
+
+### FST-013 Graceful Exit required (DONE)
+This should also be added to the coding-principles. Every Notebook cell should always exit gracefully when interrupt signal is sent.
+
+Resolution note:
+1. Notebook runtime now catches `KeyboardInterrupt` and exits cleanly with an interrupted result payload instead of an unhandled traceback.
+2. A terminal lifecycle event is emitted for interrupted runs (`run_finished` with `status=interrupted`) to keep observability append-only and auditable.
+3. Coding principles now require graceful interrupt handling for notebook pipeline cells.
+
+### FST-014 OS write overhead significant. (DONE)
+We keep writing to the eventsore JSONL, which always seems to create a chunk_000001.jsonl.tmp file. This seems to be very time-intensive. It appears like most of our time is not spent fetching or processing data, but writing to the eventstore.
+
+Resolution note:
+1. Fernsehserien eventstore writes were moved from full-file atomic rewrite-per-event to buffered append-only JSONL writes.
+2. Eventstore now flushes in batches and on read/close boundaries, removing repeated `chunk_000001.jsonl.tmp` churn in the hot path.
+3. Extraction/normalization phases now explicitly close the eventstore to guarantee buffered data is flushed at phase boundaries.
+
+### FST-015 Heartbeat not really meaningful (DONE)
+See context below, we have minutes on end where all info we get is "still running".
+What we need is statistics of what is being done, what kind of events were stored in the last minute, and what was the most recent event (show it and it's content explicitly). Compared this to the wikidata implementation, where it was much more insightful.
+
+Resolution note:
+1. Heartbeat events now include per-minute event throughput, recent event-type counts, and the latest event summary including payload snapshot.
+2. Network milestone and normalization heartbeat lines now also include recent activity context.
+3. Local fallback heartbeat output now prints the same progress/activity snapshot fields so long waits remain informative.
+
+[heartbeat] workflow started
+[heartbeat:pipeline] +0s network_calls_used=0 programs_processed=0
+[heartbeat:local] +60s still running network_calls_used=0 programs_processed=0
+[heartbeat:extraction] +63s network_calls_used=3 programs_processed=1
+[heartbeat:local] +120s still running network_calls_used=3 programs_processed=1
+[heartbeat:extraction] +126s network_calls_used=20 programs_processed=1
+[heartbeat:local] +180s still running network_calls_used=20 programs_processed=1
+[heartbeat:extraction] +186s network_calls_used=38 programs_processed=1
+[heartbeat:extraction] network milestone reached: network_calls_used=50
+[heartbeat:local] +240s still running network_calls_used=50 programs_processed=1
+[heartbeat:extraction] +247s network_calls_used=57 programs_processed=1
+[heartbeat:local] +300s still running network_calls_used=57 programs_processed=1
+[heartbeat:extraction] +308s network_calls_used=75 programs_processed=1
+[heartbeat:local] +360s still running network_calls_used=75 programs_processed=1
+[heartbeat:extraction] +368s network_calls_used=92 programs_processed=1
+[heartbeat:extraction] network milestone reached: network_calls_used=100
+[heartbeat:local] +420s still running network_calls_used=100 programs_processed=1
+[heartbeat:local] +480s still running network_calls_used=100 programs_processed=1
+[heartbeat:local] +540s still running network_calls_used=100 programs_processed=1
+[heartbeat:local] +600s still running network_calls_used=100 programs_processed=1
+[heartbeat:local] +660s still running network_calls_used=100 programs_processed=1
+[heartbeat:normalization] normalization progress: normalized_events_emitted=1172
+[heartbeat:pipeline] checkpoint snapshot written: C:\workspace\git\borgnetzwerk\speaker-mining\data\20_candidate_generation\fernsehserien_de\checkpoints\snapshots\checkpoint__20260408T204013Z_f5350daf__20260408T204013Z__d49af0ad\checkpoint__20260408T204013Z_f5350daf__20260408T204013Z__d49af0ad.json
+programs_processed=12 network_calls_used=100 max_network_calls=100 normalized_events_emitted=1172
+checkpoint_manifest_path=C:\workspace\git\borgnetzwerk\speaker-mining\data\20_candidate_generation\fernsehserien_de\checkpoints\snapshots\checkpoint__20260408T204013Z_f5350daf__20260408T204013Z__d49af0ad\checkpoint__20260408T204013Z_f5350daf__20260408T204013Z__d49af0ad.json
+Lifecycle event already emitted for this run_id; skipping duplicate run_finished
+Fragment cleanup summary: {}
+Observed URL fragments (1): ['Cast-Crew']

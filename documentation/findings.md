@@ -120,7 +120,7 @@ The following former one-line notes were represented in the tracker and then arc
 - Dedicated analysis artifact: `documentation/context/jsonl_potential.md`.
 - Related tracker item: `TODO-014`.
 
-## WDT-012 Countries are Organizations (Resolved)
+## F-012 Countries are Organizations (Resolved)
 
 Observation:
 - Countries such as Germany and the United States can legitimately resolve through the `organization` core-class branch in this registry.
@@ -130,3 +130,31 @@ Resolution:
 - Keep `organization` as a core class.
 - Treat country rows that resolve via valid subclass chains as expected, not as an error condition.
 - Use the node-integrity and class-resolution contracts to decide eligibility, not the English label alone.
+
+## F-013 Even Fernsehserien.de has houndreds of episodes without guests.
+Among the first episodes of Markus Lanz, there are episodes which have no guests listed on fernsehserien.de. Some examples:
+* https://www.fernsehserien.de/hart-aber-fair/folgen/1-folge-1-653676
+* https://www.fernsehserien.de/hart-aber-fair/folgen/10-folge-10-653957
+* https://www.fernsehserien.de/hart-aber-fair/folgen/100-folge-100-654047
+* https://www.fernsehserien.de/hart-aber-fair/folgen/101-folge-101-654048
+* https://www.fernsehserien.de/hart-aber-fair/folgen/102-folge-102-654049
+* https://www.fernsehserien.de/hart-aber-fair/folgen/103-folge-103-654050
+* https://www.fernsehserien.de/hart-aber-fair/folgen/104-folge-104-654051
+* https://www.fernsehserien.de/hart-aber-fair/folgen/105-folge-105-654052
+* https://www.fernsehserien.de/hart-aber-fair/folgen/106-folge-106-654053
+* https://www.fernsehserien.de/hart-aber-fair/folgen/107-folge-107-654054
+* https://www.fernsehserien.de/hart-aber-fair/folgen/108-folge-108-654055
+* https://www.fernsehserien.de/hart-aber-fair/folgen/109-folge-109-654056
+* https://www.fernsehserien.de/hart-aber-fair/folgen/11-folge-11-653958
+* https://www.fernsehserien.de/hart-aber-fair/folgen/110-folge-110-654057
+* https://www.fernsehserien.de/hart-aber-fair/folgen/111-folge-111-654058
+* https://www.fernsehserien.de/hart-aber-fair/folgen/112-folge-112-654059
+* https://www.fernsehserien.de/hart-aber-fair/folgen/113-folge-113-654060
+* https://www.fernsehserien.de/hart-aber-fair/folgen/114-folge-114-654061
+* https://www.fernsehserien.de/hart-aber-fair/folgen/115-folge-115-654062
+* https://www.fernsehserien.de/hart-aber-fair/folgen/116-folge-116-654063
+* https://www.fernsehserien.de/hart-aber-fair/folgen/117-folge-117-654064
+* https://www.fernsehserien.de/hart-aber-fair/folgen/118-folge-118-654065
+* https://www.fernsehserien.de/hart-aber-fair/folgen/119-folge-119-654066
+* https://www.fernsehserien.de/hart-aber-fair/folgen/12-folge-12-653959
+* https://www.fernsehserien.de/hart-aber-fair/folgen/120-folge-120-654067

@@ -64,6 +64,7 @@ Governance reference model:
 3. After writing a recovery snapshot, fail fast with a clear stop message; do not continue processing with partially persisted state.
 4. On the next run, guarded writers/loaders must detect recovery snapshots first, restore/merge them back into the primary file, and only then proceed.
 5. New process modules must not introduce unguarded output writes; migrations of legacy direct writes should be tracked in `open-tasks.md`.
+6. Exception for append-only event logs: JSONL event streams may use buffered append writes in the hot path (instead of full-file atomic rewrite) as long as flush-on-read and flush-on-close boundaries are enforced.
 
 ## Event-Sourcing Principles
 
@@ -89,8 +90,10 @@ Governance reference model:
 2. Log schema must follow `documentation/notebook-observability.md`, including `notebook_id`, `run_id`, `phase`, `event_type`, `network`, `rate_limit`, and `budget` fields.
 3. Logging must happen at the network decision boundary, not only for successful calls (cache-hit skip, budget block, retry/backoff, and errors must be visible).
 4. Notebook heartbeats shown in cell output should summarize the same underlying event stream.
-5. Cross-notebook field names should remain stable so metrics are comparable across workflows.
-6. Notebook event log writers must be corruption-tolerant: quarantine malformed JSONL lines to `*.corrupt.<timestamp>`, preserve valid history, append a repair event, and continue.
+5. Heartbeats must be actionable: include recent event throughput, per-event-type counts, and the most recent event with payload snapshot.
+6. Notebook pipeline cells must handle user interruption gracefully (`KeyboardInterrupt`) by stopping cleanly and emitting a final lifecycle status event instead of failing with a traceback-only exit.
+7. Cross-notebook field names should remain stable so metrics are comparable across workflows.
+8. Notebook event log writers must be corruption-tolerant: quarantine malformed JSONL lines to `*.corrupt.<timestamp>`, preserve valid history, append a repair event, and continue.
 
 ## Documentation Principles
 

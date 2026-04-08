@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pandas as pd
 
@@ -11,6 +12,7 @@ from process.io_guardrails import atomic_write_csv, atomic_write_text
 from .event_store import FernsehserienEventStore
 from .handler_progress import get_last_processed_sequence, keep_only_handlers, upsert_progress
 from .paths import FernsehserienPaths
+from .parser import canonicalize_url
 
 
 PROGRAM_PAGES_COLUMNS = [
@@ -231,6 +233,53 @@ def _resolve_program_identity(payload: dict, lookup: dict[str, str]) -> tuple[st
     return fernsehserien_de_id, program_name
 
 
+def _canonical_episode_url(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    return canonicalize_url(raw)
+
+
+def _canonicalize_existing_episode_urls(rows: list[dict]) -> list[dict]:
+    for row in rows:
+        if "episode_url" in row:
+            row["episode_url"] = _canonical_episode_url(str(row.get("episode_url", "")))
+    return rows
+
+
+def _event_url_has_fragment(payload: dict) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    for field in ("episode_url", "url"):
+        raw = str(payload.get(field, "")).strip()
+        if raw and urlsplit(raw).fragment.strip():
+            return True
+    return False
+
+
+def _collect_fragment_tainted_sequences(event_store: FernsehserienEventStore) -> set[int]:
+    tainted: set[int] = set()
+    for event in event_store.iter_events():
+        sequence_num = int(event.get("sequence_num", 0) or 0)
+        payload = event.get("payload", {})
+        if _event_url_has_fragment(payload):
+            tainted.add(sequence_num)
+    return tainted
+
+
+def _filter_existing_rows(rows: list[dict], *, tainted_sequences: set[int]) -> list[dict]:
+    filtered: list[dict] = []
+    for row in rows:
+        source_sequence = int(row.get("source_event_sequence", 0) or 0)
+        source_discovered_sequence = int(row.get("source_discovered_sequence", 0) or 0)
+        if source_sequence in tainted_sequences:
+            continue
+        if source_discovered_sequence in tainted_sequences:
+            continue
+        filtered.append(row)
+    return filtered
+
+
 def build_projections(*, paths: FernsehserienPaths, event_store: FernsehserienEventStore) -> ProjectionWriteResult:
     paths.projections_dir.mkdir(parents=True, exist_ok=True)
     program_pages_path = paths.projections_dir / "program_pages.csv"
@@ -256,6 +305,8 @@ def build_projections(*, paths: FernsehserienPaths, event_store: FernsehserienEv
 
     keep_only_handlers(paths.eventhandler_csv, HANDLER_NAMES)
 
+    tainted_sequences = _collect_fragment_tainted_sequences(event_store)
+
     program_pages = _load_existing_rows(program_pages_path, PROGRAM_PAGES_COLUMNS)
     episode_index_pages = _load_existing_rows(episode_index_pages_path, EPISODE_INDEX_COLUMNS)
     episode_urls = _load_existing_rows(episode_urls_path, EPISODE_URL_COLUMNS)
@@ -265,6 +316,20 @@ def build_projections(*, paths: FernsehserienPaths, event_store: FernsehserienEv
     episode_metadata_normalized = _load_existing_rows(episode_metadata_normalized_path, EPISODE_METADATA_NORMALIZED_COLUMNS)
     episode_guests_normalized = _load_existing_rows(episode_guests_normalized_path, EPISODE_GUESTS_NORMALIZED_COLUMNS)
     episode_broadcasts_normalized = _load_existing_rows(episode_broadcasts_normalized_path, EPISODE_BROADCASTS_NORMALIZED_COLUMNS)
+    episode_urls = _canonicalize_existing_episode_urls(episode_urls)
+    episode_metadata_discovered = _canonicalize_existing_episode_urls(episode_metadata_discovered)
+    episode_guests_discovered = _canonicalize_existing_episode_urls(episode_guests_discovered)
+    episode_broadcasts_discovered = _canonicalize_existing_episode_urls(episode_broadcasts_discovered)
+    episode_metadata_normalized = _canonicalize_existing_episode_urls(episode_metadata_normalized)
+    episode_guests_normalized = _canonicalize_existing_episode_urls(episode_guests_normalized)
+    episode_broadcasts_normalized = _canonicalize_existing_episode_urls(episode_broadcasts_normalized)
+    episode_urls = _filter_existing_rows(episode_urls, tainted_sequences=tainted_sequences)
+    episode_metadata_discovered = _filter_existing_rows(episode_metadata_discovered, tainted_sequences=tainted_sequences)
+    episode_guests_discovered = _filter_existing_rows(episode_guests_discovered, tainted_sequences=tainted_sequences)
+    episode_broadcasts_discovered = _filter_existing_rows(episode_broadcasts_discovered, tainted_sequences=tainted_sequences)
+    episode_metadata_normalized = _filter_existing_rows(episode_metadata_normalized, tainted_sequences=tainted_sequences)
+    episode_guests_normalized = _filter_existing_rows(episode_guests_normalized, tainted_sequences=tainted_sequences)
+    episode_broadcasts_normalized = _filter_existing_rows(episode_broadcasts_normalized, tainted_sequences=tainted_sequences)
     program_identity_by_name = _program_identity_lookup(event_store)
 
     total_events = 0
@@ -289,6 +354,8 @@ def build_projections(*, paths: FernsehserienPaths, event_store: FernsehserienEv
         event_type = str(event.get("event_type", ""))
         payload = event.get("payload", {})
         if not isinstance(payload, dict):
+            continue
+        if sequence_num in tainted_sequences:
             continue
 
         if event_type == "program_root_discovered" and sequence_num > last_program_pages_sequence:
@@ -323,7 +390,7 @@ def build_projections(*, paths: FernsehserienPaths, event_store: FernsehserienEv
                 {
                     "fernsehserien_de_id": fernsehserien_de_id,
                     "program_name": program_name,
-                    "episode_url": str(payload.get("episode_url", "")),
+                    "episode_url": _canonical_episode_url(str(payload.get("episode_url", ""))),
                     "discovery_path": str(payload.get("discovery_path", "")),
                     "discovered_at_utc": str(payload.get("discovered_at_utc", "")),
                     "source_event_sequence": sequence_num,
@@ -336,7 +403,7 @@ def build_projections(*, paths: FernsehserienPaths, event_store: FernsehserienEv
                 {
                     "fernsehserien_de_id": fernsehserien_de_id,
                     "program_name": program_name,
-                    "episode_url": str(payload.get("episode_url", "")),
+                    "episode_url": _canonical_episode_url(str(payload.get("episode_url", ""))),
                     "episode_title_raw": str(payload.get("episode_title_raw", "")),
                     "duration_raw": str(payload.get("duration_raw", "")),
                     "description_raw_text": str(payload.get("description_raw_text", "")),
@@ -357,7 +424,7 @@ def build_projections(*, paths: FernsehserienPaths, event_store: FernsehserienEv
                 {
                     "fernsehserien_de_id": fernsehserien_de_id,
                     "program_name": program_name,
-                    "episode_url": str(payload.get("episode_url", "")),
+                    "episode_url": _canonical_episode_url(str(payload.get("episode_url", ""))),
                     "guest_name_raw": str(payload.get("guest_name_raw", "")),
                     "guest_role_raw": str(payload.get("guest_role_raw", "")),
                     "guest_description_raw": str(payload.get("guest_description_raw", "")),
@@ -377,7 +444,7 @@ def build_projections(*, paths: FernsehserienPaths, event_store: FernsehserienEv
                 {
                     "fernsehserien_de_id": fernsehserien_de_id,
                     "program_name": program_name,
-                    "episode_url": str(payload.get("episode_url", "")),
+                    "episode_url": _canonical_episode_url(str(payload.get("episode_url", ""))),
                     "broadcast_start_datetime_raw": str(payload.get("broadcast_start_datetime_raw", "")),
                     "broadcast_end_datetime_raw": str(payload.get("broadcast_end_datetime_raw", "")),
                     "broadcast_broadcaster_raw": str(payload.get("broadcast_broadcaster_raw", "")),
@@ -396,7 +463,7 @@ def build_projections(*, paths: FernsehserienPaths, event_store: FernsehserienEv
                 {
                     "fernsehserien_de_id": fernsehserien_de_id,
                     "program_name": program_name,
-                    "episode_url": str(payload.get("episode_url", "")),
+                    "episode_url": _canonical_episode_url(str(payload.get("episode_url", ""))),
                     "episode_title": str(payload.get("episode_title", "")),
                     "duration_minutes": payload.get("duration_minutes", ""),
                     "description_text": str(payload.get("description_text", "")),
@@ -416,7 +483,7 @@ def build_projections(*, paths: FernsehserienPaths, event_store: FernsehserienEv
                 {
                     "fernsehserien_de_id": fernsehserien_de_id,
                     "program_name": program_name,
-                    "episode_url": str(payload.get("episode_url", "")),
+                    "episode_url": _canonical_episode_url(str(payload.get("episode_url", ""))),
                     "guest_name": str(payload.get("guest_name", "")),
                     "guest_role": str(payload.get("guest_role", "")),
                     "guest_description": str(payload.get("guest_description", "")),
@@ -436,7 +503,7 @@ def build_projections(*, paths: FernsehserienPaths, event_store: FernsehserienEv
                 {
                     "fernsehserien_de_id": fernsehserien_de_id,
                     "program_name": program_name,
-                    "episode_url": str(payload.get("episode_url", "")),
+                    "episode_url": _canonical_episode_url(str(payload.get("episode_url", ""))),
                     "broadcast_date": str(payload.get("broadcast_date", "")),
                     "broadcast_start_time": str(payload.get("broadcast_start_time", "")),
                     "broadcast_end_date": str(payload.get("broadcast_end_date", "")),
@@ -619,6 +686,7 @@ def build_projections(*, paths: FernsehserienPaths, event_store: FernsehserienEv
             EPISODE_BROADCASTS_NORMALIZED_HANDLER: last_episode_broadcasts_normalized_after,
         },
         "processed_events_per_handler": processed_events_per_handler,
+        "fragment_tainted_sequences_skipped": int(len(tainted_sequences)),
         "eventhandler_path": str(paths.eventhandler_csv),
         "program_pages_rows": len(program_pages),
         "episode_index_rows": len(episode_index_pages),
