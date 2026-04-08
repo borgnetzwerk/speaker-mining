@@ -31,6 +31,7 @@ When class detection identifies a class node (entity with at least one `P279`), 
 	- `path_to_core_class = Q215627` for class-node evaluation, and
 	- `path_to_core_class = Q5|Q215627` for instance rows whose class is `Q5`.
 4. Missing class lineage due to absent local class payload is not acceptable once a class QID is discovered in any `P31` or `P279` edge.
+5. Broad semantic classes that legitimately sit under `organization` (for example countries) are not special-case failures; if the lineage is valid, they must remain eligible under the same class-resolution rules.
 
 ## 3. Discovered Class Payload Requirements
 

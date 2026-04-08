@@ -55,7 +55,7 @@ Scope: Wikidata candidate-generation and graph-quality tasks only
 
 ### WDT-008: Restore runtime heartbeat and operator progress visibility
 
-- Status: [ ]
+- Status: [x]
 - Priority: P0
 - Owner: unassigned
 - Problem:
@@ -70,10 +70,14 @@ Scope: Wikidata candidate-generation and graph-quality tasks only
   2. Heartbeat output is present in Notebook 21 and useful for operational monitoring.
   3. Progress output remains stable across append/restart/revert modes.
 * note: the eventsourcing should theoretically provide plenty of information for the heartbeat to communicate what happened in the last minute. But due to Issues such as WDT-009, many events that should be logged are currently not logged. While this is the case, we can't really unlock the full potential of the heartbeat.
+- Implementation completed (2026-04-08):
+  - Notebook 21 emits event-derived heartbeat summaries after Stage A graph expansion, Step 6.5 node integrity, Stage B fallback matching, and fallback re-entry.
+  - Added a fail-fast guard in Step 9 so fallback re-entry cannot run after an interrupted or failed Step 8.
+  - Acceptable heartbeat coverage is now present for operational monitoring, so the item is closed.
 
-### WDT-009: Expand event model beyond query_response (Wave 2 in progress)
+### WDT-009: Expand event model beyond query_response (Wave 2 complete)
 
-- Status: [~]
+- Status: [x]
 - Priority: P1
 - Owner: unassigned
 - Problem:
@@ -97,7 +101,20 @@ Scope: Wikidata candidate-generation and graph-quality tasks only
     - `node_integrity.py`: entity_discovered events emitted during node integrity repair discovery
     - `fallback_matcher.py`: entity_discovered events emitted during fallback string matching
   - **Validation**: 31 tests passing including WDT-007 and new domain event implementations
-  - **Next phase**: Event-derived heartbeat in Notebook 21 (WDT-008); wider domain event coverage (triple_discovered, class_membership_resolved, decision finalized)
+  - **Next phase**: Wider domain event coverage (triple_discovered, class_membership_resolved, decision finalized)
+- **Heartbeat follow-up (2026-04-08)**:
+  - Added notebook-level event-derived heartbeat calls for Stage A graph expansion and fallback re-entry, complementing the existing Step 6.5 and fallback stage summaries.
+  - Added a Step 9 guard so re-entry only runs after a successful Step 8 result is available.
+- **Domain event follow-up (2026-04-08)**:
+  - Added `triple_discovered` and `class_membership_resolved` event types/builders.
+  - Wired `triple_discovered` emission at triple recording boundaries (`record_item_edges(...)`) with Stage A and Step 6.5 runtime propagation.
+  - Wired `class_membership_resolved` emission through `resolve_class_path(...)` callback integration in Stage A seed filtering and Step 6.5 class-resolution checks.
+  - Wired `expansion_decision` emission at runtime decision points in Stage A and Stage B fallback candidate evaluation.
+  - Focused validation: `python -m pytest speakermining/test/process/wikidata/test_event_schema.py speakermining/test/process/wikidata/test_store_buffering.py speakermining/test/process/wikidata/test_class_path_resolution.py -q` -> `12 passed`.
+  - Runtime regression validation: `python -m pytest speakermining/test/process/wikidata/test_fallback_stage.py speakermining/test/process/wikidata/test_node_integrity.py -q` -> `19 passed`.
+  - Replay/invariant closure: added orchestrator-level mixed-stream replay tests and fixed handler replay rehydration in `handlers/orchestrator.py` so domain-only appends do not truncate projections.
+  - Orchestrator replay validation: `pytest test/process/wikidata/test_orchestrator_handlers.py -q` -> `4 passed`.
+  - WDT-009 is now considered complete for Wave 2 scope; follow-on projection deprecation remains tracked under WDT-014.
 
 ### WDT-006: Checkpoint snapshots must preserve and restore eventlog state
 
@@ -125,7 +142,7 @@ Scope: Wikidata candidate-generation and graph-quality tasks only
 
 ### WDT-001: Re-evaluate prior eligibility decisions when class lineage improves
 
-- Status: [ ]
+- Status: [x]
 - Priority: P0
 - Owner: unassigned
 - Problem:
@@ -139,10 +156,17 @@ Scope: Wikidata candidate-generation and graph-quality tasks only
   1. A node that becomes connected via `P279` to a core class is reclassified within the next integrity pass.
   2. The node is expanded in that same pass if not already expanded.
   3. A persistent diagnostics record captures old/new status and evidence path.
+- Wave 3 kickoff note (2026-04-08):
+  - Wave 3 is now active after WDT-008 closure and Wave 2 event-model follow-up wiring.
+  - Next implementation slice: transition-aware eligibility diagnostics tied to node-integrity pass outputs.
+- Implementation progress (2026-04-08):
+  - Node integrity now computes pre/post eligibility decisions for known nodes and detects ineligible -> eligible transitions during each pass.
+  - Transition diagnostics now capture `previous_reason`, `current_reason`, and `path_to_core_class` evidence per transitioned node.
+  - Added regression coverage for deterministic transition detection in node integrity tests.
 
 ### WDT-002: Persist reclassification diagnostics for longitudinal analysis
 
-- Status: [ ]
+- Status: [x]
 - Priority: P0
 - Owner: unassigned
 - Problem:
@@ -155,21 +179,18 @@ Scope: Wikidata candidate-generation and graph-quality tasks only
   1. Each run produces a transition artifact when transitions occur.
   2. Artifacts are stored in a stable path under `data/20_candidate_generation/wikidata/node_integrity`.
   3. Documentation artifacts are mirrored under `documentation/context/node_integrity`.
-
-### WDT-003: Add regression tests for reclassification edge cases
-
-- Status: [ ]
-- Priority: P1
-- Owner: unassigned
-- Problem:
-  Reclassification behavior can silently regress if not covered by tests.
-- Requirements:
-  1. Add tests for delayed class discovery (`Q5` style path discovered later).
-  2. Add tests for no-op integrity pass when no transition occurs.
-  3. Add tests that prevent duplicate expansion of already expanded nodes.
-- Acceptance criteria:
-  1. Tests fail when reclassification logic is disabled.
-  2. Tests pass when integrity pass reclassifies and expands correctly.
+- Wave 3 kickoff note (2026-04-08):
+  - Transition artifact shape and persistence location remain unchanged, but the next slice will add explicit previous/new reason and path evidence fields.
+- Implementation progress (2026-04-08):
+  - Added `eligibility_transition` domain event and builder in the event schema.
+  - Node integrity now emits `eligibility_transition` events for each detected reclassification transition.
+  - `NodeIntegrityResult` now exposes structured `eligibility_transitions` rows so notebook-level artifact writing can append stable transition records.
+- Wave 3 completion (2026-04-08):
+  - ✅ Extended Notebook 21 Step 6.5 to write `eligibility_transitions` to JSONL artifacts.
+  - ✅ Added transitions JSONL path: `data/20_candidate_generation/wikidata/node_integrity/node_integrity_transitions_{timestamp}.jsonl`.
+  - ✅ Updated artifact documentation to include transitions in markdown reports.
+  - ✅ Validated transition writing logic with deterministic test cases.
+  - **Wave 3 Complete**: WDT-001 and WDT-002 acceptance criteria fully met. Reclassification diagnostics now observable and persistent end-to-end.
 
 ### WDT-004: Data is wrongly fetched for all langauges, despite us only needing german, english and default.
 * Status: [x]
@@ -207,24 +228,90 @@ Scope: Wikidata candidate-generation and graph-quality tasks only
   * Added regression tests for alias fallback and language filtering.
 
 ### WDT-010: clear differentiation between "core classes" and "root classes"
-Person, Organization, Episode - those are core classes. They are what we are intrerested in
 
-Entity - thats a root class. Very likely, everything is a subclass or instance of this. Conflating a root class with a core class could mean we're exploring thousands of nodes and their neighbors despite us actually not being interested in them.
-
-we need a dedicated cell early in the notebook to clear all those conflations and missconcptions up.
+- Status: [x]
+- Priority: P1
+- Owner: unassigned
+- Problem:
+  Person, Organization, Episode, Season, Topic, Broadcasting Program are core classes (what we're interested in).
+  Entity, Thing are root classes (universal superclasses that nearly everything descends from).
+  Conflating these could mean we're exploring thousands of nodes and their neighbors despite having no interest in them.
+- Requirements:
+  1. Add a dedicated cell early in the notebook to document this distinction clearly.
+  2. Load and validate core classes vs. root classes.
+  3. Ensure they are disjoint (no overlap) and catch configuration errors before graph expansion.
+  4. Store definitions for downstream runtime guards.
+- Acceptance criteria:
+  1. Core classes are clearly documented as "PRIMARY DISCOVERY TARGETS".
+  2. Root classes are clearly documented as "UNIVERSAL SUPERCLASSES - AVOID OVER-EXPANSION".
+  3. Runtime validation fails fast if core and root classes overlap.
+  4. Scope contract is printed and visible to operators before graph expansion begins.
+- Implementation completed (2026-04-08):
+  - Added Notebook 21 Step 2.5: "Class Hierarchy Clarification" cell after Step 2 config.
+  - Markdown explanation distinguishes core classes from root classes with rationale.
+  - Code cell performs runtime validation:
+    1. Loads core classes from setup configuration
+    2. Defines root_class_qids explicitly as {'Q35120' (Entity), 'Q1' (Thing)}
+    3. Validates disjointness: raises `ValueError` if overlap detected
+    4. Stores `config["core_class_qids"]` and `config["root_class_qids"]` for downstream use
+    5. Prints scope contract before proceeding to resume mode / graph expansion
+  - Execution occurs before Step 3 (Resume Mode), ensuring guards are in place before any expansion logic runs.
 
 ### WDT-011: Full eventsourcing implementation identification
 Actual everntsourcing could be identified by a notebook (excluding setup) mostly being one line of code: start event handlers. everything else would be them resolving the event log and their respective reactions
 
 ### WDT-012: Low Hanging fruit: We could use more projections
-* One projection per core class for all instance of that core class.
-* One projection for all leftover instances that are neither classes nor instances of a core class.
+
+- Status: [x]
+- Priority: P1
+- Owner: unassigned
+- Problem:
+  Existing projections make downstream slicing expensive because all entities are bundled in broad tables.
+- Requirements:
+  1. Add one projection per core class for all instances mapped to that core class.
+  2. Add one leftovers projection for instances that are neither class nodes nor mapped to any core class.
+  3. Ensure outputs are deterministic and preserved in checkpoint snapshot/restore.
+- Acceptance criteria:
+  1. Materialization writes per-core instance projections each run.
+  2. Materialization writes a stable leftovers projection each run.
+  3. Snapshot/restore keeps these projections intact.
+- Implementation completed (2026-04-08):
+  - Added WDT-012 projections in event-sourced materialization layer:
+    1. `instances_core_<core_filename>.csv` per configured core class.
+    2. `instances_leftovers.csv` for non-class, non-core-mapped instances.
+  - Classification behavior:
+    1. Class nodes are excluded using class hierarchy projection (`class_hierarchy.csv`).
+    2. Core-class mapping is derived from `path_to_core_class` (terminal core QID) and class-resolution metadata.
+  - Bootstrap now creates deterministic empty versions of the new projections.
+  - Checkpoint snapshot/restore now includes dynamic projection files (`instances_core_*.csv`) and restores projection files from snapshot payload.
+  - Added regression coverage:
+    - `test_materializer_writes_per_core_and_leftovers_projections`
+    - `test_checkpoint_snapshot_restores_dynamic_core_instance_projections`
+    - bootstrap coverage for projection file creation.
+- Validation:
+  - `python -m pytest test/process/wikidata/test_bootstrap_outputs.py test/process/wikidata/test_class_path_resolution.py test/process/wikidata/test_checkpoint_resume.py -q`
+  - Result: `23 passed`
 
 ### WDT-013: Transition from CSV to Parquet 
-* CSVs are particularly bad at handling Lists. This is a problem for columns such as "Guests" or "Topcis"
-* As the input for Phase 3, we need a CSV file. Everywhere else, we can use Parquet instead of CSVs.
+- Status: [~]
+- Priority: P1
+- Owner: unassigned
+- Problem:
+  CSV projections are still the default even though most internal runtime tables are easier to store and restore as Parquet.
+- Requirements:
+  1. Keep the Phase 3 handoff CSV exactly as the contract input.
+  2. Migrate internal runtime projections to Parquet with a compatibility period.
+  3. Preserve checkpoint snapshot/restore behavior during the transition.
+- Implementation progress (2026-04-08):
+  - Added Parquet sidecars for the existing tabular projections and bootstrap artifacts while keeping CSVs as compatibility outputs.
+  - Snapshot/runtime restore now carries `.parquet` sidecars alongside `.csv` files in the projections directory.
+  - Added regression coverage for bootstrap creation and checkpoint snapshot restore of Parquet sidecars.
+- Validation:
+  - `python -m pytest test/process/wikidata/test_bootstrap_outputs.py test/process/wikidata/test_checkpoint_resume.py test/process/wikidata/test_class_path_resolution.py -q` (`24 passed`)
+  - `python -m pytest test/process/wikidata -q` (`175 passed`)
 
 ### WDT-014: Deprecate any non-eventsourced file writing.
+Deferred from the current closeout publication; remains open for a future wave.
 Everything that writes to a file should be eventsourced. There is plenty of code labeled "materialize" or similar that just recreates entire csv files without doing proper Event-Sourcing. Entire files are rebuild over and over again despite non of the events they are build from having changed. Some examples:
 
 [notebook] Step 6 start: graph-first expansion
@@ -306,6 +393,29 @@ This is both slow (~30 hours) as well as probably not the best way wikidata coul
 - Validation:
   - `python -m pytest speakermining/test/process/wikidata/test_node_integrity.py speakermining/test/process/wikidata/test_network_guardrails.py speakermining/test/process/wikidata/test_class_path_resolution.py -q`
   - Result: `18 passed`
+- Follow-up increment (2026-04-08):
+  1. Stage A seed expansion now performs best-effort neighbor prefetch via `get_or_fetch_entities_batch(...)` when multiple neighbor QIDs are present.
+  2. Prefetch is cache-warming only; per-neighbor processing still uses `get_or_fetch_entity(...)` so deterministic expansion semantics and per-entity logic remain unchanged.
+  3. Added regression test `test_run_seed_expansion_prefetches_neighbors_with_batch_fetch` in `test_checkpoint_resume.py` to verify batched prefetch is invoked for multi-neighbor seed expansion.
+- Validation:
+  1. `pytest test/process/wikidata/test_checkpoint_resume.py -q` (`17 passed`)
+  2. `pytest test/process/wikidata -q` (`175 passed`)
+- Measurement support increment (2026-04-08):
+  1. Added Stage A neighbor-prefetch counters at seed and graph-stage scope for low-friction benchmarking:
+     - seed summary: `neighbor_prefetch_batches_attempted`, `neighbor_prefetch_batches_succeeded`, `neighbor_prefetch_candidates_total`
+     - checkpoint stats: `stage_a_neighbor_prefetch_batches_attempted`, `stage_a_neighbor_prefetch_batches_succeeded`, `stage_a_neighbor_prefetch_candidates_total`
+  2. Extended `test_run_seed_expansion_prefetches_neighbors_with_batch_fetch` to assert these counters deterministically.
+- Validation:
+  1. `pytest test/process/wikidata/test_checkpoint_resume.py -q` (`17 passed`)
+  2. `pytest test/process/wikidata/test_class_path_resolution.py test/process/wikidata/test_contract_matrix_closure.py -q` (`10 passed`)
+- Notebook measurement datapoint (2026-04-08):
+  1. Re-ran Notebook 21 Step 6 (`run_graph_expansion_stage(...)`) in append mode and captured stage counters from execution summary.
+  2. Observed:
+     - `stage_a_network_queries_this_run = 0`
+     - `stage_a_neighbor_prefetch_batches_attempted = 1`
+     - `stage_a_neighbor_prefetch_batches_succeeded = 1`
+     - `stage_a_neighbor_prefetch_candidates_total = 66`
+  3. This confirms instrumentation visibility in real notebook flow; follow-up evidence should include a non-zero-network run context for stronger efficiency deltas.
 
 Context below:
 
@@ -473,6 +583,21 @@ Context:
     2. raise timeout after retry budget is exhausted
   - Added regression test in `test_node_integrity.py` to verify `NodeIntegrityConfig` timeout policy is forwarded to `begin_request_context(...)`.
   - Validation command: `python -m pytest speakermining/test/process/wikidata/test_network_guardrails.py speakermining/test/process/wikidata/test_node_integrity.py -q` (`11 passed`).
+- Hardening follow-up (2026-04-08):
+  - `entity.get_or_fetch_entities_batch(...)` now continues per-QID fallback processing when one fallback single-entity call raises `TimeoutError`.
+  - This prevents one timeout from aborting the rest of the same batch fallback set and keeps Step 6.5 discovery progressing on remaining QIDs.
+  - Added regression test: `test_get_or_fetch_entities_batch_continues_after_fallback_timeout` in `test_entity_cache_unwrap.py`.
+  - Validation commands:
+    1. `pytest test/process/wikidata/test_entity_cache_unwrap.py -q` (`9 passed`)
+    2. `pytest test/process/wikidata -q` (`174 passed`)
+- Observability follow-up (2026-04-08):
+  - `NodeIntegrityResult` now reports `timeout_warnings` in addition to `stop_reason`.
+  - Timeout-warning counts are now included in node-integrity phase-finished metadata for runtime diagnostics.
+  - Notebook 21 Step 6.5 summary/report outputs now include `timeout_warnings` and `stop_reason` in persisted diagnostics and console summary.
+  - Added/updated regression evidence in `test_node_integrity.py`:
+    1. `test_node_integrity_continues_after_timeout_error` now asserts `result.timeout_warnings >= 1`.
+  - Validation command:
+    1. `python -m pytest test/process/wikidata/test_node_integrity.py -q` (`11 passed`)
 TimeoutError                              Traceback (most recent call last)
 Cell In[7], line 51
      38 node_integrity_config = NodeIntegrityConfig(

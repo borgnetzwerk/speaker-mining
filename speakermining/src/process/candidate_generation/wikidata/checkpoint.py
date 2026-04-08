@@ -39,9 +39,10 @@ def _manifest_filename(manifest: CheckpointManifest) -> str:
 
 def _runtime_state_files(repo_root: Path) -> list[Path]:
     paths = build_artifact_paths(Path(repo_root))
-    return [
+    runtime_files = [
         paths.classes_csv,
         paths.instances_csv,
+        paths.instances_leftovers_csv,
         paths.properties_csv,
         paths.aliases_en_csv,
         paths.aliases_de_csv,
@@ -62,6 +63,17 @@ def _runtime_state_files(repo_root: Path) -> list[Path]:
         paths.fallback_stage_eligible_for_expansion_csv,
         paths.fallback_stage_ineligible_csv,
     ]
+    runtime_files.extend(sorted(paths.projections_dir.glob("aliases_*.csv")))
+    runtime_files.extend(sorted(paths.projections_dir.glob("instances_core_*.csv")))
+    runtime_files.extend(sorted(paths.projections_dir.glob("*.parquet")))
+    deduped: list[Path] = []
+    seen: set[Path] = set()
+    for runtime_file in runtime_files:
+        if runtime_file in seen:
+            continue
+        seen.add(runtime_file)
+        deduped.append(runtime_file)
+    return deduped
 
 
 def _snapshot_dir_for_checkpoint(repo_root: Path, checkpoint_path: Path) -> Path:
@@ -283,8 +295,9 @@ def restore_checkpoint_snapshot(repo_root: Path, checkpoint_path: Path) -> None:
     reset_node_store_cache(repo_root)
     reset_query_inventory_cache(repo_root)
     reset_triple_store_cache(repo_root)
-    for runtime_file in _runtime_state_files(repo_root):
-        runtime_file.unlink(missing_ok=True)
+    if paths.projections_dir.exists():
+        shutil.rmtree(paths.projections_dir)
+    paths.projections_dir.mkdir(parents=True, exist_ok=True)
 
     if paths.raw_queries_dir.exists():
         shutil.rmtree(paths.raw_queries_dir)
@@ -295,11 +308,13 @@ def restore_checkpoint_snapshot(repo_root: Path, checkpoint_path: Path) -> None:
     event_store_paths["checksums"].unlink(missing_ok=True)
 
     snapshot_files_dir = snapshot_dir / "files"
-    for runtime_file in _runtime_state_files(repo_root):
-        src = snapshot_files_dir / runtime_file.name
-        if src.exists():
-            runtime_file.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, runtime_file)
+    if snapshot_files_dir.exists():
+        for src in sorted(snapshot_files_dir.iterdir()):
+            if not src.is_file():
+                continue
+            dst = paths.projections_dir / src.name
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
 
     snapshot_raw_dir = snapshot_dir / "raw_queries"
     if snapshot_raw_dir.exists():

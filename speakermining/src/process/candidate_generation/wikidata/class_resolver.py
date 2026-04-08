@@ -18,16 +18,21 @@ def _claim_item_qids(entity_doc: dict, pid: str) -> list[str]:
     return sorted(set(out))
 
 
-def resolve_class_path(entity_doc: dict, core_class_qids: set[str], get_entity_fn) -> dict:
+def resolve_class_path(entity_doc: dict, core_class_qids: set[str], get_entity_fn, on_resolved=None) -> dict:
+    def _emit(result: dict, reason: str) -> dict:
+        if callable(on_resolved):
+            on_resolved({**result, "resolution_reason": reason})
+        return result
+
     core = effective_core_class_qids(core_class_qids)
     entity_id = canonical_qid(entity_doc.get("id", ""))
     if not entity_id:
-        return {
+        return _emit({
             "class_id": "",
             "path_to_core_class": "",
             "subclass_of_core_class": False,
             "is_class_node": False,
-        }
+        }, "invalid_entity")
 
     p31 = _claim_item_qids(entity_doc, "P31")
     p279 = _claim_item_qids(entity_doc, "P279")
@@ -35,21 +40,21 @@ def resolve_class_path(entity_doc: dict, core_class_qids: set[str], get_entity_f
 
     if not core:
         class_id = p279[0] if is_class_node and p279 else (p31[0] if p31 else "")
-        return {
+        return _emit({
             "class_id": class_id,
             "path_to_core_class": "",
             "subclass_of_core_class": False,
             "is_class_node": is_class_node,
-        }
+        }, "no_core_classes")
 
     starts = p279 if is_class_node and p279 else p31
     if not starts:
-        return {
+        return _emit({
             "class_id": "",
             "path_to_core_class": "",
             "subclass_of_core_class": False,
             "is_class_node": is_class_node,
-        }
+        }, "no_class_claims")
 
     queue: deque[tuple[str, list[str]]] = deque()
     seen: set[str] = set()
@@ -60,12 +65,12 @@ def resolve_class_path(entity_doc: dict, core_class_qids: set[str], get_entity_f
     while queue:
         node_qid, path = queue.popleft()
         if node_qid in core:
-            return {
+            return _emit({
                 "class_id": path[0],
                 "path_to_core_class": "|".join(path),
                 "subclass_of_core_class": True,
                 "is_class_node": is_class_node,
-            }
+            }, "core_match")
         node_doc = get_entity_fn(node_qid) or {}
         for parent in _claim_item_qids(node_doc, "P279"):
             if parent in seen:
@@ -73,12 +78,12 @@ def resolve_class_path(entity_doc: dict, core_class_qids: set[str], get_entity_f
             seen.add(parent)
             queue.append((parent, path + [parent]))
 
-    return {
+    return _emit({
         "class_id": starts[0],
         "path_to_core_class": "",
         "subclass_of_core_class": False,
         "is_class_node": is_class_node,
-    }
+    }, "no_core_match")
 
 
 def compute_class_rollups(items_iterable) -> list[dict]:

@@ -257,6 +257,100 @@ def get_or_fetch_entity(
 		raise
 
 
+def get_or_fetch_entities_batch(
+	root: Path | str,
+	qids: list[str] | set[str] | tuple[str, ...],
+	cache_max_age_days: int,
+	timeout: int = 30,
+) -> dict[str, dict]:
+	"""Fetch multiple entities with cache-first behavior and batched network calls.
+
+	Returns a mapping from qid to single-entity payload dict.
+	When multiple refreshes are needed, uses one wbgetentities(ids=Q1|Q2|...) call.
+	"""
+	root = Path(root)
+	ordered_qids: list[str] = []
+	seen: set[str] = set()
+	for raw_qid in qids or []:
+		qid = canonical_qid(raw_qid)
+		if not qid or qid in seen:
+			continue
+		ordered_qids.append(qid)
+		seen.add(qid)
+
+	if not ordered_qids:
+		return {}
+
+	if len(ordered_qids) == 1:
+		qid = ordered_qids[0]
+		return {qid: get_or_fetch_entity(root, qid, cache_max_age_days, timeout=timeout)}
+
+	requested_languages = _requested_literal_languages()
+	out: dict[str, dict] = {}
+	needs_network: list[str] = []
+
+	for qid in ordered_qids:
+		cached = _latest_cached_record(root, "entity", qid)
+		if not cached:
+			needs_network.append(qid)
+			continue
+		cached_payload = _filter_entity_payload_languages(get_query_event_response_data(cached[0]))
+		cached_doc = _entity_from_payload(cached_payload, qid)
+		if not isinstance(cached_doc, dict) or not cached_doc:
+			needs_network.append(qid)
+			continue
+		missing_languages = _missing_literal_languages(cached_doc, kind="entity", requested_languages=requested_languages)
+		has_claims = isinstance(cached_doc.get("claims"), dict)
+		if cached[1] <= cache_max_age_days and not missing_languages and has_claims:
+			out[qid] = cached_payload
+		else:
+			needs_network.append(qid)
+
+	if not needs_network:
+		return out
+
+	if len(needs_network) == 1:
+		qid = needs_network[0]
+		out[qid] = get_or_fetch_entity(root, qid, cache_max_age_days, timeout=timeout)
+		return out
+
+	url = _build_wbgetentities_url("|".join(needs_network), languages=requested_languages, include_claims=True)
+	try:
+		batch_payload = _http_get_json(url, timeout=timeout)
+		batch_payload = _filter_entity_payload_languages(batch_payload)
+		entities = batch_payload.get("entities", {}) if isinstance(batch_payload, dict) else {}
+		for qid in needs_network:
+			entity_doc = entities.get(qid, {}) if isinstance(entities, dict) else {}
+			if not isinstance(entity_doc, dict) or not entity_doc:
+				continue
+			_ensure_literal_coverage_marker(entity_doc, kind="entity", requested_languages=requested_languages)
+			single_payload = _payload_from_entity_doc(qid, entity_doc)
+			write_query_event(
+				root,
+				endpoint="wikidata_api",
+				normalized_query=f"entity:{qid}",
+				source_step="entity_fetch",
+				status="success",
+				key=qid,
+				payload=single_payload,
+				http_status=200,
+				error=None,
+			)
+			out[qid] = single_payload
+	except Exception:
+		pass
+
+	missing_after_batch = [qid for qid in needs_network if qid not in out]
+	for qid in missing_after_batch:
+		try:
+			out[qid] = get_or_fetch_entity(root, qid, cache_max_age_days, timeout=timeout)
+		except TimeoutError:
+			# Keep progressing when an individual fallback read times out.
+			continue
+
+	return out
+
+
 def get_or_fetch_property(
 	root: Path | str,
 	pid: str,

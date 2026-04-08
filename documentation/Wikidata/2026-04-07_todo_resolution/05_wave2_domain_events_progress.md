@@ -130,30 +130,29 @@ This creates a **linked narrative** from data fetching → discovery → expansi
 
 ## Known Limitations & Future Work
 
-### Not Yet Wired
+### Newly Wired (2026-04-08)
 
-- **`triple_discovered`**: When a new triple (subject-predicate-object) is recorded
-  - Would unlock "how many new facts did we learn" questions
-  - Requires instrumentation in `triple_store.record_item_edges()`
-  
-- **`class_membership_resolved`**: When entity class membership is determined/changed
-  - Would enable fine-grained class frontier expansion analysis
-  - Requires instrumentation in `class_resolver.resolve_class_path()`
-  
-- **`expansion_decision` finalization**: When a decision is persisted
-  - Currently builder exists but not wired
-  - Needed for "why was entity X not further expanded" diagnostics
+- **`triple_discovered`**
+  - Added event type/builder in `event_log.py`.
+  - Wired emission in `triple_store.record_item_edges(...)` with runtime propagation from Stage A and Step 6.5 call paths.
+
+- **`class_membership_resolved`**
+  - Added event type/builder in `event_log.py`.
+  - Added callback support in `class_resolver.resolve_class_path(...)`.
+  - Wired runtime emissions in Stage A seed filtering and Step 6.5 class-resolution evaluation.
+
+- **`expansion_decision` finalization (runtime decision points)**
+  - Stage A now emits expansion decisions while evaluating candidate neighbor expansion.
+  - Stage B fallback now emits expansion decisions for matched-candidate eligibility outcomes.
 
 ### Event-Derived Heartbeat (WDT-008)
 
-Wave 2 Phase 2 has started in Notebook 21:
-- Added `emit_event_derived_heartbeat(...)` helper to read Notebook 21's event log and summarize recent `entity_discovered`, `entity_expanded`, and `expansion_decision` events.
-- Wired heartbeat calls after the node integrity and fallback stages so operators now see event-derived progress summaries.
+Wave 2 Phase 2 included the final heartbeat wiring that is now considered sufficient and closed in the tracker:
+- `emit_event_derived_heartbeat(...)` reads Notebook 21's event log and summarizes recent `entity_discovered`, `entity_expanded`, and `expansion_decision` events.
+- Heartbeat calls exist after Stage A graph expansion, node integrity, fallback matching, and fallback re-entry.
+- Step 9 now guards against fallback re-entry after an interrupted or failed Step 8.
 
-Planned next summary fields:
-- "X entities discovered in last minute"
-- "Y unique expansion types observed"
-- "Z budget remaining"
+This work is retained as supporting context for Wave 2, but it is no longer a blocking item.
 
 ### WDT-019 Dependency Note (Notebook Config Integrity)
 
@@ -180,6 +179,15 @@ Recent implementation progress:
 Validation:
 - `python -m pytest speakermining/test/process/wikidata/test_network_guardrails.py speakermining/test/process/wikidata/test_node_integrity.py -q`
 - Result: `13 passed`
+
+### Remaining Wave 2 Work
+
+Wave 2 replay closure for WDT-009 is now complete:
+- replay/invariant coverage added for mixed domain/query event streams at orchestrator level
+- domain-only append replay now preserves projections through handler rehydration in orchestrator
+- targeted orchestrator validation passes (`pytest test/process/wikidata/test_orchestrator_handlers.py -q` -> `4 passed`)
+
+WDT-014 deprecation work remains separate and continues outside WDT-009 closure.
 
 ---
 
@@ -225,16 +233,9 @@ This shifts heartbeat from "we fetched N queries" to "we discovered N entities, 
 
 ## Next Steps
 
-1. **WDT-008 Phase 2**: Continue event-derived heartbeat wiring in Notebook 21
-  - Count entity_discovered/expanded events per time window
-  - Emit summary every 60 seconds alongside checkpoint progress
-  - Extend the helper to any remaining long-running stage cells
-   
-2. **Expand coverage**: Wire remaining domain events (triple_discovered, class_membership_resolved)
-   
-3. **Event replay tests**: Add tests proving event stream is sufficient for deterministic re-projection
-   
-4. **Deprecation path**: Begin retiring non-event-sourced materialization (WDT-014)
+1. **Event replay tests**: Add tests proving event stream is sufficient for deterministic re-projection.
+2. **Projection derivation checks**: Validate that handlers/projections can derive expected diagnostics from promoted events.
+3. **Deprecation path**: Continue retiring non-event-sourced materialization surfaces (WDT-014).
 
 ---
 
@@ -247,7 +248,7 @@ Wave 2 successfully introduces **three first-promoted domain events** into the W
 - **Composability**: Future features (heartbeat, diagnostics) can derive from event stream
 - **Determinism**: Replaying event stream produces same discovery/expansion decisions
 
-Wave 2 Phase 2 has now begun with Notebook 21 heartbeat wiring based on those events.
+Wave 2 for WDT-009 is complete and Wave 3 transition diagnostics is now the active stream.
 
-**Status: Wave 2 Phase 1 ✅ Complete | Phase 2 (heartbeat + timeout resilience) 🚧 In progress**
+**Status: Wave 2 (WDT-009 scope) ✅ Complete | Wave 3 (WDT-001/WDT-002) 🚧 In progress**
 

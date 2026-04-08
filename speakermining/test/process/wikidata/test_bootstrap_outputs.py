@@ -12,6 +12,14 @@ from process.candidate_generation.wikidata.schemas import build_artifact_paths
 
 
 def test_empty_target_bootstraps_required_tree(tmp_path: Path) -> None:
+    setup_dir = tmp_path / "data" / "00_setup"
+    setup_dir.mkdir(parents=True, exist_ok=True)
+    (setup_dir / "core_classes.csv").write_text(
+        "filename,label,wikidata_id\n"
+        "persons,person,Q215627\n"
+        "episodes,episode,Q1983062\n",
+        encoding="utf-8",
+    )
     ensure_output_bootstrap(tmp_path)
     paths = build_artifact_paths(tmp_path)
 
@@ -26,6 +34,12 @@ def test_empty_target_bootstraps_required_tree(tmp_path: Path) -> None:
     assert paths.fallback_stage_candidates_csv.exists()
     assert paths.fallback_stage_eligible_for_expansion_csv.exists()
     assert paths.fallback_stage_ineligible_csv.exists()
+    assert paths.instances_leftovers_csv.exists()
+    assert paths.instances_leftovers_csv.with_suffix(".parquet").exists()
+    assert (paths.projections_dir / "instances_core_persons.csv").exists()
+    assert (paths.projections_dir / "instances_core_episodes.csv").exists()
+    assert (paths.projections_dir / "instances_core_persons.parquet").exists()
+    assert (paths.projections_dir / "instances_core_episodes.parquet").exists()
     assert not paths.entities_json.exists()
     assert not paths.properties_json.exists()
     assert not paths.triples_events_json.exists()

@@ -324,6 +324,34 @@ def test_fallback_explicit_zero_budget_disables_endpoint_search(tmp_path: Path, 
     assert result.fallback_candidates == []
 
 
+def test_fallback_stops_gracefully_when_user_interrupt_requested(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "process.candidate_generation.wikidata.fallback_matcher._termination_requested",
+        lambda _repo_root: True,
+    )
+
+    unresolved = [
+        {
+            "mention_id": "m1",
+            "mention_type": "person",
+            "mention_label": "Markus Lanz",
+            "context": "test",
+        }
+    ]
+
+    result = run_fallback_string_matching_stage(
+        tmp_path,
+        unresolved_targets=unresolved,
+        seeds={"Q100"},
+        core_class_qids={"Q215627"},
+        class_scope_hints={"person": ["Q215627"]},
+        config={"max_queries_per_run": -1},
+    )
+
+    assert result.fallback_candidates == []
+    assert result.eligible_for_expansion_qids == set()
+
+
 def test_fallback_emits_candidate_matched_events(tmp_path: Path) -> None:
     entity_doc = {
         "id": "Q1499182",

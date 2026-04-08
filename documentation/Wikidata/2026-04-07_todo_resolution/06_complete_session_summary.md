@@ -10,6 +10,9 @@ This document captures an earlier completion checkpoint. Current repository stat
   - Notebook 21 fallback config integrity issue resolved with single-source derivation.
   - Step 7/Step 8 now share `config["fallback_enabled_mention_types_resolved"]`.
   - Invalid config now fails fast with explicit error.
+4. WDT-008 heartbeat coverage is now considered sufficient and closed:
+  - Notebook 21 emits event-derived heartbeat summaries after Stage A graph expansion, Step 6.5 node integrity, Stage B fallback matching, and fallback re-entry.
+  - Step 9 fails fast if Step 8 did not complete, avoiding a stale `NameError` path after interruption.
 
 Use `04_execution_progress.md` and `03_resolution_roadmap.md` as the current source of truth for next implementation steps.
 

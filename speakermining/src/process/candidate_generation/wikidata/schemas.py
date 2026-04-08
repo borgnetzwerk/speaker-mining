@@ -33,6 +33,7 @@ class ArtifactPaths:
     archive_dir: Path
     classes_csv: Path
     instances_csv: Path
+    instances_leftovers_csv: Path
     properties_csv: Path
     aliases_en_csv: Path
     aliases_de_csv: Path
@@ -52,6 +53,10 @@ class ArtifactPaths:
     fallback_stage_candidates_csv: Path
     fallback_stage_eligible_for_expansion_csv: Path
     fallback_stage_ineligible_csv: Path
+
+
+def core_instances_projection_filename(class_filename: str) -> str:
+    return f"instances_core_{canonical_class_filename(class_filename)}.csv"
 
 
 def canonical_class_filename(name: str) -> str:
@@ -75,6 +80,7 @@ def build_artifact_paths(repo_root: Path) -> ArtifactPaths:
         archive_dir=wikidata_dir / "archive",
         classes_csv=projections_dir / "classes.csv",
         instances_csv=projections_dir / "instances.csv",
+        instances_leftovers_csv=projections_dir / "instances_leftovers.csv",
         properties_csv=projections_dir / "properties.csv",
         aliases_en_csv=projections_dir / "aliases_en.csv",
         aliases_de_csv=projections_dir / "aliases_de.csv",

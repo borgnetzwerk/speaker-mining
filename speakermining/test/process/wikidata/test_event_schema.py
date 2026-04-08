@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from process.candidate_generation.wikidata.event_log import build_query_event, compute_query_hash
+from process.candidate_generation.wikidata.event_log import (
+    build_class_membership_resolved_event,
+    build_eligibility_transition_event,
+    build_query_event,
+    build_triple_discovered_event,
+    compute_query_hash,
+)
 
 
 def test_event_schema_required_fields() -> None:
@@ -50,3 +56,54 @@ def test_event_rejects_unknown_source_step() -> None:
             http_status=200,
             error=None,
         )
+
+
+def test_build_triple_discovered_event_schema() -> None:
+    event = build_triple_discovered_event(
+        subject_qid="Q100",
+        predicate_pid="P31",
+        object_qid="Q5",
+        source_step="outlinks_build",
+    )
+    assert event["event_type"] == "triple_discovered"
+    payload = event["payload"]
+    assert payload["subject_qid"] == "Q100"
+    assert payload["predicate_pid"] == "P31"
+    assert payload["object_qid"] == "Q5"
+    assert payload["source_step"] == "outlinks_build"
+
+
+def test_build_class_membership_resolved_event_schema() -> None:
+    event = build_class_membership_resolved_event(
+        entity_qid="Q200",
+        class_id="Q5",
+        path_to_core_class="Q5|Q215627",
+        subclass_of_core_class=True,
+        is_class_node=False,
+    )
+    assert event["event_type"] == "class_membership_resolved"
+    payload = event["payload"]
+    assert payload["entity_qid"] == "Q200"
+    assert payload["class_id"] == "Q5"
+    assert payload["path_to_core_class"] == "Q5|Q215627"
+    assert payload["subclass_of_core_class"] is True
+    assert payload["is_class_node"] is False
+
+
+def test_build_eligibility_transition_event_schema() -> None:
+    event = build_eligibility_transition_event(
+        entity_qid="Q200",
+        previous_eligible=False,
+        current_eligible=True,
+        previous_reason="no_core_class_match",
+        current_reason="direct_seed_link_and_core_match",
+        path_to_core_class="Q5|Q215627",
+    )
+    assert event["event_type"] == "eligibility_transition"
+    payload = event["payload"]
+    assert payload["entity_qid"] == "Q200"
+    assert payload["previous_eligible"] is False
+    assert payload["current_eligible"] is True
+    assert payload["previous_reason"] == "no_core_class_match"
+    assert payload["current_reason"] == "direct_seed_link_and_core_match"
+    assert payload["path_to_core_class"] == "Q5|Q215627"

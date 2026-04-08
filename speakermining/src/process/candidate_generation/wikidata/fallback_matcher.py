@@ -11,7 +11,8 @@ from .cache import _atomic_write_df
 from .cache import begin_request_context, end_request_context
 from .common import canonical_qid, effective_core_class_qids, normalize_query_budget, normalize_text, pick_entity_label
 from .entity import get_or_fetch_entity, get_or_search_entities_by_label
-from .event_log import write_candidate_matched_event
+from .event_log import write_candidate_matched_event, build_entity_discovered_event, build_expansion_decision_event
+from .graceful_shutdown import should_terminate
 from .node_store import flush_node_store, iter_items
 from .node_store import upsert_discovered_item
 from .schemas import build_artifact_paths
@@ -71,6 +72,18 @@ def _claim_qids(entity_doc: dict, pid: str) -> set[str]:
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _shutdown_path(repo_root: Path) -> Path:
+    return build_artifact_paths(Path(repo_root)).wikidata_dir / ".shutdown"
+
+
+def _termination_requested(repo_root: Path) -> bool:
+    return should_terminate(_shutdown_path(Path(repo_root)))
+
+
+def _is_termination_runtime_error(exc: RuntimeError) -> bool:
+    return "Termination requested" in str(exc)
 
 
 def _candidate_from_item(item: dict) -> dict | None:
@@ -177,6 +190,8 @@ def run_fallback_string_matching_stage(
         heartbeat_last_emit = perf_counter()
         heartbeat_interval_seconds = 60.0
         for target in unresolved_targets:
+            if _termination_requested(repo_root):
+                break
             now_progress = perf_counter()
             if now_progress - heartbeat_last_emit >= heartbeat_interval_seconds:
                 print(
@@ -208,6 +223,9 @@ def run_fallback_string_matching_stage(
                 searched_labels.add(mention_label)
                 original_label = str(target.get("mention_label", "") or "")
                 for language in [str(lang).strip().lower() for lang in search_languages if str(lang).strip()]:
+                    if _termination_requested(repo_root):
+                        endpoint_budget_exhausted = True
+                        break
                     try:
                         search_payload = get_or_search_entities_by_label(
                             repo_root,
@@ -221,9 +239,15 @@ def run_fallback_string_matching_stage(
                         if str(exc) == "Network query budget hit":
                             endpoint_budget_exhausted = True
                             break
+                        if _is_termination_runtime_error(exc) or _termination_requested(repo_root):
+                            endpoint_budget_exhausted = True
+                            break
                         raise
 
                     for hit in search_payload.get("search", []) or []:
+                        if _termination_requested(repo_root):
+                            endpoint_budget_exhausted = True
+                            break
                         qid = canonical_qid(hit.get("id", ""))
                         if not qid:
                             continue
@@ -238,6 +262,9 @@ def run_fallback_string_matching_stage(
                             if str(exc) == "Network query budget hit":
                                 endpoint_budget_exhausted = True
                                 break
+                            if _is_termination_runtime_error(exc) or _termination_requested(repo_root):
+                                endpoint_budget_exhausted = True
+                                break
                             raise
 
                         entity_doc = entity_payload.get("entities", {}).get(qid, {})
@@ -245,11 +272,29 @@ def run_fallback_string_matching_stage(
                         candidate = _candidate_from_item(entity_doc)
                         if candidate:
                             _index_candidate(label_index, candidate)
+                            
+                            # Emit domain event for discovery via fallback matching
+                            entity_label = pick_entity_label(entity_doc)
+                            notebook_logger.append_event(
+                                event_type="entity_discovered",
+                                phase="stage_b_fallback_matching",
+                                message=f"entity discovered via fallback match: {qid} ({entity_label})",
+                                entity={"qid": qid, "label": entity_label},
+                                extra=build_entity_discovered_event(
+                                    qid=qid,
+                                    label=entity_label,
+                                    source_step="derived_local",
+                                    discovery_method="fallback_match",
+                                ).get("payload", {}),
+                            )
 
                     if endpoint_budget_exhausted:
                         break
 
             for candidate in sorted(label_index.get(mention_label, []), key=lambda row: row.get("qid", "")):
+                if _termination_requested(repo_root):
+                    endpoint_budget_exhausted = True
+                    break
                 if not _scope_allows(mention_type, class_scope_hints, candidate):
                     continue
                 qid = candidate.get("qid", "")
@@ -283,10 +328,29 @@ def run_fallback_string_matching_stage(
                     p31_core_match=bool(set(candidate.get("p31", [])) & effective_core_classes),
                     is_class_node=bool(candidate.get("is_class_node", False)),
                 )
+                notebook_logger.append_event(
+                    event_type="expansion_decision",
+                    phase="stage_b_fallback_matching",
+                    message=f"fallback expansion decision for {qid}: {'queue_for_expansion' if can_expand else 'skip_expansion'}",
+                    entity={"qid": qid, "label": str(candidate.get("label", qid) or qid)},
+                    extra=build_expansion_decision_event(
+                        qid=qid,
+                        label=str(candidate.get("label", qid) or qid),
+                        decision="queue_for_expansion" if can_expand else "skip_expansion",
+                        decision_reason="fallback_eligible" if can_expand else "fallback_ineligible",
+                        eligibility={
+                            "has_direct_link_to_seed": bool(has_direct_link),
+                            "p31_core_match": bool(set(candidate.get("p31", [])) & effective_core_classes),
+                            "is_class_node": bool(candidate.get("is_class_node", False)),
+                        },
+                    ).get("payload", {}),
+                )
                 if can_expand:
                     eligible_for_expansion_qids.add(qid)
                 else:
                     ineligible_qids.add(qid)
+            if _termination_requested(repo_root):
+                break
     finally:
         end_request_context()
 

@@ -83,3 +83,91 @@ def test_http_prints_progress_every_n_calls(monkeypatch, capsys) -> None:
     out = capsys.readouterr().out
     assert used == 3
     assert "[progress_test] Network calls used: 2 / 3" in out
+
+
+def test_http_retries_timeout_then_succeeds(monkeypatch) -> None:
+    attempts = {"count": 0}
+
+    def _fake_urlopen(*args, **kwargs):
+        _ = (args, kwargs)
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise TimeoutError("The read operation timed out")
+        return _FakeResponse('{"ok": true}')
+
+    monkeypatch.setattr("process.candidate_generation.wikidata.cache.urlopen", _fake_urlopen)
+
+    begin_request_context(
+        budget_remaining=5,
+        query_delay_seconds=0.0,
+        progress_every_calls=0,
+        context_label="timeout_retry_test",
+    )
+    try:
+        payload = _http_get_json(
+            "https://example.invalid/json",
+            max_retries=1,
+            backoff_base_seconds=0.0,
+        )
+        assert payload.get("ok") is True
+    finally:
+        used = end_request_context()
+
+    assert attempts["count"] == 2
+    assert used == 2
+
+
+def test_http_raises_timeout_after_retry_budget(monkeypatch) -> None:
+    def _fake_urlopen(*args, **kwargs):
+        _ = (args, kwargs)
+        raise TimeoutError("The read operation timed out")
+
+    monkeypatch.setattr("process.candidate_generation.wikidata.cache.urlopen", _fake_urlopen)
+
+    begin_request_context(
+        budget_remaining=5,
+        query_delay_seconds=0.0,
+        progress_every_calls=0,
+        context_label="timeout_budget_test",
+    )
+    try:
+        with pytest.raises(TimeoutError, match="timed out"):
+            _http_get_json(
+                "https://example.invalid/json",
+                max_retries=1,
+                backoff_base_seconds=0.0,
+            )
+    finally:
+        used = end_request_context()
+
+    assert used == 2
+
+
+def test_http_uses_request_context_retry_defaults(monkeypatch) -> None:
+    attempts = {"count": 0}
+
+    def _fake_urlopen(*args, **kwargs):
+        _ = (args, kwargs)
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise TimeoutError("The read operation timed out")
+        return _FakeResponse('{"ok": true}')
+
+    monkeypatch.setattr("process.candidate_generation.wikidata.cache.urlopen", _fake_urlopen)
+
+    begin_request_context(
+        budget_remaining=5,
+        query_delay_seconds=0.0,
+        http_max_retries=1,
+        http_backoff_base_seconds=0.0,
+        progress_every_calls=0,
+        context_label="timeout_context_defaults",
+    )
+    try:
+        payload = _http_get_json("https://example.invalid/json")
+    finally:
+        used = end_request_context()
+
+    assert payload.get("ok") is True
+    assert attempts["count"] == 2
+    assert used == 2

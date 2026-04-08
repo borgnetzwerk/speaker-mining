@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .cache import _atomic_write_text
 from .common import canonical_pid, canonical_qid
+from .event_log import build_triple_discovered_event
 from .schemas import build_artifact_paths
 
 
@@ -68,6 +69,8 @@ def record_item_edges(
     edges: list[dict],
     discovered_at_utc: str,
     source_query_file: str,
+    event_emitter=None,
+    event_phase: str | None = None,
 ) -> None:
     paths = build_artifact_paths(Path(repo_root))
     subject_qid = canonical_qid(subject_qid)
@@ -89,6 +92,20 @@ def record_item_edges(
                 "source_query_file": source_query_file,
             }
         )
+        if callable(event_emitter):
+            event_emitter(
+                event_type="triple_discovered",
+                phase=event_phase,
+                message=f"triple discovered: {subject_qid} {pid} {obj}",
+                entity={"qid": subject_qid},
+                extra=build_triple_discovered_event(
+                    subject_qid=subject_qid,
+                    predicate_pid=pid,
+                    object_qid=obj,
+                    source_step="outlinks_build",
+                    payload={"source_query_file": str(source_query_file or "")},
+                ).get("payload", {}),
+            )
 
     _mark_dirty(paths.triples_events_json)
 

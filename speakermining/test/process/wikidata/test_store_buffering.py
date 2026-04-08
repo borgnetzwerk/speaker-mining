@@ -69,6 +69,30 @@ def test_triple_store_defers_writes_until_flush(tmp_path: Path, monkeypatch) -> 
     assert writes == ["triple_events.json"]
 
 
+def test_triple_store_emits_triple_discovered_events(tmp_path: Path) -> None:
+    emitted: list[dict] = []
+
+    def _emit(**kwargs):
+        emitted.append(kwargs)
+
+    triple_store.record_item_edges(
+        tmp_path,
+        "Q1",
+        [{"pid": "P31", "to_qid": "Q5"}],
+        discovered_at_utc="2026-03-31T12:00:00Z",
+        source_query_file="test",
+        event_emitter=_emit,
+        event_phase="stage_a_graph_expansion",
+    )
+
+    assert len(emitted) == 1
+    assert emitted[0]["event_type"] == "triple_discovered"
+    assert emitted[0]["phase"] == "stage_a_graph_expansion"
+    assert emitted[0]["extra"]["subject_qid"] == "Q1"
+    assert emitted[0]["extra"]["predicate_pid"] == "P31"
+    assert emitted[0]["extra"]["object_qid"] == "Q5"
+
+
 def test_write_query_event_reuses_event_store_and_updates_inventory(tmp_path: Path, monkeypatch) -> None:
     init_calls = {"count": 0}
 

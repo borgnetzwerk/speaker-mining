@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlparse
 from process.candidate_generation.wikidata.entity import (
     get_or_build_outlinks,
     get_or_fetch_entity,
+    get_or_fetch_entities_batch,
     get_or_fetch_inlinks,
     get_or_fetch_property,
     get_or_search_entities_by_label,
@@ -272,3 +273,33 @@ def test_get_or_search_entities_by_label_returns_unwrapped_cached_payload(tmp_pa
     )
     assert "search" in payload
     assert "response_data" not in payload
+
+
+def test_get_or_fetch_entities_batch_continues_after_fallback_timeout(tmp_path: Path, monkeypatch) -> None:
+    calls: list[str] = []
+
+    def _fake_http_get_json(url: str, accept: str = "application/json", timeout: int = 30, **_kwargs):
+        _ = (url, accept, timeout)
+        # Return no entities so the batch path must fall back to per-qid fetches.
+        return {"entities": {}}
+
+    def _fake_get_or_fetch_entity(root: Path, qid: str, cache_max_age_days: int, timeout: int = 30):
+        _ = (root, cache_max_age_days, timeout)
+        calls.append(qid)
+        if qid == "Q100":
+            raise TimeoutError("The read operation timed out")
+        return {"entities": {qid: {"id": qid}}}
+
+    monkeypatch.setattr(entity_module, "_http_get_json", _fake_http_get_json)
+    monkeypatch.setattr(entity_module, "get_or_fetch_entity", _fake_get_or_fetch_entity)
+
+    payloads = get_or_fetch_entities_batch(
+        tmp_path,
+        ["Q100", "Q101"],
+        cache_max_age_days=0,
+        timeout=1,
+    )
+
+    assert calls == ["Q100", "Q101"]
+    assert "Q100" not in payloads
+    assert payloads["Q101"]["entities"]["Q101"]["id"] == "Q101"

@@ -6,7 +6,7 @@ from time import perf_counter
 
 import pandas as pd
 
-from .cache import _atomic_write_df, _atomic_write_text, _entity_from_payload
+from .cache import _atomic_write_df, _atomic_write_parquet_df, _atomic_write_text, _entity_from_payload
 from .bootstrap import load_core_classes, load_other_interesting_classes, load_root_classes
 from .class_resolver import compute_class_rollups, resolve_class_path
 from .common import (
@@ -20,6 +20,7 @@ from .event_log import get_query_event_field, get_query_event_response_data, ite
 from .node_store import flush_node_store, iter_items, iter_properties
 from .query_inventory import materialize_query_inventory
 from .schemas import build_artifact_paths
+from .schemas import core_instances_projection_filename
 from .triple_store import flush_triple_events, iter_unique_triples
 
 
@@ -260,6 +261,9 @@ def _remove_stale_alias_projections(paths, active_alias_files: set[str]) -> None
     for alias_path in paths.projections_dir.glob("aliases_*.csv"):
         if alias_path.name not in active_alias_files and alias_path.is_file():
             alias_path.unlink()
+        alias_parquet = alias_path.with_suffix(".parquet")
+        if alias_path.name not in active_alias_files and alias_parquet.is_file():
+            alias_parquet.unlink()
 
 
 def _build_triples_df(repo_root: Path) -> pd.DataFrame:
@@ -346,6 +350,86 @@ def _build_class_hierarchy_df(repo_root: Path, core_class_qids: set[str], root_c
     return pd.DataFrame(rows)[columns].sort_values(["is_core_class", "subclass_of_core_class", "class_id"], ascending=[False, False, True]).reset_index(drop=True)
 
 
+def _resolve_row_core_class_id(row: pd.Series, core_class_qids: set[str]) -> str:
+    path = str(row.get("path_to_core_class", "") or "")
+    if path:
+        tokens = [canonical_qid(token) for token in path.split("|") if canonical_qid(token)]
+        for token in reversed(tokens):
+            if token in core_class_qids:
+                return token
+    class_id = canonical_qid(str(row.get("class_id", "") or ""))
+    if class_id in core_class_qids and bool(row.get("subclass_of_core_class", False)):
+        return class_id
+    return ""
+
+
+def _remove_stale_core_instance_projections(paths, active_projection_files: set[str]) -> None:
+    for projection_path in paths.projections_dir.glob("instances_core_*.csv"):
+        if projection_path.name not in active_projection_files and projection_path.is_file():
+            projection_path.unlink()
+        projection_parquet = projection_path.with_suffix(".parquet")
+        if projection_path.name not in active_projection_files and projection_parquet.is_file():
+            projection_parquet.unlink()
+
+
+def _write_tabular_artifact(csv_path: Path, df: pd.DataFrame) -> None:
+    _atomic_write_df(csv_path, df)
+    _atomic_write_parquet_df(csv_path.with_suffix(".parquet"), df)
+
+
+def _write_core_instance_projections(paths, instances_df: pd.DataFrame, class_hierarchy_df: pd.DataFrame, repo_root: Path, core_class_qids: set[str]) -> dict[str, int]:
+    projection_row_counts: dict[str, int] = {}
+    if instances_df.empty:
+        _write_tabular_artifact(paths.instances_leftovers_csv, instances_df)
+        _remove_stale_core_instance_projections(paths, set())
+        return projection_row_counts
+
+    class_node_ids: set[str] = set()
+    if not class_hierarchy_df.empty and "class_id" in class_hierarchy_df.columns:
+        class_node_ids = {
+            canonical_qid(class_id)
+            for class_id in class_hierarchy_df["class_id"].tolist()
+            if canonical_qid(class_id)
+        }
+
+    non_class_instances_df = instances_df[~instances_df["id"].isin(class_node_ids)].copy()
+    if non_class_instances_df.empty:
+        _write_tabular_artifact(paths.instances_leftovers_csv, non_class_instances_df)
+        _remove_stale_core_instance_projections(paths, set())
+        return projection_row_counts
+
+    non_class_instances_df["resolved_core_class_id"] = non_class_instances_df.apply(
+        lambda row: _resolve_row_core_class_id(row, core_class_qids), axis=1
+    )
+
+    core_rows = load_core_classes(repo_root)
+    active_projection_files: set[str] = set()
+    for row in core_rows:
+        class_filename = str(row.get("filename", "") or "")
+        core_qid = canonical_qid(str(row.get("wikidata_id", "") or ""))
+        if not class_filename or not core_qid:
+            continue
+        projection_name = core_instances_projection_filename(class_filename)
+        projection_path = paths.projections_dir / projection_name
+        active_projection_files.add(projection_name)
+        core_projection_df = non_class_instances_df[non_class_instances_df["resolved_core_class_id"] == core_qid].copy()
+        if "resolved_core_class_id" in core_projection_df.columns:
+            core_projection_df = core_projection_df.drop(columns=["resolved_core_class_id"])
+        core_projection_df = core_projection_df.sort_values("id").reset_index(drop=True)
+        _write_tabular_artifact(projection_path, core_projection_df)
+        projection_row_counts[projection_name] = int(len(core_projection_df))
+
+    leftovers_df = non_class_instances_df[non_class_instances_df["resolved_core_class_id"] == ""].copy()
+    if "resolved_core_class_id" in leftovers_df.columns:
+        leftovers_df = leftovers_df.drop(columns=["resolved_core_class_id"])
+    leftovers_df = leftovers_df.sort_values("id").reset_index(drop=True)
+    _write_tabular_artifact(paths.instances_leftovers_csv, leftovers_df)
+    projection_row_counts[paths.instances_leftovers_csv.name] = int(len(leftovers_df))
+
+    _remove_stale_core_instance_projections(paths, active_projection_files)
+    return projection_row_counts
+
+
 def _write_summary(paths, run_id: str, stage: str, stats: dict) -> None:
     summary = {
         "run_id": run_id,
@@ -389,21 +473,28 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
     print(f"[materializer] build query_inventory done in {perf_counter() - t0:.2f}s", flush=True)
 
     t0 = perf_counter()
-    _atomic_write_df(paths.instances_csv, instances_df)
-    _atomic_write_df(paths.classes_csv, classes_df)
-    _atomic_write_df(paths.properties_csv, properties_df)
     active_alias_files: set[str] = set()
     for lang, alias_df in alias_dfs.items():
         suffix = language_projection_suffix(lang)
         alias_filename = f"aliases_{suffix}.csv"
         alias_path = paths.projections_dir / alias_filename
-        _atomic_write_df(alias_path, alias_df)
+        _write_tabular_artifact(alias_path, alias_df)
         active_alias_files.add(alias_filename)
     _remove_stale_alias_projections(paths, active_alias_files)
-    _atomic_write_df(paths.triples_csv, triples_df)
-    _atomic_write_df(paths.class_hierarchy_csv, class_hierarchy_df)
-    _atomic_write_df(paths.query_inventory_csv, query_inventory_df)
-    print(f"[materializer] write csv artifacts done in {perf_counter() - t0:.2f}s", flush=True)
+    _write_tabular_artifact(paths.triples_csv, triples_df)
+    _write_tabular_artifact(paths.class_hierarchy_csv, class_hierarchy_df)
+    _write_tabular_artifact(paths.query_inventory_csv, query_inventory_df)
+    _write_tabular_artifact(paths.instances_csv, instances_df)
+    _write_tabular_artifact(paths.classes_csv, classes_df)
+    _write_tabular_artifact(paths.properties_csv, properties_df)
+    core_projection_counts = _write_core_instance_projections(
+        paths,
+        instances_df,
+        class_hierarchy_df,
+        repo_root,
+        core_class_qids,
+    )
+    print(f"[materializer] write tabular artifacts done in {perf_counter() - t0:.2f}s", flush=True)
 
     stats = {
         "seed_id": seed_id,
@@ -412,6 +503,8 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
         "properties_rows": int(len(properties_df)),
         "triples_rows": int(len(triples_df)),
         "query_inventory_rows": int(len(query_inventory_df)),
+        "core_instance_projection_files": int(len(core_projection_counts)),
+        "instances_leftovers_rows": int(core_projection_counts.get(paths.instances_leftovers_csv.name, 0)),
     }
     _write_summary(paths, run_id, stage, stats)
     elapsed = perf_counter() - total_t0

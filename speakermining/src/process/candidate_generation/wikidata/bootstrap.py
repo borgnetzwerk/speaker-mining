@@ -5,16 +5,18 @@ from pathlib import Path
 
 import pandas as pd
 
-from .cache import _atomic_write_df, _atomic_write_text
+from .cache import _atomic_write_df, _atomic_write_parquet_df, _atomic_write_text
 from .common import language_projection_suffix, projection_languages
-from .schemas import build_artifact_paths, canonical_class_filename
+from .schemas import build_artifact_paths, canonical_class_filename, core_instances_projection_filename
 
 _QID_RE = re.compile(r"^Q[1-9][0-9]*$")
 
 
 def _empty_csv(path: Path, columns: list[str]) -> None:
     if not path.exists():
-        _atomic_write_df(path, pd.DataFrame(columns=columns))
+        empty_df = pd.DataFrame(columns=columns)
+        _atomic_write_df(path, empty_df)
+        _atomic_write_parquet_df(path.with_suffix(".parquet"), empty_df)
 
 
 def _load_class_setup_rows(repo_root: Path, setup_filename: str) -> list[dict]:
@@ -134,6 +136,50 @@ def ensure_output_bootstrap(repo_root: Path) -> None:
             "expanded_at_utc",
         ],
     )
+    _empty_csv(
+        paths.instances_leftovers_csv,
+        [
+            "id",
+            "class_id",
+            "class_filename",
+            *label_columns,
+            *description_columns,
+            *alias_columns,
+            "path_to_core_class",
+            "subclass_of_core_class",
+            "discovered_at_utc",
+            "expanded_at_utc",
+        ],
+    )
+    core_rows = load_core_classes(repo_root)
+    active_core_projection_files: set[str] = set()
+    for row in core_rows:
+        class_filename = str(row.get("filename", "") or "")
+        if not class_filename:
+            continue
+        projection_name = core_instances_projection_filename(class_filename)
+        active_core_projection_files.add(projection_name)
+        _empty_csv(
+            paths.projections_dir / projection_name,
+            [
+                "id",
+                "class_id",
+                "class_filename",
+                *label_columns,
+                *description_columns,
+                *alias_columns,
+                "path_to_core_class",
+                "subclass_of_core_class",
+                "discovered_at_utc",
+                "expanded_at_utc",
+            ],
+        )
+    for core_projection_path in paths.projections_dir.glob("instances_core_*.csv"):
+        if core_projection_path.name not in active_core_projection_files and core_projection_path.is_file():
+            core_projection_path.unlink()
+        core_projection_parquet = core_projection_path.with_suffix(".parquet")
+        if core_projection_path.name not in active_core_projection_files and core_projection_parquet.is_file():
+            core_projection_parquet.unlink()
     _empty_csv(paths.properties_csv, ["id", *label_columns, *description_columns, *alias_columns])
     active_alias_files: set[str] = set()
     for suffix in language_suffixes:
@@ -143,6 +189,8 @@ def ensure_output_bootstrap(repo_root: Path) -> None:
     for alias_path in paths.projections_dir.glob("aliases_*.csv"):
         if alias_path.name not in active_alias_files and alias_path.is_file():
             alias_path.unlink()
+            alias_parquet = alias_path.with_suffix(".parquet")
+            alias_parquet.unlink(missing_ok=True)
     _empty_csv(paths.triples_csv, ["subject", "predicate", "object", "discovered_at_utc", "source_query_file"])
     _empty_csv(paths.query_inventory_csv, ["endpoint", "query_hash", "normalized_query", "key", "status", "timestamp_utc", "source_step"])
     _empty_csv(paths.graph_stage_resolved_targets_csv, ["mention_id", "mention_type", "mention_label", "candidate_id", "candidate_label", "source", "context"])
@@ -159,8 +207,19 @@ def initialize_bootstrap_files(repo_root: Path, core_classes: list[dict], seeds:
     paths = build_artifact_paths(Path(repo_root))
     root_classes = load_root_classes(repo_root)
     other_interesting_classes = load_other_interesting_classes(repo_root)
-    _atomic_write_df(paths.core_classes_csv, pd.DataFrame(core_classes))
-    _atomic_write_df(paths.root_class_csv, pd.DataFrame(root_classes))
-    _atomic_write_df(paths.other_interesting_classes_csv, pd.DataFrame(other_interesting_classes))
+    if not paths.core_classes_csv.exists() or paths.core_classes_csv.stat().st_size == 0:
+        core_df = pd.DataFrame(core_classes)
+        _atomic_write_df(paths.core_classes_csv, core_df)
+        _atomic_write_parquet_df(paths.core_classes_csv.with_suffix(".parquet"), core_df)
+    if not paths.root_class_csv.exists() or paths.root_class_csv.stat().st_size == 0:
+        root_df = pd.DataFrame(root_classes)
+        _atomic_write_df(paths.root_class_csv, root_df)
+        _atomic_write_parquet_df(paths.root_class_csv.with_suffix(".parquet"), root_df)
+    if not paths.other_interesting_classes_csv.exists() or paths.other_interesting_classes_csv.stat().st_size == 0:
+        other_df = pd.DataFrame(other_interesting_classes)
+        _atomic_write_df(paths.other_interesting_classes_csv, other_df)
+        _atomic_write_parquet_df(paths.other_interesting_classes_csv.with_suffix(".parquet"), other_df)
     if not paths.broadcasting_programs_csv.exists():
-        _atomic_write_df(paths.broadcasting_programs_csv, pd.DataFrame(seeds))
+        seed_df = pd.DataFrame(seeds)
+        _atomic_write_df(paths.broadcasting_programs_csv, seed_df)
+        _atomic_write_parquet_df(paths.broadcasting_programs_csv.with_suffix(".parquet"), seed_df)

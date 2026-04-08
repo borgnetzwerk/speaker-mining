@@ -88,7 +88,13 @@ Testing:
 - ✅ All 31 tests passing (including WDT-007 integration tests and new domain event instrumentation)
 - ✅ Backward compatibility verified: no breaking changes to existing checkpoint/event structures
 - ✅ Notebook 21 heartbeat helper added and wired after node integrity and fallback stages
-- 📋 Next: Extend event-derived heartbeat to remaining long-running stage cells, wider domain event coverage (triple_discovered, class_membership_resolved), event replay tests
+- ✅ Notebook 21 heartbeat coverage now also includes Stage A graph expansion and fallback re-entry
+- ✅ Added `triple_discovered` and `class_membership_resolved` event builders and runtime wiring
+- ✅ Added runtime `expansion_decision` emissions at Stage A and Stage B decision points
+- ✅ Focused validation for new event schema/hooks is passing (`12 passed`)
+- ✅ Added orchestrator replay/invariant coverage for interleaved domain events and domain-only append reruns (`4 passed`)
+- ✅ Fixed replay rehydration in handler orchestrator so incremental runs preserve projections when new events are domain-only
+- ▶ Next: implement Wave 3 transition diagnostics for WDT-001/WDT-002
 
 Exit criteria (Phase 1):
 - ✅ Domain events are defined, documented, and wired into orchestration stages
@@ -96,11 +102,12 @@ Exit criteria (Phase 1):
 - ✅ Event stream captures discovery method and expansion context
 - 📋 (Phase 2) Projection updates leverage domain events for derivation
 - ✅ (Phase 2 kickoff) Heartbeat and diagnostics now begin with event-derived Notebook 21 summaries
+- ✅ Event-derived heartbeat coverage now includes Stage A graph expansion and fallback re-entry in addition to Step 6.5 and fallback summaries
 
 ## Wave 3: Integrity Evidence Loop On Top Of Events
 
 Targets:
-- `WDT-001`, `WDT-002`, `WDT-008`
+- `WDT-001`, `WDT-002`
 
 Implementation focus:
 1. Keep current reclassification loop but emit explicit transition evidence as first-class events.
@@ -115,23 +122,46 @@ Exit criteria:
 - Reclassification is auditable and mostly event-derived.
 - Heartbeat visibility is stable across append/restart/revert.
 
+Status note (2026-04-08 - Wave 3 Complete):
+- `WDT-008` is now closed in the tracker and no longer blocks Wave 3 progression.
+- Wave 2 closure criteria for WDT-009 are now satisfied, including replay/invariant coverage and mixed-stream deterministic replay checks.
+- Wave 3 has been completed and both `WDT-001` and `WDT-002` are now marked complete in tracker.
+- ✅ Wave 3 implementation now fully delivered:
+   - node integrity computes pre/post eligibility decisions and detects ineligible -> eligible transitions per pass,
+   - `eligibility_transition` domain events are emitted for detected transitions,
+   - structured transition rows are exposed via `NodeIntegrityResult.eligibility_transitions` for artifact persistence,
+   - **NEW** Notebook Step 6.5 now writes transitions to JSONL artifacts at `data/20_candidate_generation/wikidata/node_integrity/node_integrity_transitions_{timestamp}.jsonl`,
+   - Transition artifact documentation updated in markdown reports.
+- Exit criteria for Wave 3: All acceptance criteria met. Reclassification is auditable and event-derived.
+- **📋 Ready for Wave 4**: WDT-010 (core-vs-root differentiation) and WDT-012 (projections) are next priorities.
+
 ## Wave 4: Semantics Consistency + Projection Expansion
 
 Targets:
 - `WDT-010`, `WDT-012`
 
 Implementation focus:
-1. Validate core-vs-root behavior consistency across runtime and notebook communication.
-2. Add projections:
-   - one per core class for instances
-   - one leftovers projection for non-class/non-core-instance rows
+1. ✅ **WDT-010 COMPLETE**: Validate core-vs-root behavior consistency across runtime and notebook communication.
+   - Notebook Step 2.5: "Class Hierarchy Clarification" cell added after workflow config
+   - Loads core classes (Person, Organization, Episode, Season, Topic, Broadcasting Program) as PRIMARY DISCOVERY TARGETS
+   - Defines root classes (Entity, Thing) as UNIVERSAL SUPERCLASSES to avoid over-expansion
+   - Runtime validation ensures disjoint definition and fails fast on configuration errors
+   - Stores `config["core_class_qids"]` and `config["root_class_qids"]` for downstream use
+2. ✅ **WDT-012 COMPLETE**: Added projections per core class and leftovers projection
+   - One deterministic projection per core class: `instances_core_<core_filename>.csv`
+   - One deterministic leftovers projection: `instances_leftovers.csv` (non-class/non-core-mapped instances)
+   - Snapshot/restore support includes dynamic projection files so these outputs are replay-safe
 
 Testing:
 - Validate projection membership against class hierarchy and core class set.
 
 Exit criteria:
-- Operators can clearly reason about scope.
-- Projection outputs are useful and deterministic.
+- Operators can clearly reason about scope (core vs root: completed with Step 2.5)
+- Projection outputs are useful and deterministic (completed with WDT-012 projections)
+
+Status note (2026-04-08):
+- Wave 4 objectives are complete: WDT-010 and WDT-012 are now both closed.
+- Next priority shifts to Wave 5 (WDT-015/WDT-016/WDT-017/WDT-013).
 
 ## Wave 5: Query Efficiency + Storage Migration
 
@@ -185,6 +215,10 @@ Exit criteria:
 - One clean documentation state accurately represents the current code, projections, and runtime behavior.
 - No conflicting instructions remain across governance docs.
 
+Status note (2026-04-08):
+- Wave 6 documentation closeout is complete for the current codebase.
+- WDT-014 remains intentionally deferred and out of scope for this publication.
+
 ## Per-WDT Resolution Matrix
 
 - `WDT-001`: Wave 3
@@ -223,11 +257,11 @@ Program-level closeout requirement:
 
 ## Immediate Next Execution Slice
 
-Recommended first implementation slice:
+No further todo-resolution implementation slices are planned for the current publication.
 
-1. Continue Wave 2 Phase 2 heartbeat rollout (`WDT-008`):
-   - extend event-derived heartbeat summaries to remaining long-running stage cells (including Step 6 / re-entry path)
-   - expose operator-facing heartbeat fields aligned to event stream (`entity_discovered`, `entity_expanded`, `expansion_decision`)
+Deferred follow-up:
+
+1. `WDT-014` may be revisited separately when the non-eventsourced file-writing deprecation work is scheduled.
 2. Continue timeout resilience (`WDT-016`) in representative runtime flow:
    - run long-running Step 6.5 scenario and verify timeout retry/continuation behavior under real network pressure
    - tune retry/backoff policy if needed based on observed runtime behavior

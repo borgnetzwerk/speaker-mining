@@ -22,7 +22,7 @@ Active notebook implementation order:
 
 Placeholder notebooks (not implemented yet):
 
-1. `speakermining/src/process/notebooks/22_candidate_generation_fernsehserien_de.ipynb`
+1. `speakermining/src/process/notebooks/22_candidate_generation_fernsehserien_de.ipynb` (scaffolded, currently unexecuted)
 2. `speakermining/src/process/notebooks/23_candidate_generation_other.ipynb`
 3. `speakermining/src/process/notebooks/30_entity_disambiguation.ipynb`
 4. `speakermining/src/process/notebooks/31_entity_deduplication.ipynb`
@@ -110,7 +110,9 @@ Execution sequence:
 4. Stage B fallback string matching only for unresolved targets.
 5. Re-check fallback discoveries against graph expandability and re-enter eligible QIDs.
 6. Append runtime events to `chunks/*.jsonl` and maintain checkpoint state.
-7. Materialize deterministic projection artifacts under `projections/` through handler replay.
+8. Materialize deterministic projection artifacts under `projections/` through handler replay.
+	- CSV files remain the compatibility contract during the storage transition.
+	- Where tabular runtime artifacts are materialized, matching Parquet sidecars are emitted alongside the CSV files.
 
 Policy guardrails:
 

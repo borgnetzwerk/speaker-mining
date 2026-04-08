@@ -14,6 +14,7 @@ from process.candidate_generation.wikidata.checkpoint import (
     decide_resume_mode,
     load_latest_checkpoint,
     list_checkpoints,
+    restore_checkpoint_snapshot,
     write_checkpoint_snapshot,
     write_checkpoint_manifest,
 )
@@ -211,6 +212,53 @@ def test_revert_mode_restores_eventlog_to_previous_checkpoint(tmp_path: Path) ->
     assert "Q1" in restored_keys
     assert "Q2" not in restored_keys
 
+def test_checkpoint_snapshot_restores_dynamic_core_instance_projections(tmp_path: Path) -> None:
+    import pandas as pd
+
+    paths = build_artifact_paths(tmp_path)
+    paths.projections_dir.mkdir(parents=True, exist_ok=True)
+    core_projection = paths.projections_dir / "instances_core_persons.csv"
+    core_projection_parquet = paths.projections_dir / "instances_core_persons.parquet"
+    leftovers_projection = paths.instances_leftovers_csv
+    leftovers_projection_parquet = leftovers_projection.with_suffix(".parquet")
+
+    core_projection.write_text("id\nQ100\n", encoding="utf-8")
+    leftovers_projection.write_text("id\nQ999\n", encoding="utf-8")
+    pd.DataFrame([{"id": "Q100"}]).to_parquet(core_projection_parquet, index=False)
+    pd.DataFrame([{"id": "Q999"}]).to_parquet(leftovers_projection_parquet, index=False)
+
+    checkpoint_path = write_checkpoint_manifest(
+        tmp_path,
+        CheckpointManifest(
+            run_id="run-1",
+            start_timestamp="2026-03-31T10:00:00Z",
+            latest_checkpoint_timestamp="2026-03-31T10:01:00Z",
+            stop_reason="seed_complete",
+            seeds_completed=1,
+            seeds_remaining=0,
+            total_nodes_discovered={"items": 1},
+            total_nodes_expanded={"items": 1},
+            total_queries=1,
+            inlinks_cursor=None,
+            incomplete=False,
+        ),
+    )
+
+    # Simulate drift after checkpoint.
+    core_projection.unlink(missing_ok=True)
+    leftovers_projection.write_text("id\nQ888\n", encoding="utf-8")
+    core_projection_parquet.unlink(missing_ok=True)
+    leftovers_projection_parquet.unlink(missing_ok=True)
+
+    restore_checkpoint_snapshot(tmp_path, checkpoint_path)
+
+    assert core_projection.exists()
+    assert leftovers_projection.exists()
+    assert core_projection_parquet.exists()
+    assert leftovers_projection_parquet.exists()
+    assert "Q100" in core_projection.read_text(encoding="utf-8")
+    assert "Q999" in leftovers_projection.read_text(encoding="utf-8")
+
 
 def test_restart_mode_clears_existing_artifacts(tmp_path: Path) -> None:
     paths = build_artifact_paths(tmp_path)
@@ -347,6 +395,108 @@ def test_run_seed_expansion_resumes_inlinks_from_cursor_offset(tmp_path: Path, m
 
     assert offsets
     assert offsets[0] == 400
+
+
+def test_run_seed_expansion_stops_gracefully_on_user_interrupt(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "process.candidate_generation.wikidata.expansion_engine._termination_requested",
+        lambda _repo_root: True,
+    )
+
+    cfg = ExpansionConfig(max_depth=1, max_nodes=10, total_query_budget=-1, per_seed_query_budget=-1)
+    summary = run_seed_expansion(
+        tmp_path,
+        seed={"label": "Seed", "wikidata_id": "Q100"},
+        seed_qids={"Q100"},
+        core_class_qids=set(),
+        total_budget_remaining=-1,
+        config=cfg,
+        resume_inlinks_cursor=None,
+    )
+
+    assert summary["stop_reason"] == "user_interrupted"
+    assert summary["network_queries"] == 0
+
+
+def test_run_seed_expansion_prefetches_neighbors_with_batch_fetch(tmp_path: Path, monkeypatch) -> None:
+    batch_calls: list[list[str]] = []
+    single_fetch_calls: list[str] = []
+
+    def _fake_get_or_fetch_entity(_repo_root, qid, _cache_max_age_days, timeout=30):
+        _ = timeout
+        single_fetch_calls.append(str(qid))
+        return {
+            "entities": {
+                str(qid): {
+                    "id": str(qid),
+                    "labels": {},
+                    "descriptions": {},
+                    "aliases": {},
+                    "claims": {"P31": [], "P279": []},
+                }
+            }
+        }
+
+    def _fake_get_or_fetch_entities_batch(_repo_root, qids, _cache_max_age_days, timeout=30):
+        _ = timeout
+        qid_list = sorted(str(qid) for qid in qids)
+        batch_calls.append(qid_list)
+        return {
+            qid: {
+                "entities": {
+                    qid: {
+                        "id": qid,
+                        "labels": {},
+                        "descriptions": {},
+                        "aliases": {},
+                        "claims": {"P31": [], "P279": []},
+                    }
+                }
+            }
+            for qid in qid_list
+        }
+
+    def _fake_outlinks(_repo_root, qid, _entity_payload, _cache_max_age_days):
+        if str(qid) == "Q100":
+            return {
+                "qid": "Q100",
+                "property_ids": [],
+                "linked_qids": ["Q200", "Q201"],
+                "edges": [],
+            }
+        return {"qid": str(qid), "property_ids": [], "linked_qids": [], "edges": []}
+
+    def _fake_inlinks(_repo_root, _qid, _cache_max_age_days, _inlinks_limit, offset=0, timeout=30):
+        _ = (offset, timeout)
+        return {"rows": []}
+
+    monkeypatch.setattr("process.candidate_generation.wikidata.expansion_engine.get_or_fetch_entity", _fake_get_or_fetch_entity)
+    monkeypatch.setattr(
+        "process.candidate_generation.wikidata.expansion_engine.get_or_fetch_entities_batch",
+        _fake_get_or_fetch_entities_batch,
+    )
+    monkeypatch.setattr("process.candidate_generation.wikidata.expansion_engine.get_or_build_outlinks", _fake_outlinks)
+    monkeypatch.setattr("process.candidate_generation.wikidata.expansion_engine.get_or_fetch_inlinks", _fake_inlinks)
+    monkeypatch.setattr("process.candidate_generation.wikidata.expansion_engine.parse_inlinks_results", lambda payload: payload.get("rows", []))
+
+    cfg = ExpansionConfig(max_depth=0, max_nodes=10, total_query_budget=-1, per_seed_query_budget=-1)
+    summary = run_seed_expansion(
+        tmp_path,
+        seed={"label": "Seed", "wikidata_id": "Q100"},
+        seed_qids={"Q100"},
+        core_class_qids=set(),
+        total_budget_remaining=-1,
+        config=cfg,
+        resume_inlinks_cursor=None,
+    )
+
+    assert batch_calls == [["Q200", "Q201"]]
+    assert single_fetch_calls == ["Q100", "Q200", "Q201"]
+    assert "Q200" in summary["discovered_qids"]
+    assert "Q201" in summary["discovered_qids"]
+    assert summary["neighbor_prefetch_batches_attempted"] == 1
+    assert summary["neighbor_prefetch_batches_succeeded"] == 1
+    assert summary["neighbor_prefetch_candidates_total"] == 2
 
 
 def _manifest_for(run_id: str, ts: str, *, total_queries: int = 1) -> CheckpointManifest:

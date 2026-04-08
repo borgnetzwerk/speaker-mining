@@ -239,12 +239,12 @@ def test_full_materialization_schema_headers_contract(tmp_path: Path) -> None:
             paths.classes_csv,
             [
                 "id",
-                "label_en",
                 "label_de",
-                "description_en",
+                "label_en",
                 "description_de",
-                "alias_en",
+                "description_en",
                 "alias_de",
+                "alias_en",
                 "path_to_core_class",
                 "subclass_of_core_class",
                 "discovered_count",
@@ -257,12 +257,12 @@ def test_full_materialization_schema_headers_contract(tmp_path: Path) -> None:
                 "id",
                 "class_id",
                 "class_filename",
-                "label_en",
                 "label_de",
-                "description_en",
+                "label_en",
                 "description_de",
-                "alias_en",
+                "description_en",
                 "alias_de",
+                "alias_en",
                 "path_to_core_class",
                 "subclass_of_core_class",
                 "discovered_at_utc",
@@ -271,7 +271,7 @@ def test_full_materialization_schema_headers_contract(tmp_path: Path) -> None:
         ),
         "properties": (
             paths.properties_csv,
-            ["id", "label_en", "label_de", "description_en", "description_de", "alias_en", "alias_de"],
+            ["id", "label_de", "label_en", "description_de", "description_en", "alias_de", "alias_en"],
         ),
         "aliases_en": (paths.aliases_en_csv, ["alias", "qid"]),
         "aliases_de": (paths.aliases_de_csv, ["alias", "qid"]),
@@ -303,9 +303,9 @@ def test_full_materialization_schema_headers_contract(tmp_path: Path) -> None:
         assert csv_path.exists()
         assert list(pd.read_csv(csv_path).columns) == columns
 
-    assert paths.entities_json.exists()
-    assert paths.properties_json.exists()
-    assert paths.triples_events_json.exists()
+    assert not paths.entities_json.exists()
+    assert not paths.properties_json.exists()
+    assert not paths.triples_events_json.exists()
     assert paths.summary_json.exists()
 
 

@@ -9,7 +9,16 @@ from .event_writer import get_event_store
 from .schemas import SOURCE_STEPS
 
 
-_EVENT_TYPES = {"query_response", "candidate_matched"}
+_EVENT_TYPES = {
+    "query_response",
+    "candidate_matched",
+    "entity_discovered",
+    "entity_expanded",
+    "expansion_decision",
+    "triple_discovered",
+    "class_membership_resolved",
+    "eligibility_transition",
+}
 _ENDPOINTS = {"wikidata_api", "wikidata_sparql", "derived_local"}
 _STATUSES = {"success", "cache_hit", "http_error", "timeout", "fallback_cache", "not_found", "skipped"}
 
@@ -64,6 +73,214 @@ def build_query_event(
             "http_status": http_status,
             "error": error,
             "response_data": payload if isinstance(payload, dict) else {},
+        },
+    }
+
+
+def build_entity_discovered_event(
+    *,
+    qid: str,
+    label: str,
+    source_step: str,
+    discovery_method: str = "seed",
+    payload: dict | None = None,
+    timestamp_utc: str | None = None,
+) -> dict:
+    """Build an entity_discovered domain event.
+    
+    Emitted when a new entity is first encountered in the expansion process.
+    
+    Args:
+        qid: The Wikidata QID identifier (e.g., "Q123")
+        label: Human-readable label for the entity
+        source_step: Where this discovery occurred (entity_fetch, inlinks_fetch, outlinks_build, etc.)
+        discovery_method: How entity was discovered (seed, inlink, outlink, fallback_match, etc.)
+        payload: Additional context (entity type, description, claims count, etc.)
+        timestamp_utc: ISO 8601 timestamp; defaults to now
+    
+    Returns:
+        Dict ready to emit via event_emitter or append_event
+    """
+    return {
+        "event_version": "v3",
+        "event_type": "entity_discovered",
+        "timestamp_utc": timestamp_utc or _iso_now(),
+        "payload": {
+            "qid": str(qid or ""),
+            "label": str(label or ""),
+            "source_step": str(source_step or ""),
+            "discovery_method": str(discovery_method or "unknown"),
+            **(payload if isinstance(payload, dict) else {}),
+        },
+    }
+
+
+def build_entity_expanded_event(
+    *,
+    qid: str,
+    label: str,
+    expansion_type: str,
+    inlink_count: int = 0,
+    outlink_count: int = 0,
+    payload: dict | None = None,
+    timestamp_utc: str | None = None,
+) -> dict:
+    """Build an entity_expanded domain event.
+    
+    Emitted when an entity's neighborhood (inlinks, outlinks, properties) is fetched/expanded.
+    
+    Args:
+        qid: The Wikidata QID
+        label: Human-readable label
+        expansion_type: Type of expansion performed (inlinks, outlinks, properties, triple_expansion, etc.)
+        inlink_count: Number of inlinks fetched (if applicable)
+        outlink_count: Number of outlinks fetched (if applicable)
+        payload: Additional context (e.g., expansion duration, result summary)
+        timestamp_utc: ISO 8601 timestamp
+    
+    Returns:
+        Dict ready to emit
+    """
+    return {
+        "event_version": "v3",
+        "event_type": "entity_expanded",
+        "timestamp_utc": timestamp_utc or _iso_now(),
+        "payload": {
+            "qid": str(qid or ""),
+            "label": str(label or ""),
+            "expansion_type": str(expansion_type or ""),
+            "inlink_count": int(inlink_count or 0),
+            "outlink_count": int(outlink_count or 0),
+            **(payload if isinstance(payload, dict) else {}),
+        },
+    }
+
+
+def build_expansion_decision_event(
+    *,
+    qid: str,
+    label: str,
+    decision: str,
+    decision_reason: str = "",
+    eligibility: dict | None = None,
+    payload: dict | None = None,
+    timestamp_utc: str | None = None,
+) -> dict:
+    """Build an expansion_decision domain event.
+    
+    Emitted when a decision is made about whether to proceed with further expansion of an entity.
+    Examples: queue_seed, queue_for_expansion, mark_seed_complete, skip_expansion, mark_budget_exhausted.
+    
+    Args:
+        qid: The Wikidata QID
+        label: Human-readable label
+        decision: The decision made (queue_seed, queue_for_expansion, mark_complete, skip, mark_budget_exhausted, etc.)
+        decision_reason: Why the decision was made (e.g., "budget_exhausted", "already_expanded", "not_person", etc.)
+        eligibility: Dict with eligibility criteria and scores (e.g., {is_person: True, score: 0.95})
+        payload: Additional context
+        timestamp_utc: ISO 8601 timestamp
+    
+    Returns:
+        Dict ready to emit
+    """
+    return {
+        "event_version": "v3",
+        "event_type": "expansion_decision",
+        "timestamp_utc": timestamp_utc or _iso_now(),
+        "payload": {
+            "qid": str(qid or ""),
+            "label": str(label or ""),
+            "decision": str(decision or ""),
+            "decision_reason": str(decision_reason or ""),
+            "eligibility": eligibility if isinstance(eligibility, dict) else {},
+            **(payload if isinstance(payload, dict) else {}),
+        },
+    }
+
+
+def build_triple_discovered_event(
+    *,
+    subject_qid: str,
+    predicate_pid: str,
+    object_qid: str,
+    source_step: str,
+    payload: dict | None = None,
+    timestamp_utc: str | None = None,
+) -> dict:
+    """Build a triple_discovered domain event.
+
+    Emitted when a new triple edge (subject-predicate-object) is discovered and persisted.
+    """
+    return {
+        "event_version": "v3",
+        "event_type": "triple_discovered",
+        "timestamp_utc": timestamp_utc or _iso_now(),
+        "payload": {
+            "subject_qid": str(subject_qid or ""),
+            "predicate_pid": str(predicate_pid or ""),
+            "object_qid": str(object_qid or ""),
+            "source_step": str(source_step or ""),
+            **(payload if isinstance(payload, dict) else {}),
+        },
+    }
+
+
+def build_class_membership_resolved_event(
+    *,
+    entity_qid: str,
+    class_id: str,
+    path_to_core_class: str,
+    subclass_of_core_class: bool,
+    is_class_node: bool,
+    payload: dict | None = None,
+    timestamp_utc: str | None = None,
+) -> dict:
+    """Build a class_membership_resolved domain event.
+
+    Emitted when class resolution for an entity is evaluated to support eligibility decisions.
+    """
+    return {
+        "event_version": "v3",
+        "event_type": "class_membership_resolved",
+        "timestamp_utc": timestamp_utc or _iso_now(),
+        "payload": {
+            "entity_qid": str(entity_qid or ""),
+            "class_id": str(class_id or ""),
+            "path_to_core_class": str(path_to_core_class or ""),
+            "subclass_of_core_class": bool(subclass_of_core_class),
+            "is_class_node": bool(is_class_node),
+            **(payload if isinstance(payload, dict) else {}),
+        },
+    }
+
+
+def build_eligibility_transition_event(
+    *,
+    entity_qid: str,
+    previous_eligible: bool,
+    current_eligible: bool,
+    previous_reason: str,
+    current_reason: str,
+    path_to_core_class: str,
+    payload: dict | None = None,
+    timestamp_utc: str | None = None,
+) -> dict:
+    """Build an eligibility_transition domain event.
+
+    Emitted when node integrity reclassifies an entity eligibility state.
+    """
+    return {
+        "event_version": "v3",
+        "event_type": "eligibility_transition",
+        "timestamp_utc": timestamp_utc or _iso_now(),
+        "payload": {
+            "entity_qid": str(entity_qid or ""),
+            "previous_eligible": bool(previous_eligible),
+            "current_eligible": bool(current_eligible),
+            "previous_reason": str(previous_reason or ""),
+            "current_reason": str(current_reason or ""),
+            "path_to_core_class": str(path_to_core_class or ""),
+            **(payload if isinstance(payload, dict) else {}),
         },
     }
 

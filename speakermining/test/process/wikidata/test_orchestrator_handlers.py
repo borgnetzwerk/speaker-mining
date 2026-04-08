@@ -28,6 +28,81 @@ def _append_entity_event(store: EventStore, qid: str, payload_entity: dict, seq_
     )
 
 
+def _append_domain_events(store: EventStore, qid: str) -> None:
+    store.append_event(
+        {
+            "event_type": "entity_discovered",
+            "timestamp_utc": "2026-04-08T10:00:00Z",
+            "payload": {
+                "qid": qid,
+                "label": f"Label-{qid}",
+                "source_step": "entity_fetch",
+                "discovery_method": "seed_neighbor",
+            },
+        }
+    )
+    store.append_event(
+        {
+            "event_type": "entity_expanded",
+            "timestamp_utc": "2026-04-08T10:00:01Z",
+            "payload": {
+                "qid": qid,
+                "label": f"Label-{qid}",
+                "expansion_type": "neighbors",
+                "inlink_count": 0,
+                "outlink_count": 0,
+            },
+        }
+    )
+    store.append_event(
+        {
+            "event_type": "triple_discovered",
+            "timestamp_utc": "2026-04-08T10:00:02Z",
+            "payload": {
+                "subject_qid": qid,
+                "predicate_pid": "P31",
+                "object_qid": "Q5",
+                "source_step": "outlinks_build",
+            },
+        }
+    )
+    store.append_event(
+        {
+            "event_type": "class_membership_resolved",
+            "timestamp_utc": "2026-04-08T10:00:03Z",
+            "payload": {
+                "entity_qid": qid,
+                "class_id": "Q5",
+                "path_to_core_class": "Q5|Q215627",
+                "subclass_of_core_class": True,
+                "is_class_node": False,
+            },
+        }
+    )
+    store.append_event(
+        {
+            "event_type": "expansion_decision",
+            "timestamp_utc": "2026-04-08T10:00:04Z",
+            "payload": {
+                "qid": qid,
+                "label": f"Label-{qid}",
+                "decision": "queue_for_expansion",
+                "decision_reason": "eligible_neighbor",
+                "eligibility": {"p31_core_match": True},
+            },
+        }
+    )
+
+
+def _normalized_records(path: Path) -> list[dict]:
+    df = pd.read_csv(path)
+    if df.empty:
+        return []
+    df = df.fillna("")
+    sort_cols = list(df.columns)
+    return df.sort_values(sort_cols).to_dict(orient="records")
+
+
 def test_orchestrator_runs_handlers_and_writes_outputs(tmp_path: Path) -> None:
     setup_dir = tmp_path / "data" / "00_setup"
     setup_dir.mkdir(parents=True, exist_ok=True)
@@ -131,3 +206,149 @@ def test_orchestrator_resume_is_idempotent(tmp_path: Path) -> None:
         "QueryInventoryHandler",
         "CandidatesHandler",
     }
+
+
+def test_orchestrator_projections_invariant_with_interleaved_domain_events(tmp_path: Path) -> None:
+    setup_dir = tmp_path / "data" / "00_setup"
+    setup_dir.mkdir(parents=True, exist_ok=True)
+    (setup_dir / "classes.csv").write_text(
+        "wikibase_id,filename,label,description,alias,label_de,description_de,alias_de,wikidata_id,fernsehserien_de_id\n"
+        "Q215627,persons,person,,,,,,Q215627,\n",
+        encoding="utf-8",
+    )
+
+    baseline_root = tmp_path / "baseline"
+    interleaved_root = tmp_path / "interleaved"
+    baseline_root.mkdir(parents=True, exist_ok=True)
+    interleaved_root.mkdir(parents=True, exist_ok=True)
+
+    for root in (baseline_root, interleaved_root):
+        setup_target = root / "data" / "00_setup"
+        setup_target.mkdir(parents=True, exist_ok=True)
+        (setup_target / "classes.csv").write_text(
+            (setup_dir / "classes.csv").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+
+    baseline_store = EventStore(baseline_root)
+    interleaved_store = EventStore(interleaved_root)
+
+    for store in (baseline_store, interleaved_store):
+        _append_entity_event(
+            store,
+            "Q100",
+            {
+                "id": "Q100",
+                "labels": {"en": {"value": "Alice"}},
+                "descriptions": {"en": {"value": "person"}},
+                "aliases": {"en": [{"value": "A"}]},
+                "claims": {
+                    "P31": [{"mainsnak": {"datavalue": {"value": {"entity-type": "item", "id": "Q5"}}}}],
+                    "P50": [{"mainsnak": {"datavalue": {"value": {"entity-type": "item", "id": "Q200"}}}}],
+                },
+            },
+            "1",
+        )
+        _append_entity_event(
+            store,
+            "Q5",
+            {
+                "id": "Q5",
+                "labels": {"en": {"value": "human"}},
+                "descriptions": {},
+                "aliases": {},
+                "claims": {
+                    "P279": [{"mainsnak": {"datavalue": {"value": {"entity-type": "item", "id": "Q215627"}}}}]
+                },
+            },
+            "2",
+        )
+        _append_entity_event(
+            store,
+            "Q215627",
+            {
+                "id": "Q215627",
+                "labels": {"en": {"value": "person"}},
+                "descriptions": {},
+                "aliases": {},
+                "claims": {},
+            },
+            "3",
+        )
+
+    _append_domain_events(interleaved_store, "Q100")
+
+    run_handlers(baseline_root)
+    run_handlers(interleaved_root)
+
+    baseline_paths = build_artifact_paths(baseline_root)
+    interleaved_paths = build_artifact_paths(interleaved_root)
+
+    assert _normalized_records(baseline_paths.instances_csv) == _normalized_records(interleaved_paths.instances_csv)
+    assert _normalized_records(baseline_paths.classes_csv) == _normalized_records(interleaved_paths.classes_csv)
+    assert _normalized_records(baseline_paths.triples_csv) == _normalized_records(interleaved_paths.triples_csv)
+    assert _normalized_records(baseline_paths.query_inventory_csv) == _normalized_records(interleaved_paths.query_inventory_csv)
+    assert _normalized_records(baseline_paths.fallback_stage_candidates_csv) == _normalized_records(interleaved_paths.fallback_stage_candidates_csv)
+
+
+def test_orchestrator_replay_after_domain_only_events_keeps_projections_stable(tmp_path: Path) -> None:
+    setup_dir = tmp_path / "data" / "00_setup"
+    setup_dir.mkdir(parents=True, exist_ok=True)
+    (setup_dir / "classes.csv").write_text(
+        "wikibase_id,filename,label,description,alias,label_de,description_de,alias_de,wikidata_id,fernsehserien_de_id\n"
+        "Q215627,persons,person,,,,,,Q215627,\n",
+        encoding="utf-8",
+    )
+
+    store = EventStore(tmp_path)
+    _append_entity_event(
+        store,
+        "Q100",
+        {
+            "id": "Q100",
+            "labels": {"en": {"value": "Alice"}},
+            "descriptions": {"en": {"value": "person"}},
+            "aliases": {},
+            "claims": {"P31": [{"mainsnak": {"datavalue": {"value": {"entity-type": "item", "id": "Q5"}}}}]},
+        },
+        "1",
+    )
+    _append_entity_event(
+        store,
+        "Q5",
+        {
+            "id": "Q5",
+            "labels": {"en": {"value": "human"}},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {
+                "P279": [{"mainsnak": {"datavalue": {"value": {"entity-type": "item", "id": "Q215627"}}}}]
+            },
+        },
+        "2",
+    )
+    _append_entity_event(
+        store,
+        "Q215627",
+        {
+            "id": "Q215627",
+            "labels": {"en": {"value": "person"}},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {},
+        },
+        "3",
+    )
+
+    run_handlers(tmp_path)
+    paths = build_artifact_paths(tmp_path)
+    before_instances = _normalized_records(paths.instances_csv)
+    before_classes = _normalized_records(paths.classes_csv)
+    before_triples = _normalized_records(paths.triples_csv)
+
+    _append_domain_events(store, "Q100")
+    run_handlers(tmp_path)
+
+    assert before_instances == _normalized_records(paths.instances_csv)
+    assert before_classes == _normalized_records(paths.classes_csv)
+    assert before_triples == _normalized_records(paths.triples_csv)

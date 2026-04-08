@@ -22,10 +22,18 @@ from .checkpoint import (
     write_checkpoint_manifest,
 )
 from .common import canonical_qid, effective_core_class_qids, iter_entity_texts, normalize_query_budget, normalize_text, pick_entity_label
-from .entity import get_or_build_outlinks, get_or_fetch_entity, get_or_fetch_inlinks, get_or_fetch_property
+from .entity import get_or_build_outlinks, get_or_fetch_entities_batch, get_or_fetch_entity, get_or_fetch_inlinks, get_or_fetch_property
+from .graceful_shutdown import should_terminate
 from .inlinks import parse_inlinks_results
 from .materializer import materialize_checkpoint, materialize_final
 from .node_store import flush_node_store, get_item, iter_items, upsert_discovered_item, upsert_discovered_property, upsert_expanded_item
+from .event_log import (
+    build_class_membership_resolved_event,
+    build_entity_discovered_event,
+    build_entity_expanded_event,
+    build_expansion_decision_event,
+)
+from .schemas import build_artifact_paths
 from .triple_store import record_item_edges
 from .triple_store import flush_triple_events
 from ...notebook_event_log import NOTEBOOK_21_ID, get_or_create_notebook_logger
@@ -43,6 +51,7 @@ class ExpansionConfig:
     cache_max_age_days: int = 365
     max_neighbors_per_node: int = 200
     network_progress_every: int = 50
+    hydrate_class_chains_for_discovered_entities: bool = False
 
 
 @dataclass(frozen=True)
@@ -57,6 +66,18 @@ class GraphExpansionResult:
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _shutdown_path(repo_root: Path) -> Path:
+    return build_artifact_paths(Path(repo_root)).wikidata_dir / ".shutdown"
+
+
+def _termination_requested(repo_root: Path) -> bool:
+    return should_terminate(_shutdown_path(Path(repo_root)))
+
+
+def _is_termination_runtime_error(exc: RuntimeError) -> bool:
+    return "Termination requested" in str(exc)
 
 
 def _claim_qids(entity_doc: dict, pid: str) -> set[str]:
@@ -90,6 +111,8 @@ def _record_outlinks_for_discovered_item(
     cache_max_age_days: int,
     discovered_at_utc: str,
     source_query_file: str,
+    event_emitter=None,
+    event_phase: str | None = None,
 ) -> dict:
     outlinks_payload = get_or_build_outlinks(
         repo_root,
@@ -103,6 +126,8 @@ def _record_outlinks_for_discovered_item(
         outlinks_payload.get("edges", []),
         discovered_at_utc=discovered_at_utc,
         source_query_file=source_query_file,
+        event_emitter=event_emitter,
+        event_phase=event_phase,
     )
     return outlinks_payload
 
@@ -115,6 +140,9 @@ def _discover_class_chain_for_entity(
     config: ExpansionConfig,
     source_query_file: str,
 ) -> None:
+    if not bool(config.hydrate_class_chains_for_discovered_entities):
+        return
+
     class_queue = deque(sorted(_claim_qids(entity_doc, "P31") | _claim_qids(entity_doc, "P279")))
     seen_class_qids: set[str] = set()
 
@@ -144,6 +172,8 @@ def _discover_class_chain_for_entity(
             cache_max_age_days=config.cache_max_age_days,
             discovered_at_utc=class_timestamp,
             source_query_file=source_query_file,
+            event_emitter=None,
+            event_phase=None,
         )
 
         for parent_qid in sorted(_claim_qids(class_doc, "P279")):
@@ -311,6 +341,9 @@ def run_seed_expansion(
     discovered_qids: set[str] = set()
     expanded_qids: set[str] = set()
     direct_link_to_seed: set[str] = set()
+    neighbor_prefetch_batches_attempted = 0
+    neighbor_prefetch_batches_succeeded = 0
+    neighbor_prefetch_candidates_total = 0
     inlinks_cursor: dict | None = None
     resume_cursor_consumed = False
     stop_reason = "seed_complete"
@@ -319,6 +352,9 @@ def run_seed_expansion(
 
     try:
         while queue and len(expanded_qids) < int(config.max_nodes):
+            if _termination_requested(repo_root):
+                stop_reason = "user_interrupted"
+                break
             now_progress = perf_counter()
             if now_progress - seed_progress_last_emit >= seed_progress_interval_seconds:
                 print(
@@ -348,6 +384,33 @@ def run_seed_expansion(
                 upsert_expanded_item(repo_root, qid, entity_doc, timestamp_utc)
                 discovered_qids.add(qid)
                 expanded_qids.add(qid)
+                
+                # Emit domain events for discovery and expansion
+                if callable(event_emitter):
+                    entity_label = pick_entity_label(entity_doc)
+                    event_emitter(
+                        event_type="entity_discovered",
+                        phase=event_phase,
+                        message=f"entity discovered: {qid} ({entity_label})",
+                        entity={"qid": qid, "label": entity_label},
+                        extra=build_entity_discovered_event(
+                            qid=qid,
+                            label=entity_label,
+                            source_step="entity_fetch",
+                            discovery_method="seed_neighbor",
+                        ).get("payload", {}),
+                    )
+                    event_emitter(
+                        event_type="entity_expanded",
+                        phase=event_phase,
+                        message=f"entity expanded: {qid}",
+                        entity={"qid": qid, "label": entity_label},
+                        extra=build_entity_expanded_event(
+                            qid=qid,
+                            label=entity_label,
+                            expansion_type="neighbors",
+                        ).get("payload", {}),
+                    )
 
                 _discover_class_chain_for_entity(
                     repo_root,
@@ -364,6 +427,8 @@ def run_seed_expansion(
                     cache_max_age_days=config.cache_max_age_days,
                     discovered_at_utc=timestamp_utc,
                     source_query_file="derived_local_outlinks",
+                    event_emitter=event_emitter,
+                    event_phase=event_phase,
                 )
 
                 for pid in outlinks_payload.get("property_ids", []):
@@ -391,6 +456,9 @@ def run_seed_expansion(
                     page_index = max(0, int(resume_inlinks_cursor.get("page_index", 0)) + 1)
                     resume_cursor_consumed = True
                 while True:
+                    if _termination_requested(repo_root):
+                        stop_reason = "user_interrupted"
+                        break
                     inlinks_payload = get_or_fetch_inlinks(
                         repo_root,
                         qid,
@@ -420,6 +488,9 @@ def run_seed_expansion(
                     page_index += 1
                     offset += int(config.inlinks_limit)
 
+                if stop_reason == "user_interrupted":
+                    break
+
                 neighbor_qids: set[str] = set()
                 for out in outlinks_payload.get("linked_qids", []):
                     nq = canonical_qid(out)
@@ -444,10 +515,28 @@ def run_seed_expansion(
                         [{"pid": pid, "to_qid": qid}],
                         discovered_at_utc=timestamp_utc,
                         source_query_file=f"inlinks_target_{qid}",
+                        event_emitter=event_emitter,
+                        event_phase=event_phase,
                     )
 
                 capped_neighbors = sorted(neighbor_qids)[: max(0, int(config.max_neighbors_per_node))]
+                if len(capped_neighbors) > 1:
+                    neighbor_prefetch_batches_attempted += 1
+                    neighbor_prefetch_candidates_total += len(capped_neighbors)
+                    try:
+                        get_or_fetch_entities_batch(
+                            repo_root,
+                            capped_neighbors,
+                            config.cache_max_age_days,
+                            timeout=config.query_timeout_seconds,
+                        )
+                        neighbor_prefetch_batches_succeeded += 1
+                    except Exception:
+                        pass
                 for candidate_qid in capped_neighbors:
+                    if _termination_requested(repo_root):
+                        stop_reason = "user_interrupted"
+                        break
                     candidate_payload = get_or_fetch_entity(
                         repo_root,
                         candidate_qid,
@@ -465,6 +554,8 @@ def run_seed_expansion(
                         cache_max_age_days=config.cache_max_age_days,
                         discovered_at_utc=_iso_now(),
                         source_query_file="derived_local_outlinks_discovered_candidate",
+                        event_emitter=event_emitter,
+                        event_phase=event_phase,
                     )
                     _discover_class_chain_for_entity(
                         repo_root,
@@ -483,14 +574,44 @@ def run_seed_expansion(
                         p31_core_match=_entity_p31_core_match(candidate_doc, core_class_qids),
                         is_class_node=_entity_is_class_node(candidate_doc),
                     )
+                    if callable(event_emitter):
+                        decision = "queue_for_expansion" if can_expand and candidate_qid not in seen and depth < int(config.max_depth) else "skip_expansion"
+                        decision_reason = "eligible_neighbor" if decision == "queue_for_expansion" else "not_expandable_or_depth_limit"
+                        event_emitter(
+                            event_type="expansion_decision",
+                            phase=event_phase,
+                            message=f"expansion decision for {candidate_qid}: {decision}",
+                            entity={"qid": candidate_qid, "label": pick_entity_label(candidate_doc) or candidate_qid},
+                            extra=build_expansion_decision_event(
+                                qid=candidate_qid,
+                                label=pick_entity_label(candidate_doc) or candidate_qid,
+                                decision=decision,
+                                decision_reason=decision_reason,
+                                eligibility={
+                                    "has_direct_link_to_seed": bool(has_direct),
+                                    "p31_core_match": bool(_entity_p31_core_match(candidate_doc, core_class_qids)),
+                                    "is_class_node": bool(_entity_is_class_node(candidate_doc)),
+                                    "depth": int(depth),
+                                    "max_depth": int(config.max_depth),
+                                },
+                            ).get("payload", {}),
+                        )
                     if can_expand and candidate_qid not in seen and depth < int(config.max_depth):
                         queue.append((candidate_qid, depth + 1))
+                if stop_reason == "user_interrupted":
+                    break
             except RuntimeError as exc:
                 if str(exc) == "Network query budget hit":
                     stop_reason = "per_seed_budget_exhausted"
                     break
+                if _is_termination_runtime_error(exc) or _termination_requested(repo_root):
+                    stop_reason = "user_interrupted"
+                    break
                 raise
             except Exception:
+                if _termination_requested(repo_root):
+                    stop_reason = "user_interrupted"
+                    break
                 stop_reason = "crash_recovery"
                 break
     finally:
@@ -508,6 +629,9 @@ def run_seed_expansion(
         "discovered_qids": discovered_qids,
         "expanded_qids": expanded_qids,
         "network_queries": network_queries,
+        "neighbor_prefetch_batches_attempted": int(neighbor_prefetch_batches_attempted),
+        "neighbor_prefetch_batches_succeeded": int(neighbor_prefetch_batches_succeeded),
+        "neighbor_prefetch_candidates_total": int(neighbor_prefetch_candidates_total),
         "stop_reason": stop_reason,
         "inlinks_cursor": inlinks_cursor,
     }
@@ -579,6 +703,8 @@ def _filter_seed_instances_by_broadcasting_program(
 
     try:
         for seed in seeds:
+            if _termination_requested(repo_root):
+                break
             seed_qid = canonical_qid(seed.get("wikidata_id", ""))
             if not seed_qid:
                 skipped.append({"label": str(seed.get("label", "") or ""), "wikidata_id": str(seed.get("wikidata_id", "") or ""), "reason": "invalid_wikidata_id"})
@@ -600,7 +726,27 @@ def _filter_seed_instances_by_broadcasting_program(
                 if not class_doc:
                     unresolved_class_doc = True
                     continue
-                resolution = resolve_class_path(class_doc, {expected_qid}, _local_entity)
+                resolution = resolve_class_path(
+                    class_doc,
+                    {expected_qid},
+                    _local_entity,
+                    on_resolved=(
+                        (lambda result, class_qid=class_qid: event_emitter(
+                            event_type="class_membership_resolved",
+                            phase=event_phase,
+                            message=f"class membership resolved for {class_qid}",
+                            entity={"qid": class_qid, "label": pick_entity_label(class_doc) or class_qid},
+                            extra=build_class_membership_resolved_event(
+                                entity_qid=class_qid,
+                                class_id=str(result.get("class_id", "") or ""),
+                                path_to_core_class=str(result.get("path_to_core_class", "") or ""),
+                                subclass_of_core_class=bool(result.get("subclass_of_core_class", False)),
+                                is_class_node=bool(result.get("is_class_node", False)),
+                                payload={"resolution_reason": str(result.get("resolution_reason", ""))},
+                            ).get("payload", {}),
+                        )) if callable(event_emitter) else None
+                    ),
+                )
                 if bool(resolution.get("subclass_of_core_class", False)):
                     subclass_match = True
                     break
@@ -730,6 +876,9 @@ def run_graph_expansion_stage(
     }
     last_stop_reason = "seed_complete"
     last_cursor = None
+    stage_neighbor_prefetch_batches_attempted = 0
+    stage_neighbor_prefetch_batches_succeeded = 0
+    stage_neighbor_prefetch_candidates_total = 0
 
     # Execute seed-by-seed in CSV order.
     seeds_done = 0
@@ -746,7 +895,12 @@ def run_graph_expansion_stage(
     start_seed_index = min(start_seed_index, len(seeds))
 
     seeds_done = start_seed_index
+    interrupted_before_seed_loop = False
     for local_seed_offset, seed in enumerate(seeds[start_seed_index:]):
+        if _termination_requested(repo_root):
+            last_stop_reason = "user_interrupted"
+            interrupted_before_seed_loop = True
+            break
         if total_budget_remaining == 0:
             last_stop_reason = "total_query_budget_exhausted"
             break
@@ -773,6 +927,9 @@ def run_graph_expansion_stage(
         newly_discovered_qids |= set(seed_summary.get("discovered_qids", set()))
         expanded_qids |= set(seed_summary.get("expanded_qids", set()))
         used = int(seed_summary.get("network_queries", 0))
+        stage_neighbor_prefetch_batches_attempted += int(seed_summary.get("neighbor_prefetch_batches_attempted", 0) or 0)
+        stage_neighbor_prefetch_batches_succeeded += int(seed_summary.get("neighbor_prefetch_batches_succeeded", 0) or 0)
+        stage_neighbor_prefetch_candidates_total += int(seed_summary.get("neighbor_prefetch_candidates_total", 0) or 0)
         seed_elapsed = perf_counter() - seed_t0
         print(
             (
@@ -792,6 +949,33 @@ def run_graph_expansion_stage(
             seeds_done = seed_index + 1
         else:
             seeds_done = seed_index
+
+        if last_stop_reason == "user_interrupted":
+            checkpoint_ts = _iso_now()
+            interrupted_manifest = CheckpointManifest(
+                run_id=run_id,
+                start_timestamp=start_timestamp,
+                latest_checkpoint_timestamp=checkpoint_ts,
+                stop_reason=last_stop_reason,
+                seeds_completed=seeds_done,
+                seeds_remaining=max(0, len(seed_qids) - seeds_done),
+                total_nodes_discovered={"items": int(len(newly_discovered_qids))},
+                total_nodes_expanded={"items": int(len(expanded_qids))},
+                total_queries=total_queries_used,
+                inlinks_cursor=last_cursor,
+                incomplete=True,
+            )
+            write_checkpoint_manifest(repo_root, interrupted_manifest)
+            checkpoint_stats = {
+                **checkpoint_stats,
+                "run_id": run_id,
+                "resume_mode": resume_info["mode"],
+                "resume_has_checkpoint": resume_info["has_checkpoint"],
+                "seeds_completed": seeds_done,
+                "seeds_remaining": max(0, len(seed_qids) - seeds_done),
+                "stop_reason": last_stop_reason,
+            }
+            break
 
         # Persist the final seed boundary before the expensive checkpoint materialization step.
         # If materialization is interrupted, resume can still skip this completed seed.
@@ -857,10 +1041,14 @@ def run_graph_expansion_stage(
             last_stop_reason = "total_query_budget_exhausted"
             break
 
-    print("[graph_stage] Final materialization start", flush=True)
-    final_materialize_t0 = perf_counter()
-    final_stats = materialize_final(repo_root, run_id=run_id)
-    print(f"[graph_stage] Final materialization done in {perf_counter() - final_materialize_t0:.2f}s", flush=True)
+    final_stats: dict = {}
+    if last_stop_reason != "user_interrupted":
+        print("[graph_stage] Final materialization start", flush=True)
+        final_materialize_t0 = perf_counter()
+        final_stats = materialize_final(repo_root, run_id=run_id)
+        print(f"[graph_stage] Final materialization done in {perf_counter() - final_materialize_t0:.2f}s", flush=True)
+    else:
+        print("[graph_stage] Final materialization skipped due to graceful user interruption", flush=True)
     checkpoint_stats.update(final_stats)
     checkpoint_stats["stop_reason"] = last_stop_reason
     checkpoint_stats["total_nodes_discovered"] = int(len(newly_discovered_qids))
@@ -869,6 +1057,9 @@ def run_graph_expansion_stage(
     checkpoint_stats["stage_a_network_queries"] = int(total_queries_used)
     checkpoint_stats["total_queries_before_run"] = int(initial_total_queries_used)
     checkpoint_stats["stage_a_network_queries_this_run"] = int(max(0, total_queries_used - initial_total_queries_used))
+    checkpoint_stats["stage_a_neighbor_prefetch_batches_attempted"] = int(stage_neighbor_prefetch_batches_attempted)
+    checkpoint_stats["stage_a_neighbor_prefetch_batches_succeeded"] = int(stage_neighbor_prefetch_batches_succeeded)
+    checkpoint_stats["stage_a_neighbor_prefetch_candidates_total"] = int(stage_neighbor_prefetch_candidates_total)
     checkpoint_stats["resume_mode"] = resume_info["mode"]
     checkpoint_stats["resume_has_checkpoint"] = resume_info["has_checkpoint"]
 
@@ -880,7 +1071,7 @@ def run_graph_expansion_stage(
     unresolved_targets = [t for t in targets if t.get("mention_id") not in resolved_target_ids]
     _write_graph_stage_handoff(repo_root, discovered_candidates, unresolved_targets)
 
-    if seeds_processed_this_run > 0:
+    if seeds_processed_this_run > 0 and not interrupted_before_seed_loop:
         final_checkpoint_ts = _iso_now()
         final_manifest = CheckpointManifest(
             run_id=run_id,
@@ -893,7 +1084,7 @@ def run_graph_expansion_stage(
             total_nodes_expanded={"items": int(len(expanded_qids))},
             total_queries=total_queries_used,
             inlinks_cursor=last_cursor,
-            incomplete=(last_stop_reason == "crash_recovery"),
+            incomplete=(last_stop_reason in {"crash_recovery", "user_interrupted"}),
         )
         write_checkpoint_manifest(repo_root, final_manifest)
 

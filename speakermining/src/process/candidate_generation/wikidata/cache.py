@@ -185,6 +185,8 @@ def begin_request_context(
 	query_delay_seconds: float,
 	progress_every_calls: int = 50,
 	progress_every_seconds: float = 60.0,
+	http_max_retries: int = 4,
+	http_backoff_base_seconds: float = 1.0,
 	context_label: str = "wikidata",
 	event_emitter=None,
 	event_phase: str | None = None,
@@ -199,12 +201,16 @@ def begin_request_context(
 			Set 0 to disable progress output.
 		progress_every_seconds: Emit progress output at least once per interval
 			while network calls are still being made. Set 0 to disable.
+		http_max_retries: Default retry attempts for transient HTTP/network errors.
+		http_backoff_base_seconds: Base delay for exponential retry backoff.
 		context_label: Human-readable stage label for progress output.
 	"""
 	global _REQUEST_CONTEXT
 	budget_remaining = normalize_query_budget(budget_remaining)
 	progress_every_calls = max(0, int(progress_every_calls))
 	progress_every_seconds = max(0.0, float(progress_every_seconds))
+	http_max_retries = max(0, int(http_max_retries))
+	http_backoff_base_seconds = max(0.0, float(http_backoff_base_seconds))
 	context_label = str(context_label or "wikidata").strip() or "wikidata"
 	now_ts = time.time()
 	_REQUEST_CONTEXT = {
@@ -214,6 +220,8 @@ def begin_request_context(
 		"last_query_time": 0.0,
 		"progress_every_calls": progress_every_calls,
 		"progress_every_seconds": progress_every_seconds,
+		"http_max_retries": http_max_retries,
+		"http_backoff_base_seconds": http_backoff_base_seconds,
 		"started_at": now_ts,
 		"last_progress_at": now_ts,
 		"context_label": context_label,
@@ -376,12 +384,44 @@ def _atomic_write_df(path: Path, df: pd.DataFrame) -> None:
 		) from exc
 
 
+def _atomic_write_parquet_df(path: Path, df: pd.DataFrame) -> None:
+	"""Write DataFrame atomically as Parquet via temp file + rename."""
+	path.parent.mkdir(parents=True, exist_ok=True)
+	tmp_path = path.with_suffix(path.suffix + ".tmp")
+	try:
+		df.to_parquet(tmp_path, index=False)
+		tmp_path.replace(path)
+	except PermissionError as exc:
+		recovery_path = path.with_suffix(path.suffix + ".recovery")
+		try:
+			if tmp_path.exists():
+				tmp_path.replace(recovery_path)
+			else:
+				df.to_parquet(recovery_path, index=False)
+		except Exception:
+			df.to_parquet(recovery_path, index=False)
+		finally:
+			try:
+				if tmp_path.exists():
+					tmp_path.unlink()
+			except Exception:
+				pass
+		raise RuntimeError(
+			(
+				f"Permission denied while writing {path}. "
+				f"A recovery snapshot was written to {recovery_path}. "
+				"Stop this run, close any editor/process that may lock the target file, "
+				"then rerun to restore and continue."
+			)
+		) from exc
+
+
 def _http_get_json(
 	url: str,
 	accept: str = "application/json",
 	timeout: int = 30,
-	max_retries: int = 4,
-	backoff_base_seconds: float = 1.0,
+	max_retries: int | None = None,
+	backoff_base_seconds: float | None = None,
 ) -> dict:
 	"""Fetch JSON from HTTP endpoint with User-Agent.
 	
@@ -390,7 +430,9 @@ def _http_get_json(
 		accept: Accept header value.
 		timeout: Request timeout in seconds. Default 30.
 		max_retries: Maximum retry attempts for transient/service-load errors.
+			If None, use request-context default.
 		backoff_base_seconds: Base delay for exponential backoff.
+			If None, use request-context default.
 	
 	Returns:
 		Parsed JSON response.
@@ -404,6 +446,14 @@ def _http_get_json(
 		raise RuntimeError(
 			"Network request guard rails not initialized: begin_request_context must be called with explicit budget_remaining"
 		)
+	if max_retries is None:
+		max_retries = max(0, int(_REQUEST_CONTEXT.get("http_max_retries", 4) or 0))
+	else:
+		max_retries = max(0, int(max_retries))
+	if backoff_base_seconds is None:
+		backoff_base_seconds = max(0.0, float(_REQUEST_CONTEXT.get("http_backoff_base_seconds", 1.0) or 0.0))
+	else:
+		backoff_base_seconds = max(0.0, float(backoff_base_seconds))
 
 	for attempt in range(max_retries + 1):
 		max_queries = normalize_query_budget(_REQUEST_CONTEXT.get("budget_remaining", 0))
@@ -552,10 +602,15 @@ def _http_get_json(
 				},
 			)
 			return json.loads(payload)
-		except (HTTPError, URLError) as exc:
+		except (HTTPError, URLError, TimeoutError) as exc:
 			duration_ms = max(0, int((time.time() - request_t0) * 1000.0))
 			http_status = int(getattr(exc, "code", 0) or 0)
-			status_text = "http_error" if isinstance(exc, HTTPError) else "network_error"
+			if isinstance(exc, HTTPError):
+				status_text = "http_error"
+			elif isinstance(exc, TimeoutError):
+				status_text = "timeout"
+			else:
+				status_text = "network_error"
 			_emit_request_event(
 				"network_error",
 				{
@@ -593,6 +648,8 @@ def _http_get_json(
 			if isinstance(exc, HTTPError):
 				status_code = int(getattr(exc, "code", 0) or 0)
 				retriable = status_code in {429, 500, 502, 503, 504}
+			elif isinstance(exc, TimeoutError):
+				retriable = True
 
 			if not retriable:
 				raise

@@ -99,9 +99,11 @@ Top-level runtime state:
 
 Projection artifacts (`projections/`):
 
-1. `classes.csv`
-2. `core_classes.csv`
-3. `instances.csv`
+1. Tabular projections keep CSV compatibility files during the migration period and now also emit matching `.parquet` sidecars for internal/runtime use.
+
+2. `classes.csv`
+3. `core_classes.csv`
+4. `instances.csv`
 4. `entities.json` (lazy runtime sidecar; created on first write or snapshot restore)
 5. `triples.csv`
 6. `query_inventory.csv`
@@ -114,7 +116,9 @@ Projection artifacts (`projections/`):
 13. `properties.json` (lazy runtime sidecar; created on first write or snapshot restore)
 14. `aliases_en.csv`
 15. `aliases_de.csv`
-16. `summary.json`
+16. `instances_leftovers.csv`
+17. `instances_core_<core_filename>.csv` (one file per configured core class; e.g. `instances_core_persons.csv`)
+18. `summary.json`
 
 Legacy note:
 
@@ -122,17 +126,33 @@ Legacy note:
 
 ### Core schemas
 
-1. `classes.csv`: `id`, `class_filename`, `label_en`, `label_de`, `description_en`, `description_de`, `alias_en`, `alias_de`, `path_to_core_class`, `subclass_of_core_class`, `discovered_count`, `expanded_count`
+1. `classes.csv`: `id`, `label_de`, `label_en`, `description_de`, `description_en`, `alias_de`, `alias_en`, `path_to_core_class`, `subclass_of_core_class`, `discovered_count`, `expanded_count`
 2. `core_classes.csv`: same columns as `classes.csv`
-3. `instances.csv`: `qid`, `label`, `labels_de`, `labels_en`, `aliases`, `description`, `discovered_at`, `expanded_at`
+3. `instances.csv`: `id`, `class_id`, `class_filename`, `label_de`, `label_en`, `description_de`, `description_en`, `alias_de`, `alias_en`, `path_to_core_class`, `subclass_of_core_class`, `discovered_at_utc`, `expanded_at_utc`
+	- Parquet sidecar: `instances.parquet`
 4. `entities.json`: object keyed by QID with full entity payloads
-5. `triples.csv`: `subject`, `predicate`, `object`, `discovered_at_utc`, `source_query_file`
-6. `query_inventory.csv`: `query_hash`, `endpoint`, `normalized_query`, `status`, `first_seen`, `last_seen`, `count`
-7. `fallback_stage_candidates.csv`: `mention_id`, `mention_type`, `mention_label`, `candidate_id`, `candidate_label`, `source`, `context`
-8. `fallback_stage_eligible_for_expansion.csv`: `candidate_id`
-9. `fallback_stage_ineligible.csv`: `candidate_id`
-10. `graph_stage_resolved_targets.csv`: `mention_id`, `mention_type`, `mention_label`, `candidate_id`, `candidate_label`, `source`, `context`
-11. `graph_stage_unresolved_targets.csv`: `mention_id`, `mention_type`, `mention_label`, `context`
+5. `properties.csv`: `id`, `label_de`, `label_en`, `description_de`, `description_en`, `alias_de`, `alias_en`
+	- Parquet sidecar: `properties.parquet`
+6. `aliases_en.csv`: `alias`, `qid`
+	- Parquet sidecar: `aliases_en.parquet`
+7. `aliases_de.csv`: `alias`, `qid`
+	- Parquet sidecar: `aliases_de.parquet`
+8. `triples.csv`: `subject`, `predicate`, `object`, `discovered_at_utc`, `source_query_file`
+	- Parquet sidecar: `triples.parquet`
+9. `query_inventory.csv`: `endpoint`, `query_hash`, `normalized_query`, `key`, `status`, `timestamp_utc`, `source_step`
+	- Parquet sidecar: `query_inventory.parquet`
+10. `fallback_stage_candidates.csv`: `mention_id`, `mention_type`, `mention_label`, `candidate_id`, `candidate_label`, `source`, `context`
+11. `fallback_stage_eligible_for_expansion.csv`: `candidate_id`
+12. `fallback_stage_ineligible.csv`: `candidate_id`
+13. `graph_stage_resolved_targets.csv`: `mention_id`, `mention_type`, `mention_label`, `candidate_id`, `candidate_label`, `source`, `context`
+14. `graph_stage_unresolved_targets.csv`: `mention_id`, `mention_type`, `mention_label`, `context`
+15. `instances_leftovers.csv`: same columns as `instances.csv`; contains non-class rows with no resolved core-class mapping
+	- Parquet sidecar: `instances_leftovers.parquet`
+
+Per-core projection note:
+
+1. `instances_core_<core_filename>.csv` uses the same schema as `instances.csv` and contains non-class rows mapped to the corresponding core class.
+	- Parquet sidecar: `instances_core_<core_filename>.parquet`
 
 Lazy sidecar note:
 

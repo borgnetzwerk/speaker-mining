@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from process.candidate_generation.wikidata.expansion_engine import ExpansionConfig, run_graph_expansion_stage
+from process.candidate_generation.wikidata.class_resolver import resolve_class_path
 from process.candidate_generation.wikidata.materializer import materialize_final
 from process.candidate_generation.wikidata.node_store import upsert_discovered_item
 from process.candidate_generation.wikidata.schemas import build_artifact_paths
@@ -174,7 +175,13 @@ def test_graph_stage_hydrates_class_chain_and_persists_class_triples(tmp_path: P
         seeds=[],
         targets=[],
         core_class_qids={"Q215627", "Q11578774"},
-        config=ExpansionConfig(max_depth=1, max_nodes=10, total_query_budget=-1, per_seed_query_budget=-1),
+        config=ExpansionConfig(
+            max_depth=1,
+            max_nodes=10,
+            total_query_budget=-1,
+            per_seed_query_budget=-1,
+            hydrate_class_chains_for_discovered_entities=True,
+        ),
         requested_mode="append",
     )
 
@@ -194,3 +201,136 @@ def test_graph_stage_hydrates_class_chain_and_persists_class_triples(tmp_path: P
     triples = {(row.subject, row.predicate, row.object) for row in triples_df.itertuples(index=False)}
     assert ("Q200", "P31", "Q5") in triples
     assert ("Q5", "P279", "Q215627") in triples
+
+
+def test_resolve_class_path_emits_resolution_callback() -> None:
+    emitted: list[dict] = []
+    docs = {
+        "Q5": {
+            "id": "Q5",
+            "claims": {
+                "P279": [
+                    {"mainsnak": {"datavalue": {"value": {"entity-type": "item", "id": "Q215627"}}}}
+                ]
+            },
+        }
+    }
+
+    entity_doc = {
+        "id": "Q200",
+        "claims": {
+            "P31": [
+                {"mainsnak": {"datavalue": {"value": {"entity-type": "item", "id": "Q5"}}}}
+            ]
+        },
+    }
+
+    def _get_entity(qid: str) -> dict:
+        return docs.get(qid, {})
+
+    result = resolve_class_path(
+        entity_doc,
+        {"Q215627"},
+        _get_entity,
+        on_resolved=lambda payload: emitted.append(payload),
+    )
+
+    assert result["subclass_of_core_class"] is True
+    assert result["path_to_core_class"] == "Q5|Q215627"
+    assert len(emitted) == 1
+    assert emitted[0]["resolution_reason"] == "core_match"
+    assert emitted[0]["class_id"] == "Q5"
+
+
+def test_materializer_writes_per_core_and_leftovers_projections(tmp_path: Path) -> None:
+    setup_dir = tmp_path / "data" / "00_setup"
+    setup_dir.mkdir(parents=True, exist_ok=True)
+    (setup_dir / "core_classes.csv").write_text(
+        "filename,label,wikidata_id\n"
+        "persons,person,Q215627\n"
+        "episodes,episode,Q1983062\n",
+        encoding="utf-8",
+    )
+
+    # Q100 reaches persons core class through Q5 -> Q215627.
+    upsert_discovered_item(
+        tmp_path,
+        "Q100",
+        {
+            "id": "Q100",
+            "labels": {"en": {"value": "Alice Example"}},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {
+                "P31": [
+                    {"mainsnak": {"datavalue": {"value": {"entity-type": "item", "id": "Q5"}}}}
+                ]
+            },
+        },
+        "2026-04-08T12:00:00Z",
+    )
+    upsert_discovered_item(
+        tmp_path,
+        "Q5",
+        {
+            "id": "Q5",
+            "labels": {"en": {"value": "human"}},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {
+                "P279": [
+                    {"mainsnak": {"datavalue": {"value": {"entity-type": "item", "id": "Q215627"}}}}
+                ]
+            },
+        },
+        "2026-04-08T12:01:00Z",
+    )
+    upsert_discovered_item(
+        tmp_path,
+        "Q215627",
+        {
+            "id": "Q215627",
+            "labels": {"en": {"value": "person"}},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {},
+        },
+        "2026-04-08T12:02:00Z",
+    )
+
+    # Q300 has no path to any configured core class and should end up in leftovers.
+    upsert_discovered_item(
+        tmp_path,
+        "Q300",
+        {
+            "id": "Q300",
+            "labels": {"en": {"value": "Unrelated Node"}},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {
+                "P31": [
+                    {"mainsnak": {"datavalue": {"value": {"entity-type": "item", "id": "Q999999"}}}}
+                ]
+            },
+        },
+        "2026-04-08T12:03:00Z",
+    )
+
+    materialize_final(tmp_path, run_id="run-wdt-012")
+    paths = build_artifact_paths(tmp_path)
+
+    persons_core_projection = paths.projections_dir / "instances_core_persons.csv"
+    episodes_core_projection = paths.projections_dir / "instances_core_episodes.csv"
+    leftovers_projection = paths.instances_leftovers_csv
+
+    assert persons_core_projection.exists()
+    assert episodes_core_projection.exists()
+    assert leftovers_projection.exists()
+
+    persons_df = pd.read_csv(persons_core_projection)
+    episodes_df = pd.read_csv(episodes_core_projection)
+    leftovers_df = pd.read_csv(leftovers_projection)
+
+    assert set(persons_df["id"].tolist()) == {"Q100"}
+    assert episodes_df.empty
+    assert set(leftovers_df["id"].tolist()) == {"Q300"}

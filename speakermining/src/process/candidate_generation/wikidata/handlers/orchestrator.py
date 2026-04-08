@@ -49,6 +49,19 @@ def run_handlers(repo_root: Path, batch_size: int = 1000) -> dict[str, int]:
         registry.register_handler(name, artifact_path=str(output_paths[name]))
         start_seq = registry.get_progress(name) + 1
 
+        processed_history = [
+            event
+            for event in all_events
+            if isinstance(event.get("sequence_num"), int) and int(event.get("sequence_num", 0)) < start_seq
+        ]
+
+        # Handlers maintain in-memory state only. Rehydrate from historical events so
+        # incremental runs don't truncate projections when pending events are unrelated.
+        if processed_history:
+            for i in range(0, len(processed_history), batch_size):
+                batch = processed_history[i : i + batch_size]
+                handler.process_batch(batch)
+
         pending = [
             event
             for event in all_events
