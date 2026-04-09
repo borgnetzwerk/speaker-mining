@@ -86,6 +86,21 @@ Examples:
 2. All deterministic methods and reasons must be human-readable.
 3. Rows that are unresolved or conflicting must remain in output (no pre-filtering).
 
+## 5.1 Projection Ordering Contract
+
+Ordering must be deterministic and reproducible across reruns with unchanged inputs.
+
+Global time-aware ordering:
+
+1. Chronological oldest-first where publication date/time exists.
+2. Season and episode numbers are deterministic tie-breakers where present.
+
+Persons ordering:
+
+1. Pass 1: chronological by episode appearance (oldest first).
+2. Pass 2: stable alphabetical by person name.
+3. For same-name rows, chronological order from pass 1 must remain preserved.
+
 ## 6. Optional Technical Sidecars
 
 Optional sidecars are allowed for reproducibility, but are not the primary handoff contract.
