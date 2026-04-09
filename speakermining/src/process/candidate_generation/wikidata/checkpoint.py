@@ -9,6 +9,7 @@ from uuid import uuid4
 import zipfile
 
 from .cache import _atomic_write_text
+from process.io_guardrails import safe_rmtree, safe_unlink
 from .schemas import STOP_REASONS, build_artifact_paths
 
 
@@ -52,6 +53,7 @@ def _runtime_state_files(repo_root: Path) -> list[Path]:
         paths.properties_json,
         paths.triples_events_json,
         paths.query_inventory_csv,
+        paths.entity_lookup_index_csv,
         paths.summary_json,
         paths.core_classes_csv,
         paths.root_class_csv,
@@ -65,6 +67,7 @@ def _runtime_state_files(repo_root: Path) -> list[Path]:
     ]
     runtime_files.extend(sorted(paths.projections_dir.glob("aliases_*.csv")))
     runtime_files.extend(sorted(paths.projections_dir.glob("instances_core_*.csv")))
+    runtime_files.extend(sorted(paths.entity_chunks_dir.glob("*.jsonl")))
     runtime_files.extend(sorted(paths.projections_dir.glob("*.parquet")))
     deduped: list[Path] = []
     seen: set[Path] = set()
@@ -137,6 +140,7 @@ def _zip_snapshot_dir(snapshot_dir: Path) -> Path:
     snapshot_dir = Path(snapshot_dir)
     zip_path = _snapshot_zip_path(snapshot_dir)
     zip_path.parent.mkdir(parents=True, exist_ok=True)
+
     zip_path.unlink(missing_ok=True)
 
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -149,6 +153,7 @@ def _zip_snapshot_dir(snapshot_dir: Path) -> Path:
             zf.write(file_path, arcname)
 
     shutil.rmtree(snapshot_dir)
+
     return zip_path
 
 
@@ -236,7 +241,7 @@ def write_checkpoint_snapshot(repo_root: Path, checkpoint_path: Path) -> Path:
     if Path(checkpoint_path).exists() and Path(checkpoint_path).resolve().parent == snapshot_dir.resolve():
         preserved_manifest_text = Path(checkpoint_path).read_text(encoding="utf-8")
     if snapshot_dir.exists():
-        shutil.rmtree(snapshot_dir)
+        raise RuntimeError(f"Refusing to overwrite existing checkpoint backup directory: {snapshot_dir}")
     snapshot_dir.mkdir(parents=True, exist_ok=True)
 
     if preserved_manifest_text is not None:
@@ -296,16 +301,16 @@ def restore_checkpoint_snapshot(repo_root: Path, checkpoint_path: Path) -> None:
     reset_query_inventory_cache(repo_root)
     reset_triple_store_cache(repo_root)
     if paths.projections_dir.exists():
-        shutil.rmtree(paths.projections_dir)
+        safe_rmtree(paths.projections_dir)
     paths.projections_dir.mkdir(parents=True, exist_ok=True)
 
     if paths.raw_queries_dir.exists():
-        shutil.rmtree(paths.raw_queries_dir)
+        safe_rmtree(paths.raw_queries_dir)
 
     if event_store_paths["chunks_dir"].exists():
-        shutil.rmtree(event_store_paths["chunks_dir"])
-    event_store_paths["chunk_catalog"].unlink(missing_ok=True)
-    event_store_paths["checksums"].unlink(missing_ok=True)
+        safe_rmtree(event_store_paths["chunks_dir"])
+    safe_unlink(event_store_paths["chunk_catalog"], missing_ok=True)
+    safe_unlink(event_store_paths["checksums"], missing_ok=True)
 
     snapshot_files_dir = snapshot_dir / "files"
     if snapshot_files_dir.exists():
@@ -408,15 +413,20 @@ def clear_runtime_artifacts(repo_root: Path) -> None:
     reset_triple_store_cache(repo_root)
     if not paths.wikidata_dir.exists():
         return
-    shutil.rmtree(paths.wikidata_dir)
+
+    # Safety policy: preserve fetched-query history and checkpoint lineage.
+    # Only remove rebuildable runtime projections/state under projections/.
+    if paths.projections_dir.exists():
+        safe_rmtree(paths.projections_dir)
+    paths.projections_dir.mkdir(parents=True, exist_ok=True)
 
 
 def decide_resume_mode(repo_root: Path, requested_mode: str | None) -> dict:
     latest = load_latest_checkpoint(repo_root)
     checkpoints = list_checkpoints(repo_root)
     mode = (requested_mode or "append").strip().lower()
-    if mode not in {"append", "restart", "revert"}:
-        raise ValueError("requested_mode must be one of: append, restart, revert")
+    if mode not in {"append", "revert"}:
+        raise ValueError("requested_mode must be one of: append, revert")
     previous = None
     if len(checkpoints) >= 2:
         previous_payload = json.loads(checkpoints[-2].read_text(encoding="utf-8"))

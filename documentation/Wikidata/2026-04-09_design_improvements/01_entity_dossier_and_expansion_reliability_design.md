@@ -1,282 +1,357 @@
 # Wikidata Design Improvements (2026-04-09)
 
-Status: Proposed (implementation-ready)
+Status: Revised proposal (aligned to immutable constraints)
 Owner: Candidate generation / Wikidata pipeline
 Scope: Notebook 21 Stage A + Node Integrity + projections
 
-## 1. Problem Statement
+## 1. Immutable Constraints (Normative)
+
+This design MUST follow the constraints in `00_immutable_input.md`.
+
+1. Intermediate outputs must scale and therefore must not rely on monolithic pretty-printed JSON files.
+2. Lookup for a QID must be constant-time via a deterministic locator/index artifact.
+3. Runtime projections and publishable output projections can be different shapes.
+4. Wikidata is the central knowledge node; later phases must have direct access to structured Wikidata-backed entities/properties/classes.
+5. Core class instances are the main output contract.
+6. Human readability is not a requirement for Phase 2 intermediate artifacts.
+
+## 2. Problem Statement
 
 Current state has two practical gaps:
 
-1. There is no single per-QID artifact that answers "everything we know about QID X" without replaying or scanning multiple large files.
-2. Stage A expansion can miss important neighbors due to strict direct-P31 matching and neighbor truncation behavior.
+1. There is no single scalable lookup surface for "everything we know about QID X".
+2. Stage A expansion can miss important neighbors due to direct-P31-only eligibility and lossy neighbor capping.
 
-Observed example: Q130638552 was discovered and later expanded, but not reliably in Stage A, despite a direct link to seed-adjacent graph context.
+Observed example: Q130638552 was discovered and later expanded, but not reliably in Stage A.
 
-## 2. Goals
+## 3. Design Summary
 
-1. Introduce a canonical per-QID dossier projection for fast lookup and debugging.
-2. Make Stage A expansion eligibility subclass-aware (not only direct P31 core match).
-3. Replace lossy neighbor truncation with deterministic, policy-aware prioritization.
-4. Keep event-store replay optional for diagnostics, not required for day-to-day lookup.
-5. Preserve deterministic output behavior and checkpoint compatibility.
+This revision replaces the prior single-file dossier idea with deterministic chunked projections and a constant-time locator table.
 
-## 3. Non-Goals
+This document is intentionally foundational. The artifact deprecations and code removals that depend on these new projections are follow-on steps and should be implemented only after the contracts in this document are in place and validated.
 
-1. Replacing the event-store architecture.
-2. Rewriting notebook orchestration flow.
-3. Full schema redesign of all existing projections.
+Design pillars:
 
-## 4. Deliverables
+1. chunked storage for per-QID records (appendable, bounded file size).
+2. Stable QID-to-chunk mapping table for constant-time resolution.
+3. Separate runtime and output projection layers.
+4. Core-class-first output files as the durable handoff to later phases.
+5. Stage A reliability fixes (subclass-aware eligibility + deterministic neighbor prioritization).
 
-## 4.1 New Projection: entity_dossiers.jsonl
+## 4. Projection Architecture
+
+## 4.1 Runtime Projections (optimized for pipeline execution)
+
+Paths (existing + new):
+
+- `data/20_candidate_generation/wikidata/projections/entities.json`
+- `data/20_candidate_generation/wikidata/projections/properties.json`
+- `data/20_candidate_generation/wikidata/projections/triples.csv`
+- `data/20_candidate_generation/wikidata/projections/query_inventory.csv`
+- `data/20_candidate_generation/wikidata/projections/class_hierarchy.csv`
+- `data/20_candidate_generation/wikidata/projections/entity_lookup_index.csv` (new)
+- `data/20_candidate_generation/wikidata/projections/entity_chunks/` (new)
+
+Notes:
+
+1. Runtime projections remain compact and machine-oriented.
+2. No indentation or human-format overhead in new chunk payloads.
+3. Event-store replay is optional for diagnostics, not required for regular lookup.
+
+Follow-on deprecation targets once equivalent chunk/index-backed lookups exist:
+
+1. `entities.json` can be deprecated once every runtime consumer reads via `entity_lookup_index.csv` + `entity_chunks/`.
+2. `properties.json` can be deprecated on the same schedule, using the same lookup/index pattern for property-backed records.
+3. `triple_events.json` is a special case and should be treated as a later replacement step because event-style replay and graph reconstruction have different operational constraints than entity/property lookup.
+
+## 4.2 Output Projections (optimized for Phase 3+ consumption)
+
+One dedicated output projection family per core class, based on `data/00_setup/core_classes.csv`:
+
+1. `instances_core_broadcasting_programs.*`
+2. `instances_core_series.*`
+3. `instances_core_episodes.*`
+4. `instances_core_persons.*`
+5. `instances_core_topics.*`
+6. `instances_core_roles.*`
+7. `instances_core_organizations.*`
+
+Rule:
+
+- Include only instances within the intended discovery boundary:
+  - direct neighbor to configured broadcasting program seeds, or
+  - direct neighbor of such direct neighbors.
+
+Implementation note:
+
+- Keep current CSV/Parquet dual-writing for interoperability.
+
+## 5. New Scalable QID Lookup Contract
+
+## 5.1 Locator Table
 
 Path:
-- data/20_candidate_generation/wikidata/projections/entity_dossiers.jsonl
 
-Companion index:
-- data/20_candidate_generation/wikidata/projections/entity_dossiers_index.csv
+- `data/20_candidate_generation/wikidata/projections/entity_lookup_index.csv`
 
-Each dossier line is one QID and contains:
-
-- qid
-- label_de
-- label_en
-- description_de
-- description_en
-- aliases_de
-- aliases_en
-- class_info:
-  - direct_p31
-  - direct_p279
-  - resolved_core_class_id
-  - path_to_core_class
-  - subclass_of_core_class
-  - is_class_node
-- lifecycle:
-  - discovered_at_utc
-  - expanded_at_utc
-  - discovered_at_utc_history
-  - expanded_at_utc_history
-- graph_summary:
-  - outgoing_edge_count
-  - incoming_edge_count
-  - outgoing_property_counts
-  - incoming_property_counts
-  - neighbors_top_k (deterministic sample for quick inspection)
-- graph_edges:
-  - outgoing_edges (full list of pid, to_qid, discovered_at_utc, source_query_file)
-  - incoming_edges (full list of from_qid, pid, discovered_at_utc, source_query_file)
-- provenance:
-  - query_inventory_rows (normalized query metadata rows touching this qid)
-  - sources_present (entity_fetch, inlinks_fetch, outlinks_build, etc.)
-- diagnostics:
-  - expansion_eligibility_current
-  - expansion_eligibility_reason
-  - has_direct_seed_link
-
-Design choice:
-- This is an aggregated projection, rebuilt from compact projections (entities + triples + query_inventory + class_hierarchy), not by replaying entire chunk eventstore on every run.
-
-## 4.2 Stage A Expansion Eligibility Upgrade
-
-Current Stage A logic requires direct P31 core match.
-
-New logic:
-- keep: direct seed link requirement
-- keep: class-node exclusion as-is
-- change: p31_core_match becomes subclass-aware via class_hierarchy lookup
-
-Eligibility predicate:
-- eligible = has_direct_seed_link AND (direct_or_subclass_core_match) AND (not is_class_node)
-
-Where direct_or_subclass_core_match is true if:
-- direct P31 intersects core classes, or
-- any P31 class is marked subclass_of_core_class=true in class_hierarchy projection
-
-Fallback behavior:
-- if class_hierarchy lacks class row for a P31 class, resolve on-demand (cache-first) and update projection in same run.
-
-## 4.3 Neighbor Selection Upgrade
-
-Current behavior slices first N sorted neighbors.
-
-New behavior:
-- deterministic score-based ranking before cap:
-  - +100 if neighbor has direct seed link
-  - +80 if neighbor direct P31 core match
-  - +60 if neighbor subclass_of_core_class
-  - +30 if mention-target label overlap exists
-  - +10 if discovered but unexpanded
-  - tie-break: qid ascending
-- apply max_neighbors_per_node after ranking
-
-This preserves determinism while reducing accidental loss of high-value neighbors.
-
-## 4.4 Node Store Payload Upgrade (Optional but Recommended)
-
-Current discovered-item minimal payload keeps only P31/P279 claims.
-
-Recommended change:
-- include a compact claims_summary map in node store with selected frequently useful PIDs:
-  - P31, P279, P179, P4908, P527, P155, P156, P345
-- do not store full claim blobs for all PIDs in discovered-item minimal write path
-
-Purpose:
-- improve dossier quality without forcing eventstore scans.
-
-## 5. Implementation Plan
-
-## Phase 1: Add dossier projection
-
-Code touchpoints:
-- speakermining/src/process/candidate_generation/wikidata/schemas.py
-  - add artifact paths for entity_dossiers.jsonl and entity_dossiers_index.csv
-- speakermining/src/process/candidate_generation/wikidata/materializer.py
-  - add _build_entity_dossiers(...) and write outputs during materialize_checkpoint/materialize_final
-- speakermining/src/process/candidate_generation/wikidata/bootstrap.py
-  - initialize empty dossier projection artifacts
-
-Algorithm:
-1. Load entities from node store iterator.
-2. Build incoming/outgoing edge maps from triples projection.
-3. Join class_hierarchy and instances rows to compute class_info.
-4. Join query_inventory rows by key/qid and normalized_query references.
-5. Emit one JSON line per qid (stable ordering by qid).
-6. Emit index CSV: qid, byte_offset, byte_length, label_de, class_id, expanded_at_utc.
-
-Acceptance checks:
-- Q130638552 appears in entity_dossiers with full outgoing/incoming edges.
-- Entity dossier can be loaded by offset lookup using index without scanning entire file.
-
-## Phase 2: Stage A subclass-aware eligibility
-
-Code touchpoints:
-- speakermining/src/process/candidate_generation/wikidata/expansion_engine.py
-  - replace _entity_p31_core_match usage in enqueue decision with subclass-aware resolver
-- speakermining/src/process/candidate_generation/wikidata/class_resolver.py (reuse existing)
-- speakermining/src/process/candidate_generation/wikidata/materializer.py
-  - ensure class_hierarchy is materialized before Stage A decisions rely on cached projection snapshot
-
-Acceptance checks:
-- A node with P31=Q21191270 and path to Q1983062 is eligible when direct seed link exists.
-- No regression for class-node exclusion.
-
-## Phase 3: Neighbor ranking before cap
-
-Code touchpoints:
-- speakermining/src/process/candidate_generation/wikidata/expansion_engine.py
-  - replace capped_neighbors derivation with score+sort+cap
-
-Acceptance checks:
-- Deterministic ranking for same input graph.
-- High-value episode neighbors are retained when cap is hit.
-
-## Phase 4: Optional compact claim summary
-
-Code touchpoints:
-- speakermining/src/process/candidate_generation/wikidata/node_store.py
-  - enrich _entity_minimal with compact claims_summary
-
-Acceptance checks:
-- entities.json size growth remains bounded.
-- dossier quality improves for common diagnostics.
-
-## 6. Data Contracts
-
-## entity_dossiers_index.csv
 Columns:
-- qid
-- byte_offset
-- byte_length
-- label_de
-- label_en
-- resolved_core_class_id
-- subclass_of_core_class
-- discovered_at_utc
-- expanded_at_utc
+
+- `qid`
+- `chunk_file`
+- `record_key`
+- `resolved_core_class_id`
+- `subclass_of_core_class`
+- `discovered_at_utc`
+- `expanded_at_utc`
+
+Constraints:
+
+1. `qid` unique.
+2. Lookup is O(1): `qid -> chunk_file, record_key`.
+3. `chunk_file` is deterministic and stable for same QID.
+
+## 5.2 chunked Entity Records
+
+Directory:
+
+- `data/20_candidate_generation/wikidata/projections/entity_chunks/`
+
+chunk strategy:
+
+1. Deterministic partition by hash/QID prefix (configurable).
+2. File rotation by max records or max bytes.
+3. New chunks created without rewriting old chunks.
+
+Record shape (compact JSON line, no pretty-print):
+
+- `qid`
+- `labels`/`descriptions`/`aliases`
+- `class_info`:
+  - `direct_p31`
+  - `direct_p279`
+  - `resolved_core_class_id`
+  - `path_to_core_class`
+  - `subclass_of_core_class`
+  - `is_class_node`
+- `graph_edges`:
+  - `outgoing` (pid, to_qid, discovered_at_utc, source_query_file)
+  - `incoming` (from_qid, pid, discovered_at_utc, source_query_file)
+- `graph_summary`
+- `provenance_summary`
+- `eligibility_summary`
+
+Rationale:
+
+- This delivers "everything we know" for one QID without scanning large global files.
+
+## 6. Stage A Reliability Improvements
+
+## 6.1 Subclass-Aware Eligibility
+
+Current issue:
+
+- Stage A expansion gate checks direct P31 core match only.
+
+Canonical rule reference:
+
+- Expansion/discovery eligibility is defined in `documentation/Wikidata/expansion_and_discovery_rules.md`.
+- This design step must implement that contract and must not redefine it here.
+
+Fallback:
+
+- If class projection lacks the class node, resolve cache-first in-run and update class projection.
+
+## 6.2 Deterministic Neighbor Prioritization Before Cap
+
+Current issue:
+
+- Capping by sorted QID can drop important neighbors.
+
+Revised behavior:
+
+1. Score neighbors deterministically.
+2. Sort by `(score desc, qid asc)`.
+3. Apply cap after ranking.
+
+Proposed scoring:
+
+- +100 direct seed link
+- +80 direct P31 core match
+- +60 subclass-of-core match
+- +30 mention-target lexical hit
+- +10 discovered but unexpanded
+
+## 7. Runtime vs Output Split (Explicit)
+
+Runtime responsibilities:
+
+1. Fast graph mutation and checkpoint safety.
+2. Compact storage and deterministic chunks.
+3. Minimal replay requirements.
+
+Output responsibilities:
+
+1. Core-class structured instance artifacts for downstream phases.
+2. Stable schemas for Phase 3+ consumers.
+3. Deterministic regeneration from runtime state.
+
+## 8. Implementation Plan
+
+## Phase 1: Add scalable lookup artifacts
+
+Code touchpoints:
+
+- `speakermining/src/process/candidate_generation/wikidata/schemas.py`
+  - add `entity_lookup_index_csv`, `entity_chunks_dir`
+- `speakermining/src/process/candidate_generation/wikidata/bootstrap.py`
+  - initialize index + chunk dir
+- `speakermining/src/process/candidate_generation/wikidata/materializer.py`
+  - build/update index and chunk records from compact projections
+
+Acceptance:
+
+1. Q130638552 resolves via one index lookup and one chunk-file read.
+2. No full eventstore scan required.
+
+## Phase 2: Stage A eligibility and ranking fixes
+
+Code touchpoints:
+
+- `speakermining/src/process/candidate_generation/wikidata/expansion_engine.py`
+  - subclass-aware core match
+  - deterministic score+cap neighbor selection
+- `speakermining/src/process/candidate_generation/wikidata/class_resolver.py`
+  - reuse existing class path logic
+
+Acceptance:
+
+1. Subclass-of-core episodes with direct seed link become eligible in Stage A.
+2. Deterministic runs keep identical ordering and counts under same inputs.
+
+Rule source:
+
+- Expansion/discovery rule semantics for acceptance item 1 are defined in `documentation/Wikidata/expansion_and_discovery_rules.md`.
+
+## Phase 3: Harden core-class outputs
+
+Code touchpoints:
+
+- `speakermining/src/process/candidate_generation/wikidata/materializer.py`
+  - ensure boundary filter is explicit and test-covered
+
+Acceptance:
+
+1. Core-class instance outputs satisfy two-hop neighbor boundary contract.
+2. Output schemas remain stable across reruns.
+
+## 9. Data Contracts
+
+## `entity_lookup_index.csv`
 
 Uniqueness:
-- qid unique
 
-## entity_dossiers.jsonl
-One JSON object per qid.
+- unique `qid`
 
 Determinism:
-- lines sorted by qid
-- arrays sorted deterministically:
-  - edges by (pid, counterparty_qid, discovered_at_utc, source_query_file)
-  - provenance rows by (timestamp_utc, source_step, normalized_query)
 
-## 7. Runtime and Storage Considerations
+- same QID maps to same chunk strategy for same config.
 
-1. Dossier materialization runs from projections, not full chunk replay.
-2. For large repositories, query_inventory join should use filtered hash map keyed by qid/key token.
-3. Provide config switch:
-- enable_entity_dossiers_projection: true/false (default true)
-4. If disabled, pipeline behavior remains unchanged.
+## `entity_chunks/*.jsonl`
 
-## 8. Risks and Mitigations
+Determinism:
 
-Risk: dossier file becomes very large.
-- Mitigation: keep index for direct seeks; optionally shard by qid prefix later.
+1. records sorted by qid per chunk during compaction/materialization.
+2. arrays sorted by deterministic keys.
 
-Risk: subclass-aware eligibility increases expansions significantly.
-- Mitigation: preserve budgets and add per-core-class expansion counters for observability.
+Scalability:
 
-Risk: ranking weights bias discovery.
-- Mitigation: keep deterministic metrics dashboard and allow weight tuning via config.
+1. no indentation.
+2. bounded file sizes via rotation policy.
 
-## 9. Test Plan
+## 10. Risks and Mitigations
+
+Risk: chunk count explosion.
+
+- Mitigation: configurable partition + max-open-file writer policy + periodic compaction.
+
+Risk: subclass-aware gate increases expansion volume.
+
+- Mitigation: keep budgets, add per-core-class expansion metrics, expose stop reasons.
+
+Risk: output/runtime divergence confusion.
+
+- Mitigation: document explicit contracts and add validation checks in materializer.
+
+## 11. Test Plan
 
 Unit tests:
-- dossier builder joins expected rows for synthetic QID graph
-- index offsets point to valid dossier lines
-- subclass-aware eligibility true for subclass-of-core P31
-- ranking order stable across repeated runs
+
+1. `qid -> chunk_file` mapping determinism.
+2. index lookup returns valid record key.
+3. subclass-aware eligibility for indirect core class paths.
+4. deterministic neighbor ranking.
 
 Integration tests:
-- run notebook 21 on cache-first mode and verify Q130638552 dossier completeness
-- compare stage_a expanded_qids before/after change for deterministic seed fixture
+
+1. cache-first run: Q130638552 retrieval via index + chunk.
+2. two-hop boundary enforcement in all `instances_core_*` projections.
 
 Regression tests:
-- no change in output when feature flags disabled
-- existing class_hierarchy and instances projections unchanged in schema
 
-## 10. Migration and Rollout
+1. existing checkpoint/restore still works.
+2. existing output schemas remain backward-compatible unless explicitly versioned.
 
-1. Implement behind feature flags:
-- stage_a_subclass_aware_eligibility
-- stage_a_neighbor_priority_ranking
-- enable_entity_dossiers_projection
+## 12. Rollout
 
-2. Default rollout:
-- Enable dossier projection first
-- Validate for one full run
-- Enable subclass-aware eligibility
-- Enable neighbor ranking
+Feature flags:
 
-3. Rollback:
-- Disable flags; existing projections remain intact.
+1. `enable_entity_lookup_chunks`
+2. `stage_a_subclass_aware_eligibility`
+3. `stage_a_neighbor_priority_ranking`
 
-## 11. Operator UX
+Order:
 
-Notebook 21 should print explicit hints after materialization:
+1. enable lookup chunks first
+2. validate retrieval + size behavior
+3. enable subclass-aware eligibility
+4. enable neighbor prioritization
 
-- entity dossier path
-- index path
-- example lookup command for qid
+Rollback:
 
-Example lookup snippet:
+- disable flags, keep existing projections unchanged.
 
-- Read index row for Q130638552
-- Seek byte range in entity_dossiers.jsonl
-- Parse single JSON object
+## 13. Operator UX
 
-This gives a fast answer to "everything we know about Q130638552" without scanning eventstore.
+Notebook 21 summary should print:
 
-## 12. Open Questions
+1. lookup index path
+2. chunk dir path
+3. one-line lookup recipe: `qid -> chunk_file -> record`
 
-1. Should dossier include full claim blobs for expanded nodes, or remain graph/provenance centric?
-2. Should neighbor ranking include a recency weight from discovered_at_utc?
-3. Should dossier output be sharded (e.g., entity_dossiers/Q13.jsonl) once file size passes threshold?
+Primary expected answer to "where is everything we know about Q130638552":
+
+- `entity_lookup_index.csv` row for Q130638552 + corresponding chunk record.
+
+## 14. Open Questions
+
+1. Should chunk records include full claims for expanded nodes, or compact claim summary only?
+   1. **Answer:** Full claims. We want to build the core pillar of our lookup infrastructure here.
+2. What chunk rotation thresholds (records/bytes) are optimal for this repository growth profile.
+   1. **Answer:** Experiment a bit. I assume around 50 MB would be a reasonable decision.
+3. Do we need a second output profile for human-facing exploratory notebooks, separate from machine-optimized chunks?
+   1. **Answer:** No. Outside of the dedicated output projection family per core class, nothing will ever be inspected by humans. Even those will propably get digested by machines first before being presented to humans.
+   2. **Side-Note:** What we can do, however, is a small sidecar which contains three representative example instances of each class. This allows both humans and machines to quickly look inside and see what they can expect for the larger files.
+
+## 15. Follow-On Documentation Structure
+
+The remaining work is split into separate step files instead of being appended here.
+
+Each step file should describe one implementation increment, one completion criterion, and one clear next action. When a step is complete, mark that file complete; if a new task appears, create a new file rather than extending this document.
+
+Sequential order for implementation:
+
+1. `02_entity_lookup_and_chunk_infrastructure.md`
+2. `03_stage_a_reliability.md`
+3. `04_core_class_output_hardening.md`
+4. `05_legacy_json_cutover.md`
+5. `06_triple_events_decision.md`

@@ -53,6 +53,11 @@ Network governance:
 ### 4) Eligibility detection for unexpanded nodes
 Function: run_node_integrity_pass, eligibility section
 
+Canonical rule reference:
+
+- Eligibility semantics come from `documentation/Wikidata/expansion_and_discovery_rules.md`.
+- This section documents how the pass implements that contract.
+
 For each item in iter_items:
 - Skip non-QIDs and already expanded items.
 - Evaluate is_expandable_target using:

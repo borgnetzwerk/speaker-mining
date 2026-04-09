@@ -26,7 +26,7 @@ from .event_log import build_eligibility_transition_event
 from .graceful_shutdown import should_terminate
 from .materializer import materialize_final
 from .node_store import flush_node_store, get_item, iter_items, upsert_discovered_item
-from .triple_store import iter_unique_triples, record_item_edges
+from .triple_store import iter_unique_triples, record_item_edges, seed_neighbor_degrees
 from .triple_store import flush_triple_events
 from time import perf_counter
 from ...notebook_event_log import NOTEBOOK_21_ID, get_or_create_notebook_logger
@@ -293,27 +293,9 @@ def _known_qids(
     return known
 
 
-def _qids_directly_linked_to_seeds(repo_root: Path, seed_qids: set[str]) -> set[str]:
-    """Return all QIDs that have a direct triple edge to any seed QID.
-
-    This computes a reusable index in one pass to avoid repeatedly scanning
-    the entire triple store for each candidate node during eligibility checks.
-    """
-    seeds = {canonical_qid(qid) for qid in (seed_qids or set()) if canonical_qid(qid)}
-    if not seeds:
-        return set()
-
-    linked: set[str] = set()
-    for triple in iter_unique_triples(repo_root):
-        subj = canonical_qid(triple.get("subject", ""))
-        obj = canonical_qid(triple.get("object", ""))
-        if not subj or not obj:
-            continue
-        if subj in seeds:
-            linked.add(obj)
-        if obj in seeds:
-            linked.add(subj)
-    return linked
+def _seed_neighbor_degree_map(repo_root: Path, seed_qids: set[str]) -> dict[str, int]:
+    """Return minimal seed-neighborhood degree for nodes within two hops."""
+    return seed_neighbor_degrees(repo_root, seed_qids, max_degree=2)
 
 
 def _resolve_runtime_seed_and_core_classes(repo_root: Path, seed_qids: set[str] | None, core_class_qids: set[str] | None) -> tuple[set[str], set[str]]:
@@ -365,14 +347,14 @@ def _eligibility_decision(
     qid: str,
     item: dict,
     seed_qids: set[str],
-    direct_seed_link_qids: set[str],
+    seed_neighbor_degree_map: dict[str, int],
     core_class_qids: set[str],
     repo_root: Path,
     class_resolution_cache: dict[str, bool],
     projected_class_resolution: dict[str, bool],
 ) -> dict:
     is_class_node = _is_class_node(item)
-    has_direct_link = qid in direct_seed_link_qids
+    seed_neighbor_degree = seed_neighbor_degree_map.get(qid)
     p31_core_match = _p31_core_match_with_subclass_resolution(
         repo_root,
         item,
@@ -384,8 +366,8 @@ def _eligibility_decision(
     eligible = is_expandable_target(
         qid,
         seed_qids=seed_qids,
-        has_direct_link_to_seed=has_direct_link,
-        p31_core_match=p31_core_match,
+        seed_neighbor_degree=seed_neighbor_degree,
+        direct_or_subclass_core_match=p31_core_match,
         is_class_node=is_class_node,
     )
 
@@ -393,16 +375,17 @@ def _eligibility_decision(
         reason = "is_class_node"
     elif qid in seed_qids:
         reason = "seed_qid"
-    elif not has_direct_link:
-        reason = "no_direct_seed_link"
+    elif seed_neighbor_degree not in {1, 2}:
+        reason = "not_seed_neighbor_degree_1_or_2"
     elif not p31_core_match:
         reason = "no_core_class_match"
     else:
-        reason = "direct_seed_link_and_core_match"
+        reason = "seed_neighbor_degree_1_or_2_and_direct_or_subclass_core_match"
 
     return {
         "is_eligible": bool(eligible),
         "reason": reason,
+        "seed_neighbor_degree": seed_neighbor_degree,
     }
 
 
@@ -428,7 +411,7 @@ def run_node_integrity_pass(
         resolved_core_classes,
         include_triple_qids=bool(config.include_triple_only_qids_in_discovery),
     )
-    pre_direct_seed_link_qids = _qids_directly_linked_to_seeds(repo_root, resolved_seed_qids)
+    pre_seed_neighbor_degree_map = _seed_neighbor_degree_map(repo_root, resolved_seed_qids)
 
     discovered_before = {
         canonical_qid(item.get("id", ""))
@@ -660,14 +643,14 @@ def run_node_integrity_pass(
             qid=qid,
             item=item,
             seed_qids=resolved_seed_qids,
-            direct_seed_link_qids=pre_direct_seed_link_qids,
+            seed_neighbor_degree_map=pre_seed_neighbor_degree_map,
             core_class_qids=resolved_core_classes,
             repo_root=repo_root,
             class_resolution_cache=pre_class_resolution_cache,
             projected_class_resolution=projected_class_resolution,
         )
 
-    direct_seed_link_qids = _qids_directly_linked_to_seeds(repo_root, resolved_seed_qids)
+    seed_neighbor_degree_map = _seed_neighbor_degree_map(repo_root, resolved_seed_qids)
     class_resolution_cache: dict[str, bool] = {}
 
     post_pass_decisions: dict[str, dict] = {}
@@ -679,7 +662,7 @@ def run_node_integrity_pass(
             qid=qid,
             item=item,
             seed_qids=resolved_seed_qids,
-            direct_seed_link_qids=direct_seed_link_qids,
+            seed_neighbor_degree_map=seed_neighbor_degree_map,
             core_class_qids=resolved_core_classes,
             repo_root=repo_root,
             class_resolution_cache=class_resolution_cache,
@@ -704,8 +687,8 @@ def run_node_integrity_pass(
         if is_expandable_target(
             qid,
             seed_qids=resolved_seed_qids,
-            has_direct_link_to_seed=(qid in direct_seed_link_qids),
-            p31_core_match=p31_core_match,
+            seed_neighbor_degree=seed_neighbor_degree_map.get(qid),
+            direct_or_subclass_core_match=p31_core_match,
             is_class_node=_is_class_node(item),
         ):
             eligible_unexpanded_qids.append(qid)

@@ -212,7 +212,7 @@ class CheckpointManager:
                 shutil.rmtree(old_checkpoint)
             except Exception:
                 pass
-        
+
         # Keep 7 newest zipped backups
         for old_zip in zipped[7:]:
             try:

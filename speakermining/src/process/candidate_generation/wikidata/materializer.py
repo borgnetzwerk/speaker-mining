@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from time import perf_counter
 
@@ -8,6 +9,7 @@ import pandas as pd
 
 from .cache import _atomic_write_df, _atomic_write_parquet_df, _atomic_write_text, _entity_from_payload
 from .bootstrap import load_core_classes, load_other_interesting_classes, load_root_classes
+from .bootstrap import load_seed_instances
 from .class_resolver import compute_class_rollups, resolve_class_path
 from .common import (
     DEFAULT_WIKIDATA_FALLBACK_LANGUAGE,
@@ -377,6 +379,255 @@ def _write_tabular_artifact(csv_path: Path, df: pd.DataFrame) -> None:
     _atomic_write_parquet_df(csv_path.with_suffix(".parquet"), df)
 
 
+def _resolve_chunk_max_bytes() -> int:
+    default_bytes = 50 * 1024 * 1024
+    raw_value = str(os.getenv("WIKIDATA_ENTITY_CHUNK_MAX_BYTES", str(default_bytes))).strip()
+    try:
+        value = int(raw_value)
+    except Exception:
+        return default_bytes
+    return max(1024, value)
+
+
+def _build_graph_edges_lookup(triples_df: pd.DataFrame) -> tuple[dict[str, list[dict]], dict[str, list[dict]]]:
+    outgoing: dict[str, list[dict]] = {}
+    incoming: dict[str, list[dict]] = {}
+    if triples_df.empty:
+        return outgoing, incoming
+
+    for row in triples_df.to_dict(orient="records"):
+        subject = canonical_qid(str(row.get("subject", "") or ""))
+        predicate = str(row.get("predicate", "") or "")
+        obj = canonical_qid(str(row.get("object", "") or ""))
+        discovered_at_utc = str(row.get("discovered_at_utc", "") or "")
+        source_query_file = str(row.get("source_query_file", "") or "")
+        if not subject or not obj or not predicate:
+            continue
+
+        outgoing.setdefault(subject, []).append(
+            {
+                "pid": predicate,
+                "to_qid": obj,
+                "discovered_at_utc": discovered_at_utc,
+                "source_query_file": source_query_file,
+            }
+        )
+        incoming.setdefault(obj, []).append(
+            {
+                "from_qid": subject,
+                "pid": predicate,
+                "discovered_at_utc": discovered_at_utc,
+                "source_query_file": source_query_file,
+            }
+        )
+
+    for qid in outgoing:
+        outgoing[qid] = sorted(
+            outgoing[qid],
+            key=lambda edge: (
+                str(edge.get("pid", "")),
+                str(edge.get("to_qid", "")),
+                str(edge.get("discovered_at_utc", "")),
+                str(edge.get("source_query_file", "")),
+            ),
+        )
+    for qid in incoming:
+        incoming[qid] = sorted(
+            incoming[qid],
+            key=lambda edge: (
+                str(edge.get("from_qid", "")),
+                str(edge.get("pid", "")),
+                str(edge.get("discovered_at_utc", "")),
+                str(edge.get("source_query_file", "")),
+            ),
+        )
+    return outgoing, incoming
+
+
+def _build_entity_lookup_rows(
+    repo_root: Path,
+    core_class_qids: set[str],
+    triples_df: pd.DataFrame,
+) -> tuple[list[dict], list[dict]]:
+    items = list(iter_items(repo_root))
+    item_by_id = {
+        canonical_qid(str(item.get("id", "") or "")): item
+        for item in items
+        if canonical_qid(str(item.get("id", "") or ""))
+    }
+    latest_entity_docs = _latest_entity_cache_docs(repo_root)
+    outgoing_lookup, incoming_lookup = _build_graph_edges_lookup(triples_df)
+
+    def _get_entity(qid: str) -> dict | None:
+        qid_norm = canonical_qid(qid)
+        if not qid_norm:
+            return None
+        node = item_by_id.get(qid_norm)
+        if node:
+            return node
+        cached = latest_entity_docs.get(qid_norm)
+        return cached if isinstance(cached, dict) else None
+
+    records: list[dict] = []
+    for item in items:
+        qid = canonical_qid(str(item.get("id", "") or ""))
+        if not qid:
+            continue
+        claims = item.get("claims", {}) if isinstance(item.get("claims"), dict) else {}
+        resolution = resolve_class_path(item, core_class_qids, _get_entity)
+        direct_p31 = _extract_claim_qids(claims, "P31")
+        direct_p279 = _extract_claim_qids(claims, "P279")
+        path_to_core_class = str(resolution.get("path_to_core_class", "") or "")
+        resolved_core_class_id = ""
+        if path_to_core_class:
+            tokens = [canonical_qid(token) for token in path_to_core_class.split("|") if canonical_qid(token)]
+            for token in reversed(tokens):
+                if token in core_class_qids:
+                    resolved_core_class_id = token
+                    break
+        record = {
+            "qid": qid,
+            "labels": item.get("labels", {}) if isinstance(item.get("labels"), dict) else {},
+            "descriptions": item.get("descriptions", {}) if isinstance(item.get("descriptions"), dict) else {},
+            "aliases": item.get("aliases", {}) if isinstance(item.get("aliases"), dict) else {},
+            "class_info": {
+                "direct_p31": direct_p31,
+                "direct_p279": direct_p279,
+                "resolved_core_class_id": resolved_core_class_id,
+                "path_to_core_class": path_to_core_class,
+                "subclass_of_core_class": bool(resolution.get("subclass_of_core_class", False)),
+                "is_class_node": bool(len(direct_p279) > 0),
+            },
+            "graph_edges": {
+                "outgoing": outgoing_lookup.get(qid, []),
+                "incoming": incoming_lookup.get(qid, []),
+            },
+            "graph_summary": {
+                "outgoing_count": int(len(outgoing_lookup.get(qid, []))),
+                "incoming_count": int(len(incoming_lookup.get(qid, []))),
+            },
+            "provenance_summary": {
+                "discovered_at_utc": str(item.get("discovered_at_utc", "") or ""),
+                "expanded_at_utc": str(item.get("expanded_at_utc", "") or ""),
+                "discovered_at_utc_history": sorted({str(ts) for ts in (item.get("discovered_at_utc_history", []) or []) if str(ts)}),
+                "expanded_at_utc_history": sorted({str(ts) for ts in (item.get("expanded_at_utc_history", []) or []) if str(ts)}),
+            },
+            "eligibility_summary": {
+                "has_direct_seed_link": False,
+                "direct_or_subclass_core_match": bool(resolution.get("subclass_of_core_class", False)),
+                "is_expandable_target": bool(
+                    resolution.get("subclass_of_core_class", False) and not len(direct_p279)
+                ),
+            },
+            "entity": item,
+        }
+        records.append(record)
+
+    records = sorted(records, key=lambda rec: str(rec.get("qid", "")))
+    index_rows: list[dict] = []
+    chunk_records: list[dict] = []
+    for rec in records:
+        qid = str(rec.get("qid", ""))
+        if not qid:
+            continue
+        index_rows.append(
+            {
+                "qid": qid,
+                "resolved_core_class_id": str(rec.get("class_info", {}).get("resolved_core_class_id", "") or ""),
+                "subclass_of_core_class": bool(rec.get("class_info", {}).get("subclass_of_core_class", False)),
+                "discovered_at_utc": str(rec.get("provenance_summary", {}).get("discovered_at_utc", "") or ""),
+                "expanded_at_utc": str(rec.get("provenance_summary", {}).get("expanded_at_utc", "") or ""),
+            }
+        )
+        chunk_records.append(rec)
+    return index_rows, chunk_records
+
+
+def _write_entity_lookup_artifacts(
+    repo_root: Path,
+    paths,
+    core_class_qids: set[str],
+    triples_df: pd.DataFrame,
+) -> int:
+    _, chunk_records = _build_entity_lookup_rows(repo_root, core_class_qids, triples_df)
+    max_bytes = _resolve_chunk_max_bytes()
+    paths.entity_chunks_dir.mkdir(parents=True, exist_ok=True)
+
+    for old_chunk in sorted(paths.entity_chunks_dir.glob("*.jsonl")):
+        if old_chunk.is_file():
+            old_chunk.unlink()
+
+    lookup_rows: list[dict] = []
+    part = 1
+    current_file = f"entities_{part:04d}.jsonl"
+    current_lines: list[str] = []
+    current_size = 0
+    current_offset = 0
+    pending_rows: list[dict] = []
+
+    def _flush_current() -> None:
+        nonlocal current_file, current_lines, current_size, current_offset, pending_rows
+        if not current_lines:
+            return
+        chunk_path = paths.entity_chunks_dir / current_file
+        text = "".join(current_lines)
+        _atomic_write_text(chunk_path, text)
+        lookup_rows.extend(pending_rows)
+        current_lines = []
+        current_size = 0
+        current_offset = 0
+        pending_rows = []
+
+    for rec in chunk_records:
+        qid = str(rec.get("qid", ""))
+        if not qid:
+            continue
+        line = json.dumps(rec, ensure_ascii=False, separators=(",", ":")) + "\n"
+        line_size = len(line.encode("utf-8"))
+        if current_lines and current_size + line_size > max_bytes:
+            _flush_current()
+            part += 1
+            current_file = f"entities_{part:04d}.jsonl"
+
+        pending_rows.append(
+            {
+                "qid": qid,
+                "chunk_file": current_file,
+                "record_key": f"{current_offset}:{line_size}",
+                "resolved_core_class_id": str(rec.get("class_info", {}).get("resolved_core_class_id", "") or ""),
+                "subclass_of_core_class": bool(rec.get("class_info", {}).get("subclass_of_core_class", False)),
+                "discovered_at_utc": str(rec.get("provenance_summary", {}).get("discovered_at_utc", "") or ""),
+                "expanded_at_utc": str(rec.get("provenance_summary", {}).get("expanded_at_utc", "") or ""),
+                "byte_offset": current_offset,
+                "byte_length": line_size,
+            }
+        )
+        current_lines.append(line)
+        current_size += line_size
+        current_offset += line_size
+    _flush_current()
+
+    index_df = pd.DataFrame(lookup_rows)
+    if index_df.empty:
+        index_df = pd.DataFrame(
+            columns=[
+                "qid",
+                "chunk_file",
+                "record_key",
+                "resolved_core_class_id",
+                "subclass_of_core_class",
+                "discovered_at_utc",
+                "expanded_at_utc",
+                "byte_offset",
+                "byte_length",
+            ]
+        )
+    else:
+        index_df = index_df.sort_values("qid").reset_index(drop=True)
+    _write_tabular_artifact(paths.entity_lookup_index_csv, index_df)
+    return int(len(index_df))
+
+
 def _write_core_instance_projections(paths, instances_df: pd.DataFrame, class_hierarchy_df: pd.DataFrame, repo_root: Path, core_class_qids: set[str]) -> dict[str, int]:
     projection_row_counts: dict[str, int] = {}
     if instances_df.empty:
@@ -393,6 +644,12 @@ def _write_core_instance_projections(paths, instances_df: pd.DataFrame, class_hi
         }
 
     non_class_instances_df = instances_df[~instances_df["id"].isin(class_node_ids)].copy()
+    if non_class_instances_df.empty:
+        _write_tabular_artifact(paths.instances_leftovers_csv, non_class_instances_df)
+        _remove_stale_core_instance_projections(paths, set())
+        return projection_row_counts
+
+    non_class_instances_df = _apply_core_output_boundary_filter(repo_root, non_class_instances_df)
     if non_class_instances_df.empty:
         _write_tabular_artifact(paths.instances_leftovers_csv, non_class_instances_df)
         _remove_stale_core_instance_projections(paths, set())
@@ -428,6 +685,48 @@ def _write_core_instance_projections(paths, instances_df: pd.DataFrame, class_hi
 
     _remove_stale_core_instance_projections(paths, active_projection_files)
     return projection_row_counts
+
+
+def _apply_core_output_boundary_filter(repo_root: Path, instances_df: pd.DataFrame) -> pd.DataFrame:
+    if instances_df.empty:
+        return instances_df
+
+    seeds, _skipped = load_seed_instances(repo_root)
+    seed_qids = {
+        canonical_qid(str(seed.get("wikidata_id", "") or ""))
+        for seed in seeds
+        if canonical_qid(str(seed.get("wikidata_id", "") or ""))
+    }
+    if not seed_qids:
+        return instances_df
+
+    adjacency: dict[str, set[str]] = {}
+    for triple in iter_unique_triples(repo_root):
+        subject = canonical_qid(str(triple.get("subject", "") or ""))
+        obj = canonical_qid(str(triple.get("object", "") or ""))
+        if not subject or not obj:
+            continue
+        adjacency.setdefault(subject, set()).add(obj)
+        adjacency.setdefault(obj, set()).add(subject)
+
+    if not adjacency:
+        return instances_df
+
+    first_hop: set[str] = set()
+    for seed_qid in seed_qids:
+        first_hop.update(adjacency.get(seed_qid, set()))
+
+    second_hop: set[str] = set()
+    for hop_qid in first_hop:
+        second_hop.update(adjacency.get(hop_qid, set()))
+
+    # Include seeds for stable downstream behavior while enforcing the two-hop contract.
+    allowed = seed_qids | first_hop | second_hop
+    if not allowed:
+        return instances_df
+
+    filtered = instances_df[instances_df["id"].isin(allowed)].copy()
+    return filtered.sort_values("id").reset_index(drop=True)
 
 
 def _write_summary(paths, run_id: str, stage: str, stats: dict) -> None:
@@ -487,6 +786,7 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
     _write_tabular_artifact(paths.instances_csv, instances_df)
     _write_tabular_artifact(paths.classes_csv, classes_df)
     _write_tabular_artifact(paths.properties_csv, properties_df)
+    entity_lookup_rows = _write_entity_lookup_artifacts(repo_root, paths, core_class_qids, triples_df)
     core_projection_counts = _write_core_instance_projections(
         paths,
         instances_df,
@@ -503,6 +803,7 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
         "properties_rows": int(len(properties_df)),
         "triples_rows": int(len(triples_df)),
         "query_inventory_rows": int(len(query_inventory_df)),
+        "entity_lookup_rows": int(entity_lookup_rows),
         "core_instance_projection_files": int(len(core_projection_counts)),
         "instances_leftovers_rows": int(core_projection_counts.get(paths.instances_leftovers_csv.name, 0)),
     }

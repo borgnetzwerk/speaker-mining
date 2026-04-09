@@ -74,6 +74,13 @@ def test_resume_modes(tmp_path: Path) -> None:
     assert mode["mode"] == "append"
     assert mode["has_checkpoint"] is False
 
+    try:
+        decide_resume_mode(tmp_path, "restart")
+    except ValueError as exc:
+        assert "append, revert" in str(exc)
+    else:
+        raise AssertionError("restart must be rejected")
+
 
 def test_revert_mode_uses_previous_checkpoint_run_id(tmp_path: Path) -> None:
     first_path = write_checkpoint_manifest(
@@ -125,10 +132,11 @@ def test_revert_mode_uses_previous_checkpoint_run_id(tmp_path: Path) -> None:
     )
 
     checkpoints = list_checkpoints(tmp_path)
-    assert len(checkpoints) == 1
+    assert len(checkpoints) == 2
     latest = load_latest_checkpoint(tmp_path)
     assert latest is not None
-    assert latest.run_id == "run-1"
+    assert latest.run_id == "run-2"
+    assert result.checkpoint_stats["run_id"] == "run-1"
     assert result.checkpoint_stats["resume_mode"] == "append"
     restored_entities = paths.entities_json.read_text(encoding="utf-8")
     assert '"Q2"' not in restored_entities
@@ -260,23 +268,27 @@ def test_checkpoint_snapshot_restores_dynamic_core_instance_projections(tmp_path
     assert "Q999" in leftovers_projection.read_text(encoding="utf-8")
 
 
-def test_restart_mode_clears_existing_artifacts(tmp_path: Path) -> None:
+def test_restart_mode_is_rejected(tmp_path: Path) -> None:
     paths = build_artifact_paths(tmp_path)
     paths.wikidata_dir.mkdir(parents=True, exist_ok=True)
     marker = paths.wikidata_dir / "stale_marker.txt"
     marker.write_text("stale", encoding="utf-8")
 
-    result = run_graph_expansion_stage(
-        tmp_path,
-        seeds=[],
-        targets=[],
-        core_class_qids=set(),
-        config=ExpansionConfig(max_depth=0, max_nodes=0, total_query_budget=0, per_seed_query_budget=0),
-        requested_mode="restart",
-    )
+    try:
+        run_graph_expansion_stage(
+            tmp_path,
+            seeds=[],
+            targets=[],
+            core_class_qids=set(),
+            config=ExpansionConfig(max_depth=0, max_nodes=0, total_query_budget=0, per_seed_query_budget=0),
+            requested_mode="restart",
+        )
+    except ValueError as exc:
+        assert "append, revert" in str(exc)
+    else:
+        raise AssertionError("restart must be rejected")
 
-    assert result.checkpoint_stats["resume_mode"] == "append"
-    assert not marker.exists()
+    assert marker.exists()
 
 
 def test_clear_runtime_artifacts_resets_cached_store_state(tmp_path: Path) -> None:
@@ -344,6 +356,86 @@ def test_partial_seed_budget_stop_does_not_increment_completed_count(tmp_path: P
     assert manifests[-1].seeds_completed == 0
     assert manifests[-1].seeds_remaining == 2
     assert manifests[-1].stop_reason == "per_seed_budget_exhausted"
+
+
+def test_append_resume_scans_from_first_seed_and_materializes_once(tmp_path: Path, monkeypatch) -> None:
+    from process.candidate_generation.wikidata.checkpoint import CheckpointManifest, write_checkpoint_manifest
+
+    write_checkpoint_manifest(
+        tmp_path,
+        CheckpointManifest(
+            run_id="run-1",
+            start_timestamp="2026-03-31T10:00:00Z",
+            latest_checkpoint_timestamp="2026-03-31T10:01:00Z",
+            stop_reason="seed_complete",
+            seeds_completed=1,
+            seeds_remaining=2,
+            total_nodes_discovered={"items": 1},
+            total_nodes_expanded={"items": 1},
+            total_queries=1,
+            inlinks_cursor=None,
+            incomplete=False,
+        ),
+    )
+
+    seen_seeds: list[str] = []
+    materialize_calls = {"count": 0}
+
+    def _fake_run_seed_expansion(*args, **kwargs):
+        _ = args
+        seed = kwargs.get("seed", {})
+        seen_seeds.append(str(seed.get("wikidata_id", "")))
+        return {
+            "seed_qid": str(seed.get("wikidata_id", "")),
+            "discovered_qids": set(),
+            "expanded_qids": set(),
+            "network_queries": 0,
+            "neighbor_prefetch_batches_attempted": 0,
+            "neighbor_prefetch_batches_succeeded": 0,
+            "neighbor_prefetch_candidates_total": 0,
+            "stop_reason": "seed_complete",
+            "inlinks_cursor": None,
+        }
+
+    def _fake_materialize_final(_repo_root, *, run_id):
+        _ = (run_id, _repo_root)
+        materialize_calls["count"] += 1
+        return {
+            "seed_id": None,
+            "instances_rows": 0,
+            "classes_rows": 0,
+            "properties_rows": 0,
+            "triples_rows": 0,
+            "query_inventory_rows": 0,
+            "entity_lookup_rows": 0,
+            "core_instance_projection_files": 0,
+            "instances_leftovers_rows": 0,
+        }
+
+    def _fake_write_checkpoint_manifest(_repo_root, manifest):
+        _ = (manifest, _repo_root)
+        return tmp_path / "fake_checkpoint.json"
+
+    monkeypatch.setattr("process.candidate_generation.wikidata.expansion_engine.run_seed_expansion", _fake_run_seed_expansion)
+    monkeypatch.setattr("process.candidate_generation.wikidata.expansion_engine.materialize_final", _fake_materialize_final)
+    monkeypatch.setattr("process.candidate_generation.wikidata.expansion_engine.write_checkpoint_manifest", _fake_write_checkpoint_manifest)
+
+    result = run_graph_expansion_stage(
+        tmp_path,
+        seeds=[
+            {"label": "Seed 1", "wikidata_id": "Q1"},
+            {"label": "Seed 2", "wikidata_id": "Q2"},
+            {"label": "Seed 3", "wikidata_id": "Q3"},
+        ],
+        targets=[],
+        core_class_qids=set(),
+        config=ExpansionConfig(max_depth=0, max_nodes=0, total_query_budget=-1, per_seed_query_budget=-1),
+        requested_mode="append",
+    )
+
+    assert seen_seeds == ["Q2", "Q3"]
+    assert materialize_calls["count"] == 1
+    assert result.checkpoint_stats["resume_mode"] == "append"
 
 
 def test_run_seed_expansion_resumes_inlinks_from_cursor_offset(tmp_path: Path, monkeypatch) -> None:

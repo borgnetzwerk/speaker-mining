@@ -74,21 +74,11 @@ A run is compliant only if all are true:
 
 ## 6. Decision Re-Evaluation and Reclassification
 
-Eligibility decisions are provisional and MUST be revisitable.
+Canonical rule reference:
 
-Normative requirements:
-
-1. If new lineage information is discovered later (for example, a previously unknown `P279` path from a class to a core class), prior node-level eligibility decisions MUST be recomputed.
-2. Nodes previously marked as not eligible for expansion MUST be reclassified to eligible when current graph knowledge now satisfies eligibility rules.
-3. Reclassification checks MUST run on persisted known nodes, not only on newly discovered nodes.
-4. Reclassification MUST be monotonic with respect to evidence: newer valid lineage evidence can upgrade prior decisions.
-5. Any reclassification that changes expansion eligibility MUST be auditable through persistent diagnostics, including:
-	- node id,
-	- prior eligibility state,
-	- new eligibility state,
-	- evidence path to core class (when available),
-	- run id and timestamp.
+1. Expansion/discovery eligibility and re-evaluation semantics are defined in `documentation/Wikidata/expansion_and_discovery_rules.md`.
+2. This addendum does not redefine those rules; it requires implementation and diagnostics to remain consistent with that contract.
 
 Operational expectation:
 
-- The node integrity pass is responsible for detecting when previously ineligible nodes become eligible under updated class knowledge and for triggering required expansion work.
+- The node integrity pass detects when previously ineligible nodes become eligible under updated class knowledge and triggers required expansion work.

@@ -408,7 +408,7 @@ handler_runner.py:
 ### Current Status (No Gap!)
 Both v2 and v3 use the **same** class resolution and eligibility semantics:
 - Core classes: Q215627 (person), Q43229 (organization), etc.
-- Eligibility: Direct link to seed + P31 in core classes
+- Eligibility: see canonical contract in `documentation/Wikidata/expansion_and_discovery_rules.md`
 - Lineage resolution: Build transitive P279 path to core class
 
 **No changes needed** — ClassesHandler in v3 implements the same logic as v2.

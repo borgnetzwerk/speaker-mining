@@ -122,6 +122,44 @@ def iter_unique_triples(repo_root: Path):
         yield dedup[key]
 
 
+def seed_neighbor_degrees(repo_root: Path, seed_qids: set[str], max_degree: int = 2) -> dict[str, int]:
+    """Return minimal undirected seed-neighborhood degree per reachable QID.
+
+    The returned map excludes seed QIDs themselves and includes only neighbors
+    with degree in ``[1, max_degree]``.
+    """
+    seeds = {canonical_qid(qid) for qid in (seed_qids or set()) if canonical_qid(qid)}
+    if not seeds or int(max_degree) < 1:
+        return {}
+
+    adjacency: dict[str, set[str]] = {}
+    for triple in iter_unique_triples(repo_root):
+        subj = canonical_qid(triple.get("subject", ""))
+        obj = canonical_qid(triple.get("object", ""))
+        if not subj or not obj:
+            continue
+        adjacency.setdefault(subj, set()).add(obj)
+        adjacency.setdefault(obj, set()).add(subj)
+
+    degrees: dict[str, int] = {}
+    frontier = set(seeds)
+    visited = set(seeds)
+    for degree in range(1, int(max_degree) + 1):
+        next_frontier: set[str] = set()
+        for node in frontier:
+            for neighbor in adjacency.get(node, set()):
+                if neighbor in visited:
+                    continue
+                visited.add(neighbor)
+                degrees[neighbor] = degree
+                next_frontier.add(neighbor)
+        if not next_frontier:
+            break
+        frontier = next_frontier
+
+    return degrees
+
+
 def has_direct_link_to_any_seed(repo_root: Path, candidate_qid: str, seed_qids: set[str]) -> bool:
     candidate = canonical_qid(candidate_qid)
     seeds = {canonical_qid(qid) for qid in (seed_qids or set()) if canonical_qid(qid)}

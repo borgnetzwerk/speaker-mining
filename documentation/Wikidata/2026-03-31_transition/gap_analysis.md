@@ -43,8 +43,8 @@ The production spec is strong and internally coherent, but the current implement
 
 ### Highest-Risk Gaps (Spec vs Current Behavior)
 1. Expansion semantics are fundamentally different.
-- Spec requires expansion eligibility by direct link to seed plus class membership, with explicit decision table and class guards: `wikidata_future_V2.md`.
-- Current code expands neighbors only when a node produced mention matches, then enqueues all discovered QIDs without checking direct-link-to-seed plus P31-in-core-classes: `bfs_expansion.py`.
+- Spec requires expansion eligibility as defined by the canonical contract in `documentation/Wikidata/expansion_and_discovery_rules.md` (historically documented in `wikidata_future_V2.md`).
+- Current code expands neighbors only when a node produced mention matches, then enqueues discovered QIDs without enforcing the canonical eligibility contract: `bfs_expansion.py`.
 
 2. Seed ordering rule is not implemented as specified.
 - Spec says each seed must be expanded fully before the next seed: `wikidata_future_V2.md`.

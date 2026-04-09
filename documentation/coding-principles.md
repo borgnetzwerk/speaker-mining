@@ -16,6 +16,7 @@ Governance reference model:
 2. Traceability over convenience: keep parsing rule and confidence fields where relevant.
 3. Reproducibility over hidden state: notebooks should be runnable top-to-bottom in order.
 4. Clear phase ownership: no writes outside the phase output directory.
+5. If a mode/flag selection is offered, every option and its operational implication must be documented at the selection point in code and in nearby markdown to prevent confusion, misconceptions, and unintended consequences.
 
 ## Notebook Principles
 
@@ -65,6 +66,13 @@ Governance reference model:
 4. On the next run, guarded writers/loaders must detect recovery snapshots first, restore/merge them back into the primary file, and only then proceed.
 5. New process modules must not introduce unguarded output writes; migrations of legacy direct writes should be tracked in `open-tasks.md`.
 6. Exception for append-only event logs: JSONL event streams may use buffered append writes in the hot path (instead of full-file atomic rewrite) as long as flush-on-read and flush-on-close boundaries are enforced.
+
+## Archive And Backup Protection Principles
+
+1. Archives, backups, backup folders, and any folder that contains backup folders are immutable operational history.
+2. Code must never delete, truncate, move, or recursively clean any archive or backup path, including parent directories whose descendants contain backup folders.
+3. Cleanup logic must fail closed unless it can prove the target path is outside protected archive and backup trees.
+4. Exception: checkpoint snapshot retention may retain one protected daily-latest zip per day plus the 7 newest additional checkpoint snapshot archives for the same checkpoint lineage, but it must not delete any other archive or backup tree.
 
 ## Event-Sourcing Principles
 

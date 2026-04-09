@@ -2,7 +2,12 @@ from __future__ import annotations
 
 # pyright: reportMissingImports=false
 
-from process.candidate_generation.wikidata.expansion_engine import _filter_seed_instances_by_broadcasting_program, is_expandable_target
+from process.candidate_generation.wikidata.expansion_engine import (
+    _filter_seed_instances_by_broadcasting_program,
+    _rank_neighbors_for_cap,
+    _resolve_direct_or_subclass_core_match,
+    is_expandable_target,
+)
 from process.candidate_generation.wikidata.node_store import upsert_discovered_item
 
 
@@ -13,8 +18,8 @@ def test_expandability_decision_table() -> None:
     assert is_expandable_target(
         "Q1",
         seed_qids=seeds,
-        has_direct_link_to_seed=True,
-        p31_core_match=True,
+        seed_neighbor_degree=1,
+        direct_or_subclass_core_match=True,
         is_class_node=True,
     ) is False
 
@@ -22,37 +27,185 @@ def test_expandability_decision_table() -> None:
     assert is_expandable_target(
         "Q100",
         seed_qids=seeds,
-        has_direct_link_to_seed=False,
-        p31_core_match=False,
+        seed_neighbor_degree=None,
+        direct_or_subclass_core_match=False,
         is_class_node=False,
     ) is True
 
-    # Non-seed without direct link is not expandable.
+    # Non-seed without first/second-degree seed-neighborhood evidence is not expandable.
     assert is_expandable_target(
         "Q2",
         seed_qids=seeds,
-        has_direct_link_to_seed=False,
-        p31_core_match=True,
+        seed_neighbor_degree=None,
+        direct_or_subclass_core_match=True,
         is_class_node=False,
     ) is False
 
-    # Non-seed with direct link but without P31 core match is not expandable.
+    # Non-seed with eligible seed-neighborhood degree but without class match is not expandable.
     assert is_expandable_target(
         "Q3",
         seed_qids=seeds,
-        has_direct_link_to_seed=True,
-        p31_core_match=False,
+        seed_neighbor_degree=1,
+        direct_or_subclass_core_match=False,
         is_class_node=False,
     ) is False
 
-    # Non-seed with direct link and P31 core match is expandable.
+    # Non-seed with first-degree seed-neighborhood and class match is expandable.
     assert is_expandable_target(
         "Q4",
         seed_qids=seeds,
-        has_direct_link_to_seed=True,
-        p31_core_match=True,
+        seed_neighbor_degree=1,
+        direct_or_subclass_core_match=True,
         is_class_node=False,
     ) is True
+
+    # Second-degree neighbors are also eligible when class match holds.
+    assert is_expandable_target(
+        "Q5",
+        seed_qids=seeds,
+        seed_neighbor_degree=2,
+        direct_or_subclass_core_match=True,
+        is_class_node=False,
+    ) is True
+
+    # Third-degree-or-more neighbors are not eligible.
+    assert is_expandable_target(
+        "Q6",
+        seed_qids=seeds,
+        seed_neighbor_degree=3,
+        direct_or_subclass_core_match=True,
+        is_class_node=False,
+    ) is False
+
+
+def test_resolve_direct_or_subclass_core_match_accepts_subclass_paths(tmp_path) -> None:
+    upsert_discovered_item(
+        tmp_path,
+        "Q500",
+        {
+            "id": "Q500",
+            "labels": {},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {
+                "P31": [
+                    {
+                        "mainsnak": {
+                            "datavalue": {
+                                "value": {"entity-type": "item", "id": "Q15416"}
+                            }
+                        }
+                    }
+                ]
+            },
+        },
+        "2026-04-09T10:00:00Z",
+    )
+    upsert_discovered_item(
+        tmp_path,
+        "Q15416",
+        {
+            "id": "Q15416",
+            "labels": {},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {
+                "P279": [
+                    {
+                        "mainsnak": {
+                            "datavalue": {
+                                "value": {"entity-type": "item", "id": "Q1983062"}
+                            }
+                        }
+                    }
+                ]
+            },
+        },
+        "2026-04-09T10:01:00Z",
+    )
+
+    candidate_doc = {
+        "id": "Q500",
+        "labels": {},
+        "descriptions": {},
+        "aliases": {},
+        "claims": {
+            "P31": [
+                {
+                    "mainsnak": {
+                        "datavalue": {
+                            "value": {"entity-type": "item", "id": "Q15416"}
+                        }
+                    }
+                }
+            ]
+        },
+    }
+
+    assert _resolve_direct_or_subclass_core_match(
+        tmp_path,
+        entity_doc=candidate_doc,
+        core_class_qids={"Q1983062"},
+        cache_max_age_days=365,
+        timeout_seconds=30,
+        discovered_qids=set(),
+    ) is True
+
+
+def test_rank_neighbors_for_cap_is_deterministic_and_prioritized(tmp_path) -> None:
+    upsert_discovered_item(
+        tmp_path,
+        "Q200",
+        {
+            "id": "Q200",
+            "labels": {},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {
+                "P31": [
+                    {
+                        "mainsnak": {
+                            "datavalue": {
+                                "value": {"entity-type": "item", "id": "Q215627"}
+                            }
+                        }
+                    }
+                ]
+            },
+        },
+        "2026-04-09T10:02:00Z",
+    )
+    upsert_discovered_item(
+        tmp_path,
+        "Q300",
+        {
+            "id": "Q300",
+            "labels": {},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {
+                "P31": [
+                    {
+                        "mainsnak": {
+                            "datavalue": {
+                                "value": {"entity-type": "item", "id": "Q215627"}
+                            }
+                        }
+                    }
+                ]
+            },
+        },
+        "2026-04-09T10:03:00Z",
+    )
+
+    ranked = _rank_neighbors_for_cap(
+        tmp_path,
+        neighbor_qids={"Q300", "Q200", "Q900"},
+        direct_link_to_seed={"Q200"},
+        core_class_qids={"Q215627"},
+        max_neighbors_per_node=2,
+    )
+    assert ranked == ["Q200", "Q300"]
 
 
 def test_seed_filter_enforces_broadcasting_program_instance_from_cached_data(tmp_path) -> None:

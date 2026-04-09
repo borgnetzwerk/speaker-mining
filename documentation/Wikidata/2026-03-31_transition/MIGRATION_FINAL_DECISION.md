@@ -50,7 +50,7 @@ The complete v2-only migration for Wikidata candidate generation has been succes
 - **No legacy v1 event formats permitted; runtime rejects non-v2**
 
 **Graph/Fallback Separation (Step 4: Two-Stage Pipeline)**
-- **Stage A (Graph Expansion):** Seed-per-seed deterministic traversal using item-to-item edges; eligibility: direct link to seed + P31 in core classes
+- **Stage A (Graph Expansion):** Seed-per-seed deterministic traversal using item-to-item edges; eligibility: see `documentation/Wikidata/expansion_and_discovery_rules.md`
 - **Hand-off gate:** Explicit isolation of unresolved targets for Stage B
 - **Stage B (Fallback):** String matching only, persons-only scope (configurable), re-entry eligibility evaluation, cannot exceed remaining budget
 - **Output gates:** Explicit CSV artifacts for each stage; no cross-stage candidate reuse without eligibility validation
@@ -105,7 +105,7 @@ The complete v2-only migration for Wikidata candidate generation has been succes
 | Stage | Contract | Status | Evidence |
 |-------|----------|--------|----------|
 | **A: Graph** | Seed-per-seed expansion using only item-to-item edges | ✅ | `expansion_engine.run_graph_expansion_stage()` implements seed-per-seed loop; only P17/P131/etc. edges traversed |
-| **A: Graph** | Eligibility: direct link to seed + P31 in core classes | ✅ | Eligibility check in `node_store.py` evaluates both conditions; applies to all discovered candidates |
+| **A: Graph** | Eligibility: see canonical contract in `documentation/Wikidata/expansion_and_discovery_rules.md` | ✅ | Eligibility check is validated against canonical expansion/discovery rules |
 | **A: Output** | Explicit resolved_targets artifact | ✅ | `graph_stage_resolved_targets.csv` present with 2,158 rows in latest run |
 | **A: Output** | Explicit unresolved_targets artifact | ✅ | `graph_stage_unresolved_targets.csv` present with 27,390 rows (unresolved for fallback consideration) |
 | **Hand-off** | Explicit isolation of unresolved for Stage B | ✅ | Notebook Cell 7 performs explicit handoff; only unresolved pass to fallback |

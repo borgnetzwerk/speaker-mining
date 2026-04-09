@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import csv
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
@@ -14,6 +15,8 @@ _ENTITY_STORE_CACHE: dict[str, dict] = {}
 _PROPERTY_STORE_CACHE: dict[str, dict] = {}
 _ENTITY_STORE_DIRTY: set[str] = set()
 _PROPERTY_STORE_DIRTY: set[str] = set()
+_LOOKUP_INDEX_CACHE: dict[str, dict[str, dict]] = {}
+_LOOKUP_INDEX_CACHE_MTIME: dict[str, float] = {}
 
 
 def _iso_now() -> str:
@@ -192,6 +195,8 @@ def reset_node_store_cache(repo_root: Path | None = None) -> None:
         _PROPERTY_STORE_CACHE.clear()
         _ENTITY_STORE_DIRTY.clear()
         _PROPERTY_STORE_DIRTY.clear()
+        _LOOKUP_INDEX_CACHE.clear()
+        _LOOKUP_INDEX_CACHE_MTIME.clear()
         return
     paths = build_artifact_paths(Path(repo_root))
     for path in (paths.entities_json, paths.properties_json):
@@ -200,6 +205,85 @@ def reset_node_store_cache(repo_root: Path | None = None) -> None:
         _PROPERTY_STORE_CACHE.pop(cache_key, None)
         _ENTITY_STORE_DIRTY.discard(cache_key)
         _PROPERTY_STORE_DIRTY.discard(cache_key)
+    lookup_key = _store_cache_key(paths.entity_lookup_index_csv)
+    _LOOKUP_INDEX_CACHE.pop(lookup_key, None)
+    _LOOKUP_INDEX_CACHE_MTIME.pop(lookup_key, None)
+
+
+def _load_lookup_index(paths) -> dict[str, dict]:
+    index_path = paths.entity_lookup_index_csv
+    if not index_path.exists() or index_path.stat().st_size == 0:
+        return {}
+    cache_key = _store_cache_key(index_path)
+    mtime = float(index_path.stat().st_mtime)
+    cached_mtime = _LOOKUP_INDEX_CACHE_MTIME.get(cache_key)
+    if cached_mtime is not None and cached_mtime == mtime and cache_key in _LOOKUP_INDEX_CACHE:
+        return _LOOKUP_INDEX_CACHE[cache_key]
+
+    rows: dict[str, dict] = {}
+    with index_path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            qid = canonical_qid(str(row.get("qid", "") or ""))
+            if not qid:
+                continue
+            rows[qid] = dict(row)
+    _LOOKUP_INDEX_CACHE[cache_key] = rows
+    _LOOKUP_INDEX_CACHE_MTIME[cache_key] = mtime
+    return rows
+
+
+def _lookup_chunk_item(repo_root: Path, qid: str) -> dict | None:
+    paths = build_artifact_paths(Path(repo_root))
+    qid_norm = canonical_qid(qid)
+    if not qid_norm:
+        return None
+    index = _load_lookup_index(paths)
+    row = index.get(qid_norm)
+    if not row:
+        return None
+
+    return _chunk_entity_from_index_row(paths, row)
+
+
+def _chunk_entity_from_index_row(paths, row: dict) -> dict | None:
+    if not isinstance(row, dict):
+        return None
+
+    chunk_file = str(row.get("chunk_file", "") or "").strip()
+    if not chunk_file:
+        return None
+    chunk_path = paths.entity_chunks_dir / chunk_file
+    if not chunk_path.exists():
+        return None
+
+    try:
+        byte_offset = int(str(row.get("byte_offset", "") or "0"))
+        byte_length = int(str(row.get("byte_length", "") or "0"))
+    except Exception:
+        return None
+    if byte_offset < 0 or byte_length <= 0:
+        return None
+
+    try:
+        with chunk_path.open("rb") as f:
+            f.seek(byte_offset)
+            payload_bytes = f.read(byte_length)
+    except Exception:
+        return None
+    if not payload_bytes:
+        return None
+
+    try:
+        record = json.loads(payload_bytes.decode("utf-8").strip())
+    except Exception:
+        return None
+    if not isinstance(record, dict):
+        return None
+    entity = record.get("entity")
+    if isinstance(entity, dict):
+        return entity
+    return None
 
 
 def upsert_discovered_item(repo_root: Path, qid: str, entity_doc: dict, discovered_at_utc: str) -> None:
@@ -263,14 +347,28 @@ def upsert_discovered_property(repo_root: Path, pid: str, property_doc: dict, di
 def get_item(repo_root: Path, qid: str) -> dict | None:
     paths = build_artifact_paths(Path(repo_root))
     store = _cached_store(paths.entities_json, "entities", _ENTITY_STORE_CACHE)
-    return store["entities"].get(canonical_qid(qid))
+    qid_norm = canonical_qid(qid)
+    if not qid_norm:
+        return None
+    in_store = store["entities"].get(qid_norm)
+    if in_store is not None:
+        return in_store
+    return _lookup_chunk_item(repo_root, qid_norm)
 
 
 def iter_items(repo_root: Path) -> Iterator[dict]:
     paths = build_artifact_paths(Path(repo_root))
     store = _cached_store(paths.entities_json, "entities", _ENTITY_STORE_CACHE)
-    for qid in sorted(store["entities"]):
-        yield store["entities"][qid]
+    if store["entities"]:
+        for qid in sorted(store["entities"]):
+            yield store["entities"][qid]
+        return
+
+    index = _load_lookup_index(paths)
+    for qid in sorted(index):
+        entity = _chunk_entity_from_index_row(paths, index[qid])
+        if isinstance(entity, dict) and entity:
+            yield entity
 
 
 def iter_properties(repo_root: Path) -> Iterator[dict]:

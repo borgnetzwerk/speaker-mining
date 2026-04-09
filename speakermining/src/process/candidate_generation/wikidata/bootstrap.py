@@ -87,6 +87,7 @@ def load_seed_instances(repo_root: Path) -> tuple[list[dict], list[dict]]:
 def ensure_output_bootstrap(repo_root: Path) -> None:
     paths = build_artifact_paths(Path(repo_root))
     paths.projections_dir.mkdir(parents=True, exist_ok=True)
+    paths.entity_chunks_dir.mkdir(parents=True, exist_ok=True)
     paths.raw_queries_dir.mkdir(parents=True, exist_ok=True)
     paths.checkpoints_dir.mkdir(parents=True, exist_ok=True)
     paths.archive_dir.mkdir(parents=True, exist_ok=True)
@@ -193,6 +194,20 @@ def ensure_output_bootstrap(repo_root: Path) -> None:
             alias_parquet.unlink(missing_ok=True)
     _empty_csv(paths.triples_csv, ["subject", "predicate", "object", "discovered_at_utc", "source_query_file"])
     _empty_csv(paths.query_inventory_csv, ["endpoint", "query_hash", "normalized_query", "key", "status", "timestamp_utc", "source_step"])
+    _empty_csv(
+        paths.entity_lookup_index_csv,
+        [
+            "qid",
+            "chunk_file",
+            "record_key",
+            "resolved_core_class_id",
+            "subclass_of_core_class",
+            "discovered_at_utc",
+            "expanded_at_utc",
+            "byte_offset",
+            "byte_length",
+        ],
+    )
     _empty_csv(paths.graph_stage_resolved_targets_csv, ["mention_id", "mention_type", "mention_label", "candidate_id", "candidate_label", "source", "context"])
     _empty_csv(paths.graph_stage_unresolved_targets_csv, ["mention_id", "mention_type", "mention_label", "context"])
     _empty_csv(paths.fallback_stage_candidates_csv, ["mention_id", "mention_type", "mention_label", "candidate_id", "candidate_label", "source", "context"])

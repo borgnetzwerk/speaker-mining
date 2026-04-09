@@ -12,6 +12,9 @@ from pathlib import Path
 import pandas as pd
 
 
+_PROTECTED_DELETE_NAMES = {"archive", "archives", "backup", "backups"}
+
+
 def _recovery_path(path: Path) -> Path:
 	return path.with_suffix(path.suffix + ".recovery")
 
@@ -30,6 +33,42 @@ def _restore_recovery_if_present(path: Path) -> None:
 				"Close any process locking the target file and rerun."
 			)
 		) from exc
+
+
+def _is_protected_archive_or_backup_path(path: Path) -> bool:
+	parts = {str(part).lower() for part in Path(path).parts}
+	return any(part in _PROTECTED_DELETE_NAMES for part in parts)
+
+
+def _contains_protected_backup_descendant(path: Path) -> bool:
+	target = Path(path)
+	if not target.exists() or not target.is_dir():
+		return False
+	for descendant in target.rglob("*"):
+		if descendant.is_dir() and str(descendant.name).lower() in _PROTECTED_DELETE_NAMES:
+			return True
+	return False
+
+
+def assert_safe_delete_target(path: str | Path) -> Path:
+	target = Path(path)
+	if _is_protected_archive_or_backup_path(target):
+		raise RuntimeError(f"Refusing to delete protected archive/backup path: {target}")
+	if target.exists() and target.is_dir() and _contains_protected_backup_descendant(target):
+		raise RuntimeError(f"Refusing to delete directory containing a backup/archive tree: {target}")
+	return target
+
+
+def safe_unlink(path: str | Path, *, missing_ok: bool = False) -> None:
+	assert_safe_delete_target(path).unlink(missing_ok=missing_ok)
+
+
+def safe_rmtree(path: str | Path) -> None:
+	target = assert_safe_delete_target(path)
+	if target.exists():
+		import shutil
+
+		shutil.rmtree(target)
 
 
 def atomic_write_text(path: str | Path, text: str, encoding: str = "utf-8") -> Path:
@@ -71,7 +110,7 @@ def atomic_write_text(path: str | Path, text: str, encoding: str = "utf-8") -> P
 			finally:
 				try:
 					if tmp_path.exists():
-						tmp_path.unlink()
+						safe_unlink(tmp_path)
 				except Exception:
 					pass
 			raise RuntimeError(
@@ -122,7 +161,7 @@ def atomic_write_csv(path: str | Path, df: pd.DataFrame, *, index: bool = False)
 			finally:
 				try:
 					if tmp_path.exists():
-						tmp_path.unlink()
+						safe_unlink(tmp_path)
 				except Exception:
 					pass
 			raise RuntimeError(

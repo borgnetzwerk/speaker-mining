@@ -260,6 +260,9 @@ Scope: Wikidata candidate-generation and graph-quality tasks only
 ### WDT-011: Full eventsourcing implementation identification
 Actual everntsourcing could be identified by a notebook (excluding setup) mostly being one line of code: start event handlers. everything else would be them resolving the event log and their respective reactions
 
+- Status: [x]
+- Closeout note (2026-04-09): unresolved implementation scope transferred to `documentation/Wikidata/2026-04-10_great_rework/01_rework_backlog.md` as `GRW-001`.
+
 ### WDT-012: Low Hanging fruit: We could use more projections
 
 - Status: [x]
@@ -293,7 +296,7 @@ Actual everntsourcing could be identified by a notebook (excluding setup) mostly
   - Result: `23 passed`
 
 ### WDT-013: Transition from CSV to Parquet 
-- Status: [~]
+- Status: [x]
 - Priority: P1
 - Owner: unassigned
 - Problem:
@@ -309,10 +312,14 @@ Actual everntsourcing could be identified by a notebook (excluding setup) mostly
 - Validation:
   - `python -m pytest test/process/wikidata/test_bootstrap_outputs.py test/process/wikidata/test_checkpoint_resume.py test/process/wikidata/test_class_path_resolution.py -q` (`24 passed`)
   - `python -m pytest test/process/wikidata -q` (`175 passed`)
+- Closeout note (2026-04-09): remaining cutover scope transferred to `documentation/Wikidata/2026-04-10_great_rework/01_rework_backlog.md` as `GRW-002`.
 
 ### WDT-014: Deprecate any non-eventsourced file writing.
 Deferred from the current closeout publication; remains open for a future wave.
 Everything that writes to a file should be eventsourced. There is plenty of code labeled "materialize" or similar that just recreates entire csv files without doing proper Event-Sourcing. Entire files are rebuild over and over again despite non of the events they are build from having changed. Some examples:
+
+- Status: [x]
+- Closeout note (2026-04-09): unresolved implementation scope transferred to `documentation/Wikidata/2026-04-10_great_rework/01_rework_backlog.md` as `GRW-003`.
 
 [notebook] Step 6 start: graph-first expansion
 Target rows from episodes.csv: 27390
@@ -382,7 +389,7 @@ Most of these queries are of the same nature: minimal payload restored.
 This means that currently, we send Wikidata 80.000 almost identical queries for all of these items to retrieve the bare minimum of data.
 This is both slow (~30 hours) as well as probably not the best way wikidata could handle our request. There mus be a better way that is better for both services: Both wikidata, by processing a bunch of similar queries without the overhead of processing each query individually, as well as us, by progressing faster.
 
-- Status: [~]
+- Status: [x]
 - Priority: P1
 - Owner: unassigned
 - Implementation notes (2026-04-07, late):
@@ -416,6 +423,7 @@ This is both slow (~30 hours) as well as probably not the best way wikidata coul
      - `stage_a_neighbor_prefetch_batches_succeeded = 1`
      - `stage_a_neighbor_prefetch_candidates_total = 66`
   3. This confirms instrumentation visibility in real notebook flow; follow-up evidence should include a non-zero-network run context for stronger efficiency deltas.
+- Closeout note (2026-04-09): remaining optimization scope transferred to `documentation/Wikidata/2026-04-10_great_rework/01_rework_backlog.md` as `GRW-004`.
 
 Context below:
 
@@ -557,7 +565,7 @@ Context:
 
 ### WDT-016 Read operation timed out
 
-- Status: [~]
+- Status: [x]
 - Priority: P1
 - Owner: unassigned
 - Problem:
@@ -598,6 +606,7 @@ Context:
     1. `test_node_integrity_continues_after_timeout_error` now asserts `result.timeout_warnings >= 1`.
   - Validation command:
     1. `python -m pytest test/process/wikidata/test_node_integrity.py -q` (`11 passed`)
+  - Closeout note (2026-04-09): remaining resilience scope transferred to `documentation/Wikidata/2026-04-10_great_rework/01_rework_backlog.md` as `GRW-005`.
 TimeoutError                              Traceback (most recent call last)
 Cell In[7], line 51
      38 node_integrity_config = NodeIntegrityConfig(
@@ -800,6 +809,23 @@ TimeoutError: The read operation timed out
 - Validation:
   - Code-path verification in `speakermining/src/process/notebooks/21_candidate_generation_wikidata.ipynb` confirms Step 7 and Step 8 now share one derived source and no implicit fallback default (`person`) remains.
   - This restores the contract: user config remains authoritative unless explicit validation error is raised.
+
+### WDT-020 enabled_mention_types are still overwritten
+WDT-019 did not work, Cell 26 still presents the enabled_mention_types with `person` as default:
+
+- Status: [x]
+- Priority: P0
+- Owner: unassigned
+- Closeout note (2026-04-09): unresolved root-cause validation and notebook-run verification transferred to `documentation/Wikidata/2026-04-10_great_rework/01_rework_backlog.md` as `GRW-006`.
+
+[notebook] Step 8 start: fallback string matching
+Stage A queries used (this run): 5
+Fallback query budget remaining: 45
+Fallback progress interval: 50 calls
+[notebook] -> run_fallback_string_matching_stage
+[fallback_stage] Starting fallback string matching
+[fallback_stage] Built local label index in 0.21s
+[fallback_stage] config: budget=45 languages=['de', 'en'] search_limit=10 enabled_mention_types=['person']
 
 ## Notes
 

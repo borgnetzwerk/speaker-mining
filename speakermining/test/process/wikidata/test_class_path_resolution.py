@@ -11,6 +11,7 @@ from process.candidate_generation.wikidata.class_resolver import resolve_class_p
 from process.candidate_generation.wikidata.materializer import materialize_final
 from process.candidate_generation.wikidata.node_store import upsert_discovered_item
 from process.candidate_generation.wikidata.schemas import build_artifact_paths
+from process.candidate_generation.wikidata.triple_store import record_item_edges
 
 
 def test_materializer_resolves_parent_class_path_from_local_store(tmp_path: Path) -> None:
@@ -334,3 +335,97 @@ def test_materializer_writes_per_core_and_leftovers_projections(tmp_path: Path) 
     assert set(persons_df["id"].tolist()) == {"Q100"}
     assert episodes_df.empty
     assert set(leftovers_df["id"].tolist()) == {"Q300"}
+
+
+def test_materializer_core_projections_enforce_two_hop_boundary(tmp_path: Path) -> None:
+    setup_dir = tmp_path / "data" / "00_setup"
+    setup_dir.mkdir(parents=True, exist_ok=True)
+    (setup_dir / "core_classes.csv").write_text(
+        "filename,label,wikidata_id\n"
+        "persons,person,Q215627\n",
+        encoding="utf-8",
+    )
+    (setup_dir / "broadcasting_programs.csv").write_text(
+        "label,wikidata_id\n"
+        "Seed Program,Q10\n",
+        encoding="utf-8",
+    )
+
+    # Seed node and class chain for person resolution.
+    upsert_discovered_item(
+        tmp_path,
+        "Q10",
+        {"id": "Q10", "labels": {}, "descriptions": {}, "aliases": {}, "claims": {}},
+        "2026-04-09T11:00:00Z",
+    )
+    upsert_discovered_item(
+        tmp_path,
+        "Q5",
+        {
+            "id": "Q5",
+            "labels": {},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {
+                "P279": [
+                    {"mainsnak": {"datavalue": {"value": {"entity-type": "item", "id": "Q215627"}}}}
+                ]
+            },
+        },
+        "2026-04-09T11:01:00Z",
+    )
+    upsert_discovered_item(
+        tmp_path,
+        "Q215627",
+        {"id": "Q215627", "labels": {}, "descriptions": {}, "aliases": {}, "claims": {}},
+        "2026-04-09T11:02:00Z",
+    )
+
+    # Persons at different graph distances from seed Q10.
+    for person_qid in ("Q200", "Q300", "Q400"):
+        upsert_discovered_item(
+            tmp_path,
+            person_qid,
+            {
+                "id": person_qid,
+                "labels": {},
+                "descriptions": {},
+                "aliases": {},
+                "claims": {
+                    "P31": [
+                        {"mainsnak": {"datavalue": {"value": {"entity-type": "item", "id": "Q5"}}}}
+                    ]
+                },
+            },
+            "2026-04-09T11:03:00Z",
+        )
+
+    # Two-hop neighborhood from seed: Q10 -> Q200 -> Q300; Q400 is third hop.
+    record_item_edges(
+        tmp_path,
+        "Q10",
+        [{"pid": "P463", "to_qid": "Q200"}],
+        discovered_at_utc="2026-04-09T11:10:00Z",
+        source_query_file="test_boundary",
+    )
+    record_item_edges(
+        tmp_path,
+        "Q200",
+        [{"pid": "P50", "to_qid": "Q300"}],
+        discovered_at_utc="2026-04-09T11:10:01Z",
+        source_query_file="test_boundary",
+    )
+    record_item_edges(
+        tmp_path,
+        "Q300",
+        [{"pid": "P50", "to_qid": "Q400"}],
+        discovered_at_utc="2026-04-09T11:10:02Z",
+        source_query_file="test_boundary",
+    )
+
+    materialize_final(tmp_path, run_id="run-two-hop-boundary")
+    paths = build_artifact_paths(tmp_path)
+    persons_projection = paths.projections_dir / "instances_core_persons.csv"
+    persons_df = pd.read_csv(persons_projection)
+
+    assert set(persons_df["id"].tolist()) == {"Q200", "Q300"}

@@ -11,12 +11,13 @@ from .cache import _atomic_write_df
 from .cache import begin_request_context, end_request_context
 from .common import canonical_qid, effective_core_class_qids, normalize_query_budget, normalize_text, pick_entity_label
 from .entity import get_or_fetch_entity, get_or_search_entities_by_label
+from .expansion_engine import is_expandable_target, resolve_direct_or_subclass_core_match_for_entity
 from .event_log import write_candidate_matched_event, build_entity_discovered_event, build_expansion_decision_event
 from .graceful_shutdown import should_terminate
-from .node_store import flush_node_store, iter_items
+from .node_store import flush_node_store, get_item, iter_items
 from .node_store import upsert_discovered_item
 from .schemas import build_artifact_paths
-from .triple_store import flush_triple_events, has_direct_link_to_any_seed
+from .triple_store import flush_triple_events, seed_neighbor_degrees
 from ...notebook_event_log import NOTEBOOK_21_ID, get_or_create_notebook_logger
 
 
@@ -126,6 +127,7 @@ def run_fallback_string_matching_stage(
     ineligible_qids: set[str] = set()
     seed_qids = {canonical_qid(qid) for qid in (seeds or set()) if canonical_qid(qid)}
     effective_core_classes = effective_core_class_qids(core_class_qids)
+    seed_neighbor_degree_map = seed_neighbor_degrees(repo_root, seed_qids, max_degree=2)
 
     # Deterministic in-memory index over discovered nodes.
     label_index: dict[str, list[dict]] = {}
@@ -151,13 +153,47 @@ def run_fallback_string_matching_stage(
     progress_every_calls = int(config.get("network_progress_every", 50) or 0)
     if not isinstance(search_languages, list) or not search_languages:
         search_languages = ["de", "en"]
-    enabled_mention_types = {
-        str(value).strip().lower()
-        for value in config.get("fallback_enabled_mention_types", ["person"])
-        if str(value).strip()
+
+    allowed_mention_types = {
+        "person",
+        "organization",
+        "episode",
+        "season",
+        "topic",
+        "broadcasting_program",
     }
-    if not enabled_mention_types:
-        enabled_mention_types = {"person"}
+    raw_enabled_mention_types = config.get("fallback_enabled_mention_types")
+    if raw_enabled_mention_types is None:
+        raise ValueError(
+            "config['fallback_enabled_mention_types'] is required. "
+            "Pass the resolved list from notebook Step 2 via config['fallback_enabled_mention_types_resolved']."
+        )
+
+    if isinstance(raw_enabled_mention_types, dict):
+        normalized_enabled = {
+            str(name).strip().lower()
+            for name, is_enabled in raw_enabled_mention_types.items()
+            if str(name).strip() and bool(is_enabled)
+        }
+    elif isinstance(raw_enabled_mention_types, (list, tuple, set)):
+        normalized_enabled = {
+            str(value).strip().lower()
+            for value in raw_enabled_mention_types
+            if str(value).strip()
+        }
+    else:
+        raise ValueError(
+            "config['fallback_enabled_mention_types'] must be a dict or list/tuple/set of mention types."
+        )
+
+    unknown_mention_types = normalized_enabled - allowed_mention_types
+    if unknown_mention_types:
+        raise ValueError(
+            "config['fallback_enabled_mention_types'] contains unsupported mention types: "
+            f"{sorted(unknown_mention_types)}. Allowed: {sorted(allowed_mention_types)}"
+        )
+
+    enabled_mention_types = set(normalized_enabled)
     budget_label = "unlimited"
     if has_explicit_budget:
         budget_label = "unlimited" if search_query_budget == -1 else str(search_query_budget)
@@ -174,8 +210,6 @@ def run_fallback_string_matching_stage(
     endpoint_budget_exhausted = bool(has_explicit_budget and search_query_budget == 0)
     if endpoint_budget_exhausted:
         print("[fallback_stage] Endpoint search disabled because explicit network budget is 0", flush=True)
-
-    from .expansion_engine import is_expandable_target
 
     begin_request_context(
         budget_remaining=search_query_budget,
@@ -320,12 +354,23 @@ def run_fallback_string_matching_stage(
                     context=str(target.get("context", "") or ""),
                 )
                 newly_discovered_qids.add(qid)
-                has_direct_link = has_direct_link_to_any_seed(repo_root, qid, seed_qids)
+                seed_neighbor_degree = seed_neighbor_degree_map.get(qid)
+                entity_doc_for_match = get_item(repo_root, qid)
+                if not isinstance(entity_doc_for_match, dict):
+                    entity_doc_for_match = {}
+                direct_or_subclass_core_match = resolve_direct_or_subclass_core_match_for_entity(
+                    repo_root,
+                    entity_doc=entity_doc_for_match,
+                    core_class_qids=effective_core_classes,
+                    cache_max_age_days=search_cache_max_age_days,
+                    timeout_seconds=search_timeout,
+                    discovered_qids=None,
+                )
                 can_expand = is_expandable_target(
                     qid,
                     seed_qids=seed_qids,
-                    has_direct_link_to_seed=has_direct_link,
-                    p31_core_match=bool(set(candidate.get("p31", [])) & effective_core_classes),
+                    seed_neighbor_degree=seed_neighbor_degree,
+                    direct_or_subclass_core_match=direct_or_subclass_core_match,
                     is_class_node=bool(candidate.get("is_class_node", False)),
                 )
                 notebook_logger.append_event(
@@ -339,7 +384,9 @@ def run_fallback_string_matching_stage(
                         decision="queue_for_expansion" if can_expand else "skip_expansion",
                         decision_reason="fallback_eligible" if can_expand else "fallback_ineligible",
                         eligibility={
-                            "has_direct_link_to_seed": bool(has_direct_link),
+                            "has_direct_link_to_seed": bool(seed_neighbor_degree == 1),
+                            "seed_neighbor_degree": seed_neighbor_degree,
+                            "direct_or_subclass_core_match": bool(direct_or_subclass_core_match),
                             "p31_core_match": bool(set(candidate.get("p31", [])) & effective_core_classes),
                             "is_class_node": bool(candidate.get("is_class_node", False)),
                         },

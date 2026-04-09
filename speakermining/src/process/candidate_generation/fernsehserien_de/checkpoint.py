@@ -81,6 +81,7 @@ def _zip_snapshot_dir(snapshot_dir: Path) -> Path:
     snapshot_dir = Path(snapshot_dir)
     zip_path = _snapshot_zip_path(snapshot_dir)
     zip_path.parent.mkdir(parents=True, exist_ok=True)
+
     zip_path.unlink(missing_ok=True)
 
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -93,6 +94,7 @@ def _zip_snapshot_dir(snapshot_dir: Path) -> Path:
             zf.write(file_path, arcname)
 
     shutil.rmtree(snapshot_dir)
+
     return zip_path
 
 
@@ -223,7 +225,7 @@ def write_checkpoint_snapshot(repo_root: Path, checkpoint_path: Path) -> Path:
         preserved_manifest_text = Path(checkpoint_path).read_text(encoding="utf-8")
 
     if snapshot_dir.exists():
-        shutil.rmtree(snapshot_dir)
+        raise RuntimeError(f"Refusing to overwrite existing checkpoint backup directory: {snapshot_dir}")
     snapshot_dir.mkdir(parents=True, exist_ok=True)
 
     if preserved_manifest_text is not None:

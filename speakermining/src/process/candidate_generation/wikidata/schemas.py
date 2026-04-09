@@ -43,6 +43,8 @@ class ArtifactPaths:
     properties_json: Path
     triples_events_json: Path
     query_inventory_csv: Path
+    entity_lookup_index_csv: Path
+    entity_chunks_dir: Path
     summary_json: Path
     core_classes_csv: Path
     root_class_csv: Path
@@ -90,6 +92,8 @@ def build_artifact_paths(repo_root: Path) -> ArtifactPaths:
         properties_json=projections_dir / "properties.json",
         triples_events_json=projections_dir / "triple_events.json",
         query_inventory_csv=projections_dir / "query_inventory.csv",
+        entity_lookup_index_csv=projections_dir / "entity_lookup_index.csv",
+        entity_chunks_dir=projections_dir / "entity_chunks",
         summary_json=projections_dir / "summary.json",
         core_classes_csv=projections_dir / "core_classes.csv",
         root_class_csv=projections_dir / "root_class.csv",

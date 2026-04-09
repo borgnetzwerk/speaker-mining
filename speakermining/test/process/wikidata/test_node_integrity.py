@@ -999,6 +999,6 @@ def test_node_integrity_reports_ineligible_to_eligible_transition(tmp_path: Path
     transition = transitions_for_q200[0]
     assert transition["previous_eligible"] is False
     assert transition["current_eligible"] is True
-    assert transition["previous_reason"] == "no_direct_seed_link"
-    assert transition["current_reason"] == "direct_seed_link_and_core_match"
+    assert transition["previous_reason"] == "not_seed_neighbor_degree_1_or_2"
+    assert transition["current_reason"] == "seed_neighbor_degree_1_or_2_and_direct_or_subclass_core_match"
     assert transition["path_to_core_class"] in {"Q215627", "Q5|Q215627"}

@@ -406,7 +406,11 @@ def test_end_to_end_stage_a_stage_b_reentry_and_final_materialization(tmp_path: 
         seeds={"Q100"},
         core_class_qids={"Q215627"},
         class_scope_hints={"person": {"Q215627"}},
-        config={"fallback_search_limit": 5, "fallback_search_languages": ["de"]},
+        config={
+            "fallback_search_limit": 5,
+            "fallback_search_languages": ["de"],
+            "fallback_enabled_mention_types": ["person"],
+        },
     )
 
     assert len(fallback_result.fallback_candidates) == 1

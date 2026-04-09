@@ -48,7 +48,7 @@ def test_fallback_matches_unresolved_with_scope(tmp_path: Path) -> None:
         unresolved_targets=unresolved,
         core_class_qids={"Q215627"},
         class_scope_hints=class_scope_hints,
-        config={},
+        config={"fallback_enabled_mention_types": ["person"]},
     )
 
     assert len(result.fallback_candidates) == 1
@@ -101,7 +101,65 @@ def test_fallback_marks_seed_linked_candidate_as_eligible(tmp_path: Path) -> Non
         seeds={"Q100"},
         core_class_qids={"Q215627"},
         class_scope_hints=class_scope_hints,
-        config={},
+        config={"fallback_enabled_mention_types": ["person"]},
+    )
+
+    assert "Q1499182" in result.eligible_for_expansion_qids
+
+
+def test_fallback_marks_second_degree_seed_neighbor_as_eligible(tmp_path: Path) -> None:
+    entity_doc = {
+        "id": "Q1499182",
+        "labels": {"de": {"value": "Markus Lanz"}},
+        "descriptions": {},
+        "aliases": {},
+        "claims": {
+            "P31": [
+                {
+                    "mainsnak": {
+                        "datavalue": {
+                            "value": {"entity-type": "item", "id": "Q215627"}
+                        }
+                    }
+                }
+            ]
+        },
+    }
+    upsert_discovered_item(tmp_path, "Q1499182", entity_doc, "2026-03-31T12:00:00Z")
+
+    # Build a two-hop path candidate -> intermediate -> seed.
+    record_item_edges(
+        tmp_path,
+        "Q1499182",
+        [{"pid": "P463", "to_qid": "Q900"}],
+        discovered_at_utc="2026-03-31T12:01:00Z",
+        source_query_file="test",
+    )
+    record_item_edges(
+        tmp_path,
+        "Q900",
+        [{"pid": "P463", "to_qid": "Q100"}],
+        discovered_at_utc="2026-03-31T12:01:01Z",
+        source_query_file="test",
+    )
+
+    unresolved = [
+        {
+            "mention_id": "m1",
+            "mention_type": "person",
+            "mention_label": "Markus Lanz",
+            "context": "test",
+        }
+    ]
+    class_scope_hints = {"person": ["Q215627"]}
+
+    result = run_fallback_string_matching_stage(
+        tmp_path,
+        unresolved_targets=unresolved,
+        seeds={"Q100"},
+        core_class_qids={"Q215627"},
+        class_scope_hints=class_scope_hints,
+        config={"fallback_enabled_mention_types": ["person"]},
     )
 
     assert "Q1499182" in result.eligible_for_expansion_qids
@@ -161,7 +219,11 @@ def test_fallback_discovers_candidates_via_endpoint_search(tmp_path: Path, monke
         seeds={"Q100"},
         core_class_qids={"Q215627"},
         class_scope_hints=class_scope_hints,
-        config={"fallback_search_limit": 5, "fallback_search_languages": ["de"]},
+        config={
+            "fallback_search_limit": 5,
+            "fallback_search_languages": ["de"],
+            "fallback_enabled_mention_types": ["person"],
+        },
     )
 
     assert len(result.fallback_candidates) == 1
@@ -240,7 +302,12 @@ def test_fallback_initializes_request_context_with_budget(tmp_path: Path, monkey
         seeds={"Q100"},
         core_class_qids={"Q215627"},
         class_scope_hints={"person": ["Q215627"]},
-        config={"network_budget_remaining": 7, "query_delay_seconds": 0.25, "network_progress_every": 50},
+        config={
+            "network_budget_remaining": 7,
+            "query_delay_seconds": 0.25,
+            "network_progress_every": 50,
+            "fallback_enabled_mention_types": ["person"],
+        },
     )
 
     assert calls == [
@@ -279,7 +346,11 @@ def test_fallback_handles_budget_hit_without_crashing(tmp_path: Path, monkeypatc
         seeds={"Q100"},
         core_class_qids={"Q215627"},
         class_scope_hints={"person": ["Q215627"]},
-        config={"max_queries_per_run": 1, "fallback_search_languages": ["de"]},
+        config={
+            "max_queries_per_run": 1,
+            "fallback_search_languages": ["de"],
+            "fallback_enabled_mention_types": ["person"],
+        },
     )
 
     assert result.fallback_candidates == []
@@ -345,7 +416,7 @@ def test_fallback_stops_gracefully_when_user_interrupt_requested(tmp_path: Path,
         seeds={"Q100"},
         core_class_qids={"Q215627"},
         class_scope_hints={"person": ["Q215627"]},
-        config={"max_queries_per_run": -1},
+        config={"max_queries_per_run": -1, "fallback_enabled_mention_types": ["person"]},
     )
 
     assert result.fallback_candidates == []
@@ -387,7 +458,7 @@ def test_fallback_emits_candidate_matched_events(tmp_path: Path) -> None:
         seeds={"Q100"},
         core_class_qids={"Q215627"},
         class_scope_hints={"person": ["Q215627"]},
-        config={},
+        config={"fallback_enabled_mention_types": ["person"]},
     )
 
     matched_events = []
@@ -400,3 +471,15 @@ def test_fallback_emits_candidate_matched_events(tmp_path: Path) -> None:
     payload = matched_events[0].get("payload", {})
     assert payload.get("mention_id") == "m1"
     assert payload.get("candidate_id") == "Q1499182"
+
+
+def test_fallback_requires_explicit_enabled_mention_types_config(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="fallback_enabled_mention_types"):
+        run_fallback_string_matching_stage(
+            tmp_path,
+            unresolved_targets=[],
+            seeds={"Q100"},
+            core_class_qids={"Q215627"},
+            class_scope_hints={"person": ["Q215627"]},
+            config={},
+        )

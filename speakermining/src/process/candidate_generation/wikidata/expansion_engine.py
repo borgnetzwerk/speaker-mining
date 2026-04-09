@@ -15,9 +15,7 @@ from .cache import begin_request_context, end_request_context
 from .class_resolver import resolve_class_path
 from .checkpoint import (
     CheckpointManifest,
-    clear_runtime_artifacts,
     decide_resume_mode,
-    delete_checkpoint,
     restore_checkpoint_snapshot,
     write_checkpoint_manifest,
 )
@@ -25,7 +23,7 @@ from .common import canonical_qid, effective_core_class_qids, iter_entity_texts,
 from .entity import get_or_build_outlinks, get_or_fetch_entities_batch, get_or_fetch_entity, get_or_fetch_inlinks, get_or_fetch_property
 from .graceful_shutdown import should_terminate
 from .inlinks import parse_inlinks_results
-from .materializer import materialize_checkpoint, materialize_final
+from .materializer import materialize_final
 from .node_store import flush_node_store, get_item, iter_items, upsert_discovered_item, upsert_discovered_property, upsert_expanded_item
 from .event_log import (
     build_class_membership_resolved_event,
@@ -185,8 +183,8 @@ def is_expandable_target(
     candidate_qid: str,
     *,
     seed_qids: set[str],
-    has_direct_link_to_seed: bool,
-    p31_core_match: bool,
+    seed_neighbor_degree: int | None,
+    direct_or_subclass_core_match: bool,
     is_class_node: bool,
 ) -> bool:
     qid = canonical_qid(candidate_qid)
@@ -194,7 +192,142 @@ def is_expandable_target(
         return False
     if qid in seed_qids:
         return True
-    return has_direct_link_to_seed and p31_core_match
+    if not direct_or_subclass_core_match:
+        return False
+    if seed_neighbor_degree is None:
+        return False
+    return int(seed_neighbor_degree) in {1, 2}
+
+
+def _entity_subclass_core_match(entity_doc: dict, core_class_qids: set[str], get_entity) -> bool:
+    if not core_class_qids:
+        return False
+    if not isinstance(entity_doc, dict) or not entity_doc:
+        return False
+    resolution = resolve_class_path(entity_doc, core_class_qids, get_entity)
+    return bool(resolution.get("subclass_of_core_class", False))
+
+
+def _resolve_direct_or_subclass_core_match(
+    repo_root: Path,
+    *,
+    entity_doc: dict,
+    core_class_qids: set[str],
+    cache_max_age_days: int,
+    timeout_seconds: int,
+    discovered_qids: set[str] | None = None,
+) -> bool:
+    if _entity_p31_core_match(entity_doc, core_class_qids):
+        return True
+
+    local_cache: dict[str, dict] = {}
+
+    def _lookup_entity(qid: str) -> dict | None:
+        qid_norm = canonical_qid(qid)
+        if not qid_norm:
+            return None
+        if qid_norm in local_cache:
+            return local_cache[qid_norm]
+
+        local = get_item(repo_root, qid_norm)
+        if isinstance(local, dict) and local:
+            local_cache[qid_norm] = local
+            return local
+
+        try:
+            payload = get_or_fetch_entity(
+                repo_root,
+                qid_norm,
+                cache_max_age_days,
+                timeout=timeout_seconds,
+            )
+        except Exception:
+            return None
+        fetched = payload.get("entities", {}).get(qid_norm, {}) if isinstance(payload, dict) else {}
+        if isinstance(fetched, dict) and fetched:
+            upsert_discovered_item(repo_root, qid_norm, fetched, _iso_now())
+            if discovered_qids is not None:
+                discovered_qids.add(qid_norm)
+            local_cache[qid_norm] = fetched
+            return fetched
+        return None
+
+    return _entity_subclass_core_match(entity_doc, core_class_qids, _lookup_entity)
+
+
+def resolve_direct_or_subclass_core_match_for_entity(
+    repo_root: Path,
+    *,
+    entity_doc: dict,
+    core_class_qids: set[str],
+    cache_max_age_days: int,
+    timeout_seconds: int,
+    discovered_qids: set[str] | None = None,
+) -> bool:
+    """Public wrapper used by non-Stage-A paths for canonical class matching."""
+    return _resolve_direct_or_subclass_core_match(
+        repo_root,
+        entity_doc=entity_doc,
+        core_class_qids=core_class_qids,
+        cache_max_age_days=cache_max_age_days,
+        timeout_seconds=timeout_seconds,
+        discovered_qids=discovered_qids,
+    )
+
+
+def _score_neighbor_candidate(
+    repo_root: Path,
+    *,
+    candidate_qid: str,
+    direct_link_to_seed: set[str],
+    core_class_qids: set[str],
+) -> int:
+    score = 0
+    qid = canonical_qid(candidate_qid)
+    if not qid:
+        return score
+    if qid in direct_link_to_seed:
+        score += 100
+
+    node = get_item(repo_root, qid)
+    if isinstance(node, dict) and node:
+        if _entity_p31_core_match(node, core_class_qids):
+            score += 80
+        if _entity_subclass_core_match(node, core_class_qids, lambda class_qid: get_item(repo_root, class_qid)):
+            score += 60
+        discovered_at = str(node.get("discovered_at_utc", "") or "")
+        expanded_at = str(node.get("expanded_at_utc", "") or "")
+        if discovered_at and not expanded_at:
+            score += 10
+    return score
+
+
+def _rank_neighbors_for_cap(
+    repo_root: Path,
+    *,
+    neighbor_qids: set[str],
+    direct_link_to_seed: set[str],
+    core_class_qids: set[str],
+    max_neighbors_per_node: int,
+) -> list[str]:
+    scored = [
+        (
+            canonical_qid(candidate_qid),
+            _score_neighbor_candidate(
+                repo_root,
+                candidate_qid=candidate_qid,
+                direct_link_to_seed=direct_link_to_seed,
+                core_class_qids=core_class_qids,
+            ),
+        )
+        for candidate_qid in sorted(neighbor_qids)
+        if canonical_qid(candidate_qid)
+    ]
+    scored = sorted(scored, key=lambda pair: (-pair[1], pair[0]))
+    max_neighbors = max(0, int(max_neighbors_per_node))
+    if max_neighbors == 0:
+        return []
+    return [qid for qid, _score in scored[:max_neighbors]]
 
 
 def _scope_allows(mention_type: str, class_scope_hints: dict[str, set[str]], p31_values: set[str]) -> bool:
@@ -341,6 +474,7 @@ def run_seed_expansion(
     discovered_qids: set[str] = set()
     expanded_qids: set[str] = set()
     direct_link_to_seed: set[str] = set()
+    seed_neighbor_degree_by_qid: dict[str, int] = {seed_qid: 0}
     neighbor_prefetch_batches_attempted = 0
     neighbor_prefetch_batches_succeeded = 0
     neighbor_prefetch_candidates_total = 0
@@ -367,7 +501,10 @@ def run_seed_expansion(
                 seed_progress_last_emit = now_progress
             qid, depth = queue.popleft()
             qid = canonical_qid(qid)
+            known_degree = seed_neighbor_degree_by_qid.get(qid)
             if not qid or qid in seen or depth > int(config.max_depth):
+                continue
+            if known_degree is not None and depth > int(known_degree):
                 continue
             seen.add(qid)
 
@@ -519,7 +656,13 @@ def run_seed_expansion(
                         event_phase=event_phase,
                     )
 
-                capped_neighbors = sorted(neighbor_qids)[: max(0, int(config.max_neighbors_per_node))]
+                capped_neighbors = _rank_neighbors_for_cap(
+                    repo_root,
+                    neighbor_qids=neighbor_qids,
+                    direct_link_to_seed=direct_link_to_seed,
+                    core_class_qids=core_class_qids,
+                    max_neighbors_per_node=config.max_neighbors_per_node,
+                )
                 if len(capped_neighbors) > 1:
                     neighbor_prefetch_batches_attempted += 1
                     neighbor_prefetch_candidates_total += len(capped_neighbors)
@@ -565,13 +708,26 @@ def run_seed_expansion(
                         source_query_file="derived_local_outlinks_class_chain",
                     )
 
-                    has_direct = candidate_qid in direct_link_to_seed
+                    inferred_degree = int(depth) + 1
+                    prior_degree = seed_neighbor_degree_by_qid.get(candidate_qid)
+                    candidate_seed_neighbor_degree = inferred_degree if prior_degree is None else min(prior_degree, inferred_degree)
+                    seed_neighbor_degree_by_qid[candidate_qid] = candidate_seed_neighbor_degree
+
+                    has_direct = candidate_seed_neighbor_degree == 1
+                    direct_or_subclass_core_match = _resolve_direct_or_subclass_core_match(
+                        repo_root,
+                        entity_doc=candidate_doc,
+                        core_class_qids=core_class_qids,
+                        cache_max_age_days=config.cache_max_age_days,
+                        timeout_seconds=config.query_timeout_seconds,
+                        discovered_qids=discovered_qids,
+                    )
 
                     can_expand = is_expandable_target(
                         candidate_qid,
                         seed_qids=seed_qids,
-                        has_direct_link_to_seed=has_direct,
-                        p31_core_match=_entity_p31_core_match(candidate_doc, core_class_qids),
+                        seed_neighbor_degree=candidate_seed_neighbor_degree,
+                        direct_or_subclass_core_match=direct_or_subclass_core_match,
                         is_class_node=_entity_is_class_node(candidate_doc),
                     )
                     if callable(event_emitter):
@@ -589,6 +745,8 @@ def run_seed_expansion(
                                 decision_reason=decision_reason,
                                 eligibility={
                                     "has_direct_link_to_seed": bool(has_direct),
+                                    "seed_neighbor_degree": int(candidate_seed_neighbor_degree),
+                                    "direct_or_subclass_core_match": bool(direct_or_subclass_core_match),
                                     "p31_core_match": bool(_entity_p31_core_match(candidate_doc, core_class_qids)),
                                     "is_class_node": bool(_entity_is_class_node(candidate_doc)),
                                     "depth": int(depth),
@@ -783,23 +941,31 @@ def run_graph_expansion_stage(
     print("[graph_stage] Starting graph expansion stage", flush=True)
     resume_info = decide_resume_mode(repo_root, requested_mode)
 
-    if resume_info["mode"] == "restart":
-        clear_runtime_artifacts(repo_root)
-        resume_info = decide_resume_mode(repo_root, "append")
-    elif resume_info["mode"] == "revert" and resume_info.get("has_checkpoint"):
-        latest_path = resume_info.get("latest_checkpoint_path", "")
+    if resume_info["mode"] == "revert" and resume_info.get("has_checkpoint"):
         previous_path = resume_info.get("previous_checkpoint_path", "")
-        if latest_path:
-            delete_checkpoint(Path(latest_path))
         if previous_path:
             restore_checkpoint_snapshot(repo_root, Path(previous_path))
+            previous_manifest = resume_info.get("previous_checkpoint") or {}
+            resume_info = {
+                **resume_info,
+                "mode": "append",
+                "has_checkpoint": True,
+                "latest_checkpoint": previous_manifest,
+                "latest_checkpoint_path": str(previous_path),
+            }
         else:
-            clear_runtime_artifacts(repo_root)
-        resume_info = decide_resume_mode(repo_root, "append")
+            print(
+                "[graph_stage] revert requested but no previous checkpoint exists; continuing in append mode",
+                flush=True,
+            )
+            resume_info = decide_resume_mode(repo_root, "append")
 
     ensure_output_bootstrap(repo_root)
     print(
-        f"[graph_stage] Resume mode={resume_info.get('mode')} has_checkpoint={bool(resume_info.get('has_checkpoint'))}",
+        (
+            f"[graph_stage] Resume mode={resume_info.get('mode')} has_checkpoint={bool(resume_info.get('has_checkpoint'))}; "
+            f"seed scan starts at program 1 and skips completed seeds"
+        ),
         flush=True,
     )
 
@@ -881,22 +1047,27 @@ def run_graph_expansion_stage(
     stage_neighbor_prefetch_candidates_total = 0
 
     # Execute seed-by-seed in CSV order.
-    seeds_done = 0
     seeds_processed_this_run = 0
-    start_seed_index = 0
+
+    completed_seed_count = 0
     resume_cursor = None
-    if resume_info["mode"] == "append" and resume_info["has_checkpoint"]:
+    if resume_info["mode"] == "append" and resume_info.get("has_checkpoint"):
         latest = resume_info.get("latest_checkpoint") or {}
-        start_seed_index = max(0, int(latest.get("seeds_completed", 0) or 0))
+        completed_seed_count = max(0, int(latest.get("seeds_completed", 0) or 0))
         resume_cursor = latest.get("inlinks_cursor")
         if latest.get("stop_reason", "") == "seed_complete":
             resume_cursor = None
 
-    start_seed_index = min(start_seed_index, len(seeds))
-
-    seeds_done = start_seed_index
+    completed_seed_count = min(completed_seed_count, len(seeds))
+    seeds_done = completed_seed_count
     interrupted_before_seed_loop = False
-    for local_seed_offset, seed in enumerate(seeds[start_seed_index:]):
+    for seed_index, seed in enumerate(seeds):
+        if seed_index < completed_seed_count:
+            print(
+                f"[graph_stage] Seed {seed_index + 1}/{len(seeds)} already complete; skipping",
+                flush=True,
+            )
+            continue
         if _termination_requested(repo_root):
             last_stop_reason = "user_interrupted"
             interrupted_before_seed_loop = True
@@ -905,14 +1076,13 @@ def run_graph_expansion_stage(
             last_stop_reason = "total_query_budget_exhausted"
             break
         seeds_processed_this_run += 1
-        seed_index = start_seed_index + local_seed_offset
         seed_qid = canonical_qid(seed.get("wikidata_id", ""))
         seed_t0 = perf_counter()
         print(
             f"[graph_stage] Seed {seed_index + 1}/{len(seeds)} start qid={seed_qid or 'NA'}",
             flush=True,
         )
-        seed_resume_cursor = resume_cursor if local_seed_offset == 0 else None
+        seed_resume_cursor = resume_cursor if seed_index == completed_seed_count else None
         seed_summary = run_seed_expansion(
             repo_root,
             seed=seed,
@@ -998,16 +1168,6 @@ def run_graph_expansion_stage(
             write_checkpoint_manifest(repo_root, seed_boundary_manifest)
 
         checkpoint_ts = _iso_now()
-        print("[graph_stage] Materialize checkpoint start", flush=True)
-        materialize_checkpoint_t0 = perf_counter()
-        materialize_stats = materialize_checkpoint(
-            repo_root,
-            run_id=run_id,
-            checkpoint_ts=checkpoint_ts,
-            seed_id=str(seed_summary.get("seed_qid", "")),
-        )
-        checkpoint_elapsed = perf_counter() - materialize_checkpoint_t0
-        print(f"[graph_stage] Materialize checkpoint done in {checkpoint_elapsed:.2f}s", flush=True)
         manifest = CheckpointManifest(
             run_id=run_id,
             start_timestamp=start_timestamp,
@@ -1023,7 +1183,8 @@ def run_graph_expansion_stage(
         )
         write_checkpoint_manifest(repo_root, manifest)
         checkpoint_stats = {
-            **materialize_stats,
+            **checkpoint_stats,
+            "seed_id": str(seed_summary.get("seed_qid", "")),
             "run_id": run_id,
             "resume_mode": resume_info["mode"],
             "resume_has_checkpoint": resume_info["has_checkpoint"],
@@ -1088,7 +1249,7 @@ def run_graph_expansion_stage(
         )
         write_checkpoint_manifest(repo_root, final_manifest)
 
-    checkpoint_stats["start_seed_index"] = int(start_seed_index)
+    checkpoint_stats["completed_seed_count"] = int(completed_seed_count)
     checkpoint_stats["seed_count"] = int(len(seeds))
     checkpoint_stats["stage_elapsed_seconds"] = round(perf_counter() - stage_t0, 3)
     print(
