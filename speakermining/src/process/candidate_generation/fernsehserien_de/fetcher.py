@@ -27,8 +27,17 @@ def normalize_url(url: str) -> str:
     parsed = urlparse(url.strip())
     if not parsed.scheme:
         raise ValueError(f"URL must include scheme: {url}")
+    if parsed.scheme.lower() not in {"http", "https"}:
+        raise ValueError(f"URL must use http/https scheme: {url}")
     if not parsed.netloc:
         raise ValueError(f"URL must include host: {url}")
+    host = str(parsed.hostname or "").strip()
+    if not host:
+        raise ValueError(f"URL must include host: {url}")
+    try:
+        host.encode("idna")
+    except UnicodeError as exc:
+        raise ValueError(f"URL host is invalid: {url}") from exc
     # URL fragments (e.g. #Cast-Crew) are client-side anchors and must not
     # create distinct fetch/cache identities for the same page.
     return parsed._replace(fragment="").geturl()
@@ -110,7 +119,40 @@ class FernsehserienFetcher:
         return self._network_calls_used >= int(self.config.max_network_calls)
 
     def fetch_url(self, *, url: str, phase: str, request_kind: str = "html_page") -> FetchResult:
-        normalized_url = normalize_url(url)
+        try:
+            normalized_url = normalize_url(url)
+        except Exception as exc:
+            reason = f"{type(exc).__name__}: {exc}"
+            event = self.event_store.append(
+                event_type="network_request_invalid_url",
+                payload={
+                    "url": str(url),
+                    "request_kind": request_kind,
+                    "reason": reason,
+                    "fetched_at_utc": _iso_now(),
+                },
+            )
+            self._emit_notebook_event(
+                event_type="network_decision",
+                phase=phase,
+                message="invalid URL; request skipped",
+                decision="skip_invalid_url",
+                endpoint="fernsehserien_http",
+                request_kind=request_kind,
+                queries_before=self._network_calls_used,
+                queries_after=self._network_calls_used,
+                result={"status": "invalid_url", "reason": reason, "source_event_sequence": int(event.get("sequence_num", 0))},
+            )
+            return FetchResult(
+                url=str(url),
+                status="invalid_url",
+                from_cache=False,
+                cache_path=None,
+                content="",
+                fetched_at_utc=_iso_now(),
+                http_status=None,
+            )
+
         cache_path = self._cache_path_for_url(normalized_url)
 
         if cache_path.exists():
@@ -187,9 +229,42 @@ class FernsehserienFetcher:
                 "Accept": "text/html,application/xhtml+xml",
             },
         )
-        with urlopen(request, timeout=20) as response:
-            body = response.read().decode("utf-8", errors="replace")
-            http_status = int(getattr(response, "status", 200))
+        try:
+            with urlopen(request, timeout=20) as response:
+                body = response.read().decode("utf-8", errors="replace")
+                http_status = int(getattr(response, "status", 200))
+        except Exception as exc:
+            reason = f"{type(exc).__name__}: {exc}"
+            event = self.event_store.append(
+                event_type="network_request_failed",
+                payload={
+                    "url": normalized_url,
+                    "request_kind": request_kind,
+                    "reason": reason,
+                    "fetched_at_utc": _iso_now(),
+                    "network_call_index": self._network_calls_used + 1,
+                },
+            )
+            self._emit_notebook_event(
+                event_type="network_call_failed",
+                phase=phase,
+                message="network call failed",
+                decision="call",
+                endpoint="fernsehserien_http",
+                request_kind=request_kind,
+                queries_before=self._network_calls_used,
+                queries_after=self._network_calls_used,
+                result={"status": "error", "reason": reason, "source_event_sequence": int(event.get("sequence_num", 0))},
+            )
+            return FetchResult(
+                url=normalized_url,
+                status="error",
+                from_cache=False,
+                cache_path=None,
+                content="",
+                fetched_at_utc=_iso_now(),
+                http_status=None,
+            )
 
         atomic_write_text(cache_path, body, encoding="utf-8")
         self._last_call_monotonic = time.monotonic()

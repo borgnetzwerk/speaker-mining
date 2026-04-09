@@ -241,3 +241,14 @@ checkpoint_manifest_path=C:\workspace\git\borgnetzwerk\speaker-mining\data\20_ca
 Lifecycle event already emitted for this run_id; skipping duplicate run_finished
 Fragment cleanup summary: {}
 Observed URL fragments (1): ['Cast-Crew']
+
+### nothing is happening (Done)
+[heartbeat] workflow started
+[heartbeat:pipeline] +0s network_calls_used=0 programs_processed=0 events_last_minute=0 event_types_last_minute=none last_event=<none>
+[heartbeat:local] +60s still running network_calls_used=0 programs_processed=0 events_last_minute=0 event_types_last_minute=none
+[heartbeat:local] +120s still running network_calls_used=0 programs_processed=0 events_last_minute=0 event_types_last_minute=none
+[heartbeat:local] +180s still running network_calls_used=0 programs_processed=0 events_last_minute=0 event_types_last_minute=none
+[heartbeat:local] +240s still running network_calls_used=0 programs_processed=0 events_last_minute=0 event_types_last_minute=none
+[heartbeat:local] +300s still running network_calls_used=0 programs_processed=0 events_last_minute=0 event_types_last_minute=none
+
+5 minues of nothing - what's going on here?

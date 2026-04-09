@@ -12,7 +12,9 @@ from process.candidate_generation.fernsehserien_de.checkpoint import (
 from process.candidate_generation.fernsehserien_de.event_store import FernsehserienEventStore
 from process.candidate_generation.fernsehserien_de.fragment_cleanup import apply_fragment_url_cleanup
 from process.candidate_generation.fernsehserien_de.orchestrator import (
+    _already_extracted_episode_urls,
     _emit_normalized_events,
+    _known_episode_urls_for_program,
     _import_legacy_cached_episode_urls,
     _is_budget_exhausted,
 )
@@ -23,6 +25,7 @@ from process.candidate_generation.fernsehserien_de.parser import (
     parse_episode_leaf_fields,
 )
 from process.candidate_generation.fernsehserien_de.fetcher import normalize_url
+from process.candidate_generation.fernsehserien_de.fetcher import FernsehserienFetcher
 from process.candidate_generation.fernsehserien_de.notebook_runtime import run_pipeline_with_notebook_heartbeat
 from process.candidate_generation.fernsehserien_de.paths import FernsehserienPaths
 from process.candidate_generation.fernsehserien_de.projection import build_projections
@@ -111,6 +114,62 @@ def test_fetch_normalize_url_strips_fragment() -> None:
         "https://www.fernsehserien.de/markus-lanz/folgen/2193-sendung-vom-05-03-2026-1861331#Cast-Crew"
     )
     assert normalized == "https://www.fernsehserien.de/markus-lanz/folgen/2193-sendung-vom-05-03-2026-1861331"
+
+
+def test_fetch_normalize_url_rejects_invalid_host_label() -> None:
+    bad = f"https://{'a' * 64}.example.com/path"
+    try:
+        _ = normalize_url(bad)
+    except ValueError as exc:
+        assert "URL host is invalid" in str(exc)
+        return
+    raise AssertionError("normalize_url should reject invalid IDNA labels")
+
+
+def test_fetcher_invalid_url_returns_invalid_url_status(tmp_path: Path) -> None:
+    paths = FernsehserienPaths(repo_root=tmp_path)
+    paths.ensure()
+    event_store = FernsehserienEventStore(paths)
+    fetcher = FernsehserienFetcher(
+        config=FernsehserienRunConfig(repo_root=tmp_path, max_network_calls=1),
+        paths=paths,
+        event_store=event_store,
+        notebook_logger=None,
+    )
+    bad = f"https://{'a' * 64}.example.com/path"
+    result = fetcher.fetch_url(url=bad, phase="test", request_kind="episode_leaf_html")
+    assert result.status == "invalid_url"
+    events = list(event_store.iter_events())
+    assert any(str(e.get("event_type", "")) == "network_request_invalid_url" for e in events)
+
+
+def test_already_extracted_urls_only_tracks_description_discovered(tmp_path: Path) -> None:
+    paths = FernsehserienPaths(repo_root=tmp_path)
+    paths.ensure()
+    event_store = FernsehserienEventStore(paths)
+
+    program_name = "Maischberger"
+    episode_url = "https://www.fernsehserien.de/maischberger-ard/folgen/105-sendung-vom-14-03-2006-665283"
+
+    event_store.append(
+        event_type="network_request_failed",
+        payload={
+            "url": episode_url,
+            "request_kind": "episode_leaf_html",
+            "reason": "UnicodeError",
+        },
+    )
+    assert episode_url not in _already_extracted_episode_urls(event_store, program_name)
+
+    event_store.append(
+        event_type="episode_description_discovered",
+        payload={
+            "program_name": program_name,
+            "episode_url": episode_url,
+        },
+    )
+    assert episode_url in _already_extracted_episode_urls(event_store, program_name)
+    assert episode_url not in _known_episode_urls_for_program(event_store, program_name)
 
 
 def test_legacy_cache_import_emits_events(tmp_path: Path) -> None:

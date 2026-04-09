@@ -110,6 +110,59 @@ def _emit_heartbeat_if_due(
         heartbeat_state["last_network_bucket"] = current_bucket
 
 
+def _emit_request_start(
+    *,
+    heartbeat_callback,
+    phase: str,
+    url: str,
+    request_kind: str,
+    network_calls_used: int,
+    programs_processed: int,
+) -> None:
+    if heartbeat_callback is None:
+        return
+    heartbeat_callback(
+        {
+            "kind": "request_start",
+            "phase": phase,
+            "url": str(url),
+            "request_kind": str(request_kind),
+            "network_calls_used": int(network_calls_used),
+            "programs_processed": int(programs_processed),
+        }
+    )
+
+
+def _emit_fetch_result(
+    *,
+    heartbeat_callback,
+    phase: str,
+    url: str,
+    request_kind: str,
+    status: str,
+    network_calls_used: int,
+    programs_processed: int,
+) -> None:
+    if heartbeat_callback is None:
+        return
+    heartbeat_callback(
+        {
+            "kind": "fetch_result",
+            "phase": phase,
+            "url": str(url),
+            "request_kind": str(request_kind),
+            "status": str(status),
+            "network_calls_used": int(network_calls_used),
+            "programs_processed": int(programs_processed),
+        }
+    )
+
+
+def _log_timing(*, phase: str, step: str, started_at: float) -> None:
+    elapsed = time.monotonic() - started_at
+    print(f"[timing:{phase}] {step} took {elapsed:.3f}s", flush=True)
+
+
 def _normalize_duration_minutes(duration_raw: str) -> float | None:
     raw = str(duration_raw or "").strip().lower()
     if not raw:
@@ -174,8 +227,38 @@ def _import_legacy_cached_episode_urls(
     program_name: str,
     fernsehserien_de_id: str,
     known_episode_urls: set[str],
+    preindexed_episode_urls: set[str] | None = None,
 ) -> int:
     imported = 0
+    if preindexed_episode_urls is not None:
+        for inferred_url in sorted(preindexed_episode_urls):
+            if inferred_url in known_episode_urls:
+                continue
+            event_store.append(
+                event_type="legacy_cache_page_imported",
+                payload={
+                    "program_name": program_name,
+                    "fernsehserien_de_id": fernsehserien_de_id,
+                    "cache_path": "",
+                    "inferred_episode_url": inferred_url,
+                    "imported_at_utc": _iso_now(),
+                    "import_source": "legacy_cache_preindex",
+                },
+            )
+            event_store.append(
+                event_type="episode_url_discovered",
+                payload={
+                    "program_name": program_name,
+                    "fernsehserien_de_id": fernsehserien_de_id,
+                    "episode_url": inferred_url,
+                    "discovery_path": "legacy_cache_import",
+                    "discovered_at_utc": _iso_now(),
+                },
+            )
+            known_episode_urls.add(inferred_url)
+            imported += 1
+        return imported
+
     cache_dir = paths.cache_pages_dir
     if not cache_dir.exists():
         return imported
@@ -220,6 +303,35 @@ def _import_legacy_cached_episode_urls(
         imported += 1
 
     return imported
+
+
+def _extract_slug_from_episode_url(url: str) -> str:
+    match = re.search(r"https?://www\\.fernsehserien\\.de/([^/]+)/folgen/", str(url or "").strip(), flags=re.IGNORECASE)
+    if not match:
+        return ""
+    return str(match.group(1)).strip()
+
+
+def _build_legacy_cache_lookup(paths: FernsehserienPaths) -> dict[str, set[str]]:
+    lookup: dict[str, set[str]] = {}
+    cache_dir = paths.cache_pages_dir
+    if not cache_dir.exists():
+        return lookup
+
+    for cache_path in sorted(cache_dir.glob("*.html")):
+        try:
+            html = cache_path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        inferred_url = infer_episode_url_from_leaf_html(html_text=html)
+        if not inferred_url:
+            continue
+        inferred_url = canonicalize_url(inferred_url)
+        slug = _extract_slug_from_episode_url(inferred_url)
+        if not slug:
+            continue
+        lookup.setdefault(slug, set()).add(inferred_url)
+    return lookup
 
 
 def _emit_normalized_events(*, event_store: FernsehserienEventStore) -> int:
@@ -417,13 +529,17 @@ def run_fernsehserien_extraction_phase(
     paths.ensure()
 
     event_store = FernsehserienEventStore(paths)
+    t_event_store_init = time.monotonic()
     cleanup_summary = apply_fragment_url_cleanup(paths=paths, event_store=event_store)
+    _log_timing(phase="extraction", step="event store init + fragment cleanup", started_at=t_event_store_init)
+    t_fetcher_init = time.monotonic()
     fetcher = FernsehserienFetcher(
         config=config,
         paths=paths,
         event_store=event_store,
         notebook_logger=notebook_logger,
     )
+    _log_timing(phase="extraction", step="fetcher init", started_at=t_fetcher_init)
 
     event_store.append(
         event_type="eventstore_opened",
@@ -434,9 +550,19 @@ def run_fernsehserien_extraction_phase(
             "max_programs": config.max_programs,
         },
     )
+    _log_timing(phase="extraction", step="eventstore_opened append", started_at=t_event_store_init)
 
+    t_load_programs = time.monotonic()
     programs = _load_programs(repo_root)
     selected = _select_programs(programs, config.max_programs)
+    _log_timing(phase="extraction", step="load and select programs", started_at=t_load_programs)
+    t_legacy_index = time.monotonic()
+    legacy_cache_lookup = _build_legacy_cache_lookup(paths)
+    _log_timing(
+        phase="extraction",
+        step=f"legacy cache preindex ({sum(len(v) for v in legacy_cache_lookup.values())} episode urls)",
+        started_at=t_legacy_index,
+    )
     observed_url_fragments: set[str] = set()
     heartbeat_state = {
         "started_at": time.monotonic(),
@@ -447,6 +573,9 @@ def run_fernsehserien_extraction_phase(
 
     try:
         for _, row in selected.iterrows():
+            program_name = str(row.get("name", "")).strip()
+            fernsehserien_de_id = str(row.get("fernsehserien_de_id", "")).strip()
+            t_program_root = time.monotonic()
             _emit_heartbeat_if_due(
                 heartbeat_callback=heartbeat_callback,
                 heartbeat_state=heartbeat_state,
@@ -455,15 +584,32 @@ def run_fernsehserien_extraction_phase(
                 phase="extraction",
                 event_store=event_store,
             )
-            program_name = str(row.get("name", "")).strip()
-            fernsehserien_de_id = str(row.get("fernsehserien_de_id", "")).strip()
             root_url = f"https://www.fernsehserien.de/{fernsehserien_de_id}/"
+
+            _emit_request_start(
+                heartbeat_callback=heartbeat_callback,
+                phase="extraction",
+                url=root_url,
+                request_kind="program_root_html",
+                network_calls_used=fetcher.network_calls_used,
+                programs_processed=processed_programs,
+            )
 
             fetch = fetcher.fetch_url(
                 url=root_url,
                 phase="program_root_discovery",
                 request_kind="program_root_html",
             )
+            _emit_fetch_result(
+                heartbeat_callback=heartbeat_callback,
+                phase="extraction",
+                url=root_url,
+                request_kind="program_root_html",
+                status=fetch.status,
+                network_calls_used=fetcher.network_calls_used,
+                programs_processed=processed_programs,
+            )
+            _log_timing(phase="extraction", step=f"program root fetch {program_name or fernsehserien_de_id}", started_at=t_program_root)
             if fetch.status not in {"success", "cache_hit"}:
                 continue
 
@@ -481,6 +627,7 @@ def run_fernsehserien_extraction_phase(
             if not index_url:
                 continue
 
+            t_legacy_import = time.monotonic()
             seen_index_urls: set[str] = set()
             queue_index_urls: list[str] = [index_url]
             seen_episode_urls: set[str] = set(_known_episode_urls_for_program(event_store, program_name))
@@ -490,13 +637,16 @@ def run_fernsehserien_extraction_phase(
                 program_name=program_name,
                 fernsehserien_de_id=fernsehserien_de_id,
                 known_episode_urls=seen_episode_urls,
+                preindexed_episode_urls=legacy_cache_lookup.get(fernsehserien_de_id, set()),
             )
+            _log_timing(phase="extraction", step=f"legacy cache import {program_name or fernsehserien_de_id}", started_at=t_legacy_import)
             parsed_episode_urls: set[str] = set(_already_extracted_episode_urls(event_store, program_name))
             fallback_pending = False
 
             # Priority-based loop: parse discovered episodes before discovering more.
             # This ensures leaf data extraction happens before discovery exhausts the budget.
             while True:
+                t_loop = time.monotonic()
                 _emit_heartbeat_if_due(
                     heartbeat_callback=heartbeat_callback,
                     heartbeat_state=heartbeat_state,
@@ -510,10 +660,27 @@ def run_fernsehserien_extraction_phase(
                 for episode_url in unparsed_urls:
                     if _is_budget_exhausted(max_network_calls=config.max_network_calls, network_calls_used=fetcher.network_calls_used):
                         break
+                    _emit_request_start(
+                        heartbeat_callback=heartbeat_callback,
+                        phase="extraction",
+                        url=episode_url,
+                        request_kind="episode_leaf_html",
+                        network_calls_used=fetcher.network_calls_used,
+                        programs_processed=processed_programs,
+                    )
                     leaf_fetch = fetcher.fetch_url(
                         url=episode_url,
                         phase="episode_leaf_parsing",
                         request_kind="episode_leaf_html",
+                    )
+                    _emit_fetch_result(
+                        heartbeat_callback=heartbeat_callback,
+                        phase="extraction",
+                        url=episode_url,
+                        request_kind="episode_leaf_html",
+                        status=leaf_fetch.status,
+                        network_calls_used=fetcher.network_calls_used,
+                        programs_processed=processed_programs,
                     )
                     _emit_heartbeat_if_due(
                         heartbeat_callback=heartbeat_callback,
@@ -601,7 +768,7 @@ def run_fernsehserien_extraction_phase(
                                         "discovered_at_utc": _iso_now(),
                                     },
                                 )
-                    parsed_episode_urls.add(episode_url)
+                            parsed_episode_urls.add(episode_url)
 
                 # Stop if out of budget.
                 if _is_budget_exhausted(max_network_calls=config.max_network_calls, network_calls_used=fetcher.network_calls_used):
@@ -616,10 +783,28 @@ def run_fernsehserien_extraction_phase(
                     continue
                 seen_index_urls.add(current_index_url)
 
+                _emit_request_start(
+                    heartbeat_callback=heartbeat_callback,
+                    phase="extraction",
+                    url=current_index_url,
+                    request_kind="episodenguide_html",
+                    network_calls_used=fetcher.network_calls_used,
+                    programs_processed=processed_programs,
+                )
+
                 index_fetch = fetcher.fetch_url(
                     url=current_index_url,
                     phase="episode_index_discovery",
                     request_kind="episodenguide_html",
+                )
+                _emit_fetch_result(
+                    heartbeat_callback=heartbeat_callback,
+                    phase="extraction",
+                    url=current_index_url,
+                    request_kind="episodenguide_html",
+                    status=index_fetch.status,
+                    network_calls_used=fetcher.network_calls_used,
+                    programs_processed=processed_programs,
                 )
                 _emit_heartbeat_if_due(
                     heartbeat_callback=heartbeat_callback,
@@ -668,8 +853,12 @@ def run_fernsehserien_extraction_phase(
                 if fallback_pending:
                     fallback_pending = False
 
-            processed_programs += 1
+                _log_timing(phase="extraction", step=f"program loop iteration {program_name or fernsehserien_de_id}", started_at=t_loop)
 
+            processed_programs += 1
+            _log_timing(phase="extraction", step=f"program complete {program_name or fernsehserien_de_id}", started_at=t_program_root)
+
+        t_projection = time.monotonic()
         _write_url_fragment_diagnostics(paths=paths, fragments=observed_url_fragments)
         if observed_url_fragments:
             event_store.append(
@@ -683,6 +872,7 @@ def run_fernsehserien_extraction_phase(
             )
 
         projection_result = build_projections(paths=paths, event_store=event_store)
+        _log_timing(phase="extraction", step="projection build", started_at=t_projection)
         event_store.append(
             event_type="projection_checkpoint_written",
             payload={
@@ -700,8 +890,11 @@ def run_fernsehserien_extraction_phase(
                 "network_calls_used": fetcher.network_calls_used,
             },
         )
+        _log_timing(phase="extraction", step="eventstore_closed append", started_at=t_projection)
 
+        t_final_projection = time.monotonic()
         final_projection = build_projections(paths=paths, event_store=event_store)
+        _log_timing(phase="extraction", step="final projection refresh", started_at=t_final_projection)
         return {
             "phase": "extraction",
             "runtime_root": str(paths.runtime_root),
@@ -725,6 +918,7 @@ def run_fernsehserien_normalization_phase(*, config: FernsehserienRunConfig, not
     paths.ensure()
 
     event_store = FernsehserienEventStore(paths)
+    t_event_store_init = time.monotonic()
     event_store.append(
         event_type="eventstore_opened",
         payload={
@@ -734,9 +928,12 @@ def run_fernsehserien_normalization_phase(*, config: FernsehserienRunConfig, not
             "max_programs": config.max_programs,
         },
     )
+    _log_timing(phase="normalization", step="event store init + eventstore_opened append", started_at=t_event_store_init)
 
     try:
+        t_emit = time.monotonic()
         normalized_emitted = _emit_normalized_events(event_store=event_store)
+        _log_timing(phase="normalization", step="emit normalized events", started_at=t_emit)
         if heartbeat_callback is not None:
             activity = event_store.get_recent_activity(window_seconds=60.0)
             heartbeat_callback(
@@ -750,7 +947,9 @@ def run_fernsehserien_normalization_phase(*, config: FernsehserienRunConfig, not
                 }
             )
 
+        t_projection = time.monotonic()
         projection_result = build_projections(paths=paths, event_store=event_store)
+        _log_timing(phase="normalization", step="projection build", started_at=t_projection)
         event_store.append(
             event_type="projection_checkpoint_written",
             payload={
@@ -760,6 +959,7 @@ def run_fernsehserien_normalization_phase(*, config: FernsehserienRunConfig, not
                 "summary": projection_result.summary,
             },
         )
+        _log_timing(phase="normalization", step="projection_checkpoint_written append", started_at=t_projection)
         event_store.append(
             event_type="eventstore_closed",
             payload={
@@ -769,8 +969,11 @@ def run_fernsehserien_normalization_phase(*, config: FernsehserienRunConfig, not
                 "normalized_events_emitted": normalized_emitted,
             },
         )
+        _log_timing(phase="normalization", step="eventstore_closed append", started_at=t_projection)
 
+        t_final_projection = time.monotonic()
         final_projection = build_projections(paths=paths, event_store=event_store)
+        _log_timing(phase="normalization", step="final projection refresh", started_at=t_final_projection)
         return {
             "phase": "normalization",
             "runtime_root": str(paths.runtime_root),

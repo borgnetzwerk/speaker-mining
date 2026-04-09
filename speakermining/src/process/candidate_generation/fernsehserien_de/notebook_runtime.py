@@ -88,6 +88,18 @@ def _build_heartbeat_printer() -> tuple[dict, callable]:
                 f"{event.get('checkpoint_manifest_path', '')}",
                 flush=True,
             )
+        elif kind == "request_start":
+            print(
+                f"[heartbeat:{phase}] fetching {event.get('request_kind', '')}: "
+                f"{event.get('url', '')}",
+                flush=True,
+            )
+        elif kind == "fetch_result":
+            print(
+                f"[heartbeat:{phase}] fetch result {event.get('request_kind', '')}: "
+                f"status={event.get('status', '')} url={event.get('url', '')}",
+                flush=True,
+            )
 
     return heartbeat_state, heartbeat_printer
 
@@ -120,11 +132,20 @@ def _emit_run_finished_once(*, logger, final_result: dict, status: str = "succes
 
 def run_pipeline_with_notebook_heartbeat(*, config, logger) -> dict:
     """Run fernsehserien pipeline with notebook-friendly heartbeat and lifecycle logging."""
+    from . import event_store as fsd_event_store
+    from . import fetcher as fsd_fetcher
     from . import orchestrator as fsd_orchestrator
+    from . import parser as fsd_parser
+    from . import projection as fsd_projection
 
+    importlib.reload(fsd_event_store)
+    importlib.reload(fsd_fetcher)
+    importlib.reload(fsd_parser)
+    importlib.reload(fsd_projection)
     importlib.reload(fsd_orchestrator)
 
     heartbeat_state, heartbeat_printer = _build_heartbeat_printer()
+    wrapper_started = time.monotonic()
 
     # Local fallback heartbeat so progress remains visible if callback events are delayed.
     start_monotonic = time.monotonic()
@@ -165,11 +186,16 @@ def run_pipeline_with_notebook_heartbeat(*, config, logger) -> dict:
     final_result: dict | None = None
     interrupted = False
     try:
+        workflow_started = time.monotonic()
         try:
             final_result = fsd_orchestrator.run_fernsehserien_pipeline(
                 config=config,
                 notebook_logger=logger,
                 heartbeat_callback=heartbeat_printer,
+            )
+            print(
+                f"[timing:wrapper] pipeline call completed in {time.monotonic() - workflow_started:.3f}s",
+                flush=True,
             )
         except KeyboardInterrupt:
             interrupted = True
@@ -187,6 +213,7 @@ def run_pipeline_with_notebook_heartbeat(*, config, logger) -> dict:
     finally:
         stop_heartbeat.set()
         heartbeat_thread.join(timeout=1.0)
+        print(f"[timing:wrapper] notebook wrapper finished in {time.monotonic() - wrapper_started:.3f}s", flush=True)
 
     print(
         f"programs_processed={final_result['programs_processed']} "
