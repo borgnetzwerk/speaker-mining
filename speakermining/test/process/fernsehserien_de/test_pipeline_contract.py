@@ -134,7 +134,6 @@ def test_fetcher_invalid_url_returns_invalid_url_status(tmp_path: Path) -> None:
         config=FernsehserienRunConfig(repo_root=tmp_path, max_network_calls=1),
         paths=paths,
         event_store=event_store,
-        notebook_logger=None,
     )
     bad = f"https://{'a' * 64}.example.com/path"
     result = fetcher.fetch_url(url=bad, phase="test", request_kind="episode_leaf_html")
@@ -405,22 +404,10 @@ def test_event_store_recent_activity_snapshot(tmp_path: Path) -> None:
     assert activity["last_event"]["payload"]["n"] == 3
 
 
-def test_notebook_runtime_graceful_interrupt_emits_interrupted_run_finished(monkeypatch, tmp_path: Path) -> None:
+def test_notebook_runtime_graceful_interrupt_returns_interrupted_status(monkeypatch, tmp_path: Path) -> None:
     config = FernsehserienRunConfig(repo_root=tmp_path, max_network_calls=7)
 
-    class _FakeLogger:
-        notebook_id = "nb"
-        run_id = "run"
-
-        def __init__(self) -> None:
-            self.events: list[dict] = []
-
-        def append_event(self, **kwargs):
-            self.events.append(kwargs)
-
-    logger = _FakeLogger()
-
-    def _raise_interrupt(*, config, notebook_logger, heartbeat_callback):  # noqa: ARG001
+    def _raise_interrupt(*, config, heartbeat_callback):  # noqa: ARG001
         raise KeyboardInterrupt()
 
     monkeypatch.setattr(
@@ -432,10 +419,6 @@ def test_notebook_runtime_graceful_interrupt_emits_interrupted_run_finished(monk
         _raise_interrupt,
     )
 
-    result = run_pipeline_with_notebook_heartbeat(config=config, logger=logger)
+    result = run_pipeline_with_notebook_heartbeat(config=config)
     assert result.get("status") == "interrupted"
     assert int(result.get("max_network_calls", 0)) == 7
-
-    run_finished_events = [e for e in logger.events if e.get("event_type") == "run_finished"]
-    assert len(run_finished_events) == 1
-    assert run_finished_events[0]["result"]["status"] == "interrupted"

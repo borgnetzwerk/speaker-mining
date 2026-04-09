@@ -520,7 +520,6 @@ def _select_programs(programs: pd.DataFrame, max_programs: int | None) -> pd.Dat
 def run_fernsehserien_extraction_phase(
     *,
     config: FernsehserienRunConfig,
-    notebook_logger=None,
     heartbeat_callback=None,
 ) -> dict:
     """Run extraction/discovery phase and emit *_discovered events."""
@@ -537,7 +536,6 @@ def run_fernsehserien_extraction_phase(
         config=config,
         paths=paths,
         event_store=event_store,
-        notebook_logger=notebook_logger,
     )
     _log_timing(phase="extraction", step="fetcher init", started_at=t_fetcher_init)
 
@@ -910,9 +908,8 @@ def run_fernsehserien_extraction_phase(
         event_store.close()
 
 
-def run_fernsehserien_normalization_phase(*, config: FernsehserienRunConfig, notebook_logger=None, heartbeat_callback=None) -> dict:
+def run_fernsehserien_normalization_phase(*, config: FernsehserienRunConfig, heartbeat_callback=None) -> dict:
     """Normalize discovered events and emit *_normalized events only."""
-    del notebook_logger
     repo_root = Path(config.repo_root)
     paths = FernsehserienPaths(repo_root=repo_root)
     paths.ensure()
@@ -986,16 +983,14 @@ def run_fernsehserien_normalization_phase(*, config: FernsehserienRunConfig, not
         event_store.close()
 
 
-def run_fernsehserien_pipeline(*, config: FernsehserienRunConfig, notebook_logger=None, heartbeat_callback=None) -> dict:
+def run_fernsehserien_pipeline(*, config: FernsehserienRunConfig, heartbeat_callback=None) -> dict:
     """Run extraction then normalization phases."""
     extraction = run_fernsehserien_extraction_phase(
         config=config,
-        notebook_logger=notebook_logger,
         heartbeat_callback=heartbeat_callback,
     )
     normalization = run_fernsehserien_normalization_phase(
         config=config,
-        notebook_logger=notebook_logger,
         heartbeat_callback=heartbeat_callback,
     )
 

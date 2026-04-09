@@ -63,12 +63,10 @@ class FernsehserienFetcher:
         config: FernsehserienRunConfig,
         paths: FernsehserienPaths,
         event_store: FernsehserienEventStore,
-        notebook_logger=None,
     ) -> None:
         self.config = config
         self.paths = paths
         self.event_store = event_store
-        self.notebook_logger = notebook_logger
         self._network_calls_used = 0
         self._last_call_monotonic: float | None = None
 
@@ -79,31 +77,6 @@ class FernsehserienFetcher:
     def _cache_path_for_url(self, url: str) -> Path:
         key = hashlib.md5(url.encode("utf-8")).hexdigest()
         return self.paths.cache_pages_dir / f"{key}.html"
-
-    def _emit_notebook_event(self, *, event_type: str, phase: str, message: str, decision: str, endpoint: str, request_kind: str, queries_before: int, queries_after: int, result: dict | None = None) -> None:
-        if self.notebook_logger is None:
-            return
-        self.notebook_logger.append_event(
-            event_type=event_type,
-            phase=phase,
-            message=message,
-            network={
-                "endpoint": endpoint,
-                "request_kind": request_kind,
-                "decision": decision,
-            },
-            rate_limit={
-                "query_delay_seconds_configured": float(self.config.query_delay_seconds),
-                "query_delay_seconds_effective": float(self.config.query_delay_seconds),
-                "backoff_factor": 1.0,
-            },
-            budget={
-                "max_queries_per_run": int(self.config.max_network_calls),
-                "queries_used_before": int(queries_before),
-                "queries_used_after": int(queries_after),
-            },
-            result=result if isinstance(result, dict) else None,
-        )
 
     def _sleep_if_needed(self) -> None:
         if self._last_call_monotonic is None:
@@ -132,17 +105,6 @@ class FernsehserienFetcher:
                     "fetched_at_utc": _iso_now(),
                 },
             )
-            self._emit_notebook_event(
-                event_type="network_decision",
-                phase=phase,
-                message="invalid URL; request skipped",
-                decision="skip_invalid_url",
-                endpoint="fernsehserien_http",
-                request_kind=request_kind,
-                queries_before=self._network_calls_used,
-                queries_after=self._network_calls_used,
-                result={"status": "invalid_url", "reason": reason, "source_event_sequence": int(event.get("sequence_num", 0))},
-            )
             return FetchResult(
                 url=str(url),
                 status="invalid_url",
@@ -166,17 +128,6 @@ class FernsehserienFetcher:
                     "request_kind": request_kind,
                 },
             )
-            self._emit_notebook_event(
-                event_type="network_decision",
-                phase=phase,
-                message="cache hit; network skipped",
-                decision="skip_cache_hit",
-                endpoint="fernsehserien_http",
-                request_kind=request_kind,
-                queries_before=self._network_calls_used,
-                queries_after=self._network_calls_used,
-                result={"status": "skipped", "source_event_sequence": int(event.get("sequence_num", 0))},
-            )
             return FetchResult(
                 url=normalized_url,
                 status="cache_hit",
@@ -188,17 +139,6 @@ class FernsehserienFetcher:
             )
 
         if (not self.config.allow_network) or self._is_budget_exhausted():
-            self._emit_notebook_event(
-                event_type="network_budget_blocked",
-                phase=phase,
-                message="network budget exhausted; request blocked",
-                decision="skip_budget",
-                endpoint="fernsehserien_http",
-                request_kind=request_kind,
-                queries_before=self._network_calls_used,
-                queries_after=self._network_calls_used,
-                result={"status": "skipped"},
-            )
             return FetchResult(
                 url=normalized_url,
                 status="budget_blocked",
@@ -208,17 +148,6 @@ class FernsehserienFetcher:
                 fetched_at_utc=_iso_now(),
                 http_status=None,
             )
-
-        self._emit_notebook_event(
-            event_type="network_decision",
-            phase=phase,
-            message="cache miss; network call scheduled",
-            decision="call",
-            endpoint="fernsehserien_http",
-            request_kind=request_kind,
-            queries_before=self._network_calls_used,
-            queries_after=self._network_calls_used,
-        )
 
         self._sleep_if_needed()
         started_at = time.monotonic()
@@ -244,17 +173,6 @@ class FernsehserienFetcher:
                     "fetched_at_utc": _iso_now(),
                     "network_call_index": self._network_calls_used + 1,
                 },
-            )
-            self._emit_notebook_event(
-                event_type="network_call_failed",
-                phase=phase,
-                message="network call failed",
-                decision="call",
-                endpoint="fernsehserien_http",
-                request_kind=request_kind,
-                queries_before=self._network_calls_used,
-                queries_after=self._network_calls_used,
-                result={"status": "error", "reason": reason, "source_event_sequence": int(event.get("sequence_num", 0))},
             )
             return FetchResult(
                 url=normalized_url,
@@ -283,22 +201,6 @@ class FernsehserienFetcher:
                 "content_sha1": content_sha1,
                 "fetched_at_utc": _iso_now(),
                 "network_call_index": self._network_calls_used,
-            },
-        )
-        self._emit_notebook_event(
-            event_type="network_call_finished",
-            phase=phase,
-            message="network call finished",
-            decision="call",
-            endpoint="fernsehserien_http",
-            request_kind=request_kind,
-            queries_before=self._network_calls_used - 1,
-            queries_after=self._network_calls_used,
-            result={
-                "status": "success",
-                "http_status": http_status,
-                "duration_ms": duration_ms,
-                "source_event_sequence": int(event.get("sequence_num", 0)),
             },
         )
 

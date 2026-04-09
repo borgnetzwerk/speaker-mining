@@ -6,9 +6,6 @@ import threading
 import time
 
 
-_FINISHED_RUN_IDS: set[tuple[str, str]] = set()
-
-
 def _build_heartbeat_printer() -> tuple[dict, callable]:
     heartbeat_state = {
         "network_calls_used": 0,
@@ -104,34 +101,8 @@ def _build_heartbeat_printer() -> tuple[dict, callable]:
     return heartbeat_state, heartbeat_printer
 
 
-def _emit_run_finished_once(*, logger, final_result: dict, status: str = "success", message: str = "notebook run finished") -> bool:
-    key = (str(logger.notebook_id), str(logger.run_id))
-    if key in _FINISHED_RUN_IDS:
-        return False
-
-    logger.append_event(
-        event_type="run_finished",
-        phase="run_lifecycle",
-        message=message,
-        budget={
-            "max_queries_per_run": int(final_result.get("max_network_calls", 0)),
-            "queries_used_after": int(final_result.get("network_calls_used", 0)),
-        },
-        result={
-            "programs_processed": int(final_result.get("programs_processed", 0)),
-            "network_calls_used": int(final_result.get("network_calls_used", 0)),
-            "max_network_calls": int(final_result.get("max_network_calls", 0)),
-            "normalized_events_emitted": int(final_result.get("normalized_events_emitted", 0)),
-            "checkpoint_manifest_path": str(final_result.get("checkpoint_manifest_path", "")),
-            "status": status,
-        },
-    )
-    _FINISHED_RUN_IDS.add(key)
-    return True
-
-
-def run_pipeline_with_notebook_heartbeat(*, config, logger) -> dict:
-    """Run fernsehserien pipeline with notebook-friendly heartbeat and lifecycle logging."""
+def run_pipeline_with_notebook_heartbeat(*, config) -> dict:
+    """Run fernsehserien pipeline with notebook-friendly heartbeat output."""
     from . import event_store as fsd_event_store
     from . import fetcher as fsd_fetcher
     from . import orchestrator as fsd_orchestrator
@@ -184,13 +155,11 @@ def run_pipeline_with_notebook_heartbeat(*, config, logger) -> dict:
     )
 
     final_result: dict | None = None
-    interrupted = False
     try:
         workflow_started = time.monotonic()
         try:
             final_result = fsd_orchestrator.run_fernsehserien_pipeline(
                 config=config,
-                notebook_logger=logger,
                 heartbeat_callback=heartbeat_printer,
             )
             print(
@@ -198,7 +167,6 @@ def run_pipeline_with_notebook_heartbeat(*, config, logger) -> dict:
                 flush=True,
             )
         except KeyboardInterrupt:
-            interrupted = True
             print("[heartbeat] interrupt received; stopping gracefully", flush=True)
             final_result = {
                 "phase": "pipeline",
@@ -222,15 +190,5 @@ def run_pipeline_with_notebook_heartbeat(*, config, logger) -> dict:
         f"normalized_events_emitted={final_result.get('normalized_events_emitted', 0)}"
     )
     print(f"checkpoint_manifest_path={final_result.get('checkpoint_manifest_path', '')}")
-
-    if _emit_run_finished_once(
-        logger=logger,
-        final_result=final_result,
-        status="interrupted" if interrupted else "success",
-        message="notebook run interrupted" if interrupted else "notebook run finished",
-    ):
-        print("Lifecycle event emitted: run_finished")
-    else:
-        print("Lifecycle event already emitted for this run_id; skipping duplicate run_finished")
 
     return final_result
