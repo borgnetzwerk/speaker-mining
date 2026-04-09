@@ -12,8 +12,8 @@ This document describes current output contracts based on active notebooks and g
 
 1. `data/10_mention_detection/`
 2. `data/20_candidate_generation/`
-3. `data/30_entity_disambiguation/`
-4. `data/31_entity_deduplication/`
+3. `data/31_entity_disambiguation/` (Phase 31: Step 311 automated, Step 312 manual)
+4. `data/32_entity_deduplication/` (Phase 32: Step 321 automated, Step 322 manual)
 5. `data/40_link_prediction/`
 
 ## Phase 1: Mention Detection (`data/10_mention_detection`)
@@ -108,11 +108,11 @@ Operational semantics:
 2. `max_network_calls>0` is bounded network execution.
 3. `max_network_calls<0` is unlimited network execution.
 
-## Phase 3/4
+## Phase 31/32/40
 
 These phases are present in workflow structure but no stable, repository-wide schema contract is documented yet from generated files in this repository state.
 
-When Phase 3/4 schemas are finalized, extend this document and add explicit headers for each produced file.
+When Phase 31/32/40 schemas are finalized, extend this document and add explicit headers for each produced file.
 
 ## Phase 2 Wikidata Graph Store (Canonical v3 Contract)
 

@@ -24,8 +24,8 @@ Active notebook implementation order:
 Placeholder notebooks (not implemented yet):
 
 1. `speakermining/src/process/notebooks/23_candidate_generation_other.ipynb`
-2. `speakermining/src/process/notebooks/30_entity_disambiguation.ipynb`
-3. `speakermining/src/process/notebooks/31_entity_deduplication.ipynb`
+2. `speakermining/src/process/notebooks/31_entity_disambiguation.ipynb`
+3. `speakermining/src/process/notebooks/32_entity_deduplication.ipynb`
 4. `speakermining/src/process/notebooks/40_link_prediction.ipynb`
 
 Historical notebook (legacy placeholder):
@@ -56,13 +56,19 @@ Institutions are currently documented as deferred from active Phase 1 outputs.
 
 Loads setup and Phase 1 outputs, then creates lookup/context tables and candidate tables under `data/20_candidate_generation`.
 
-### Phase 3.1: Entity Disambiguation
+### Phase 31: Disambiguation
 
-Manual decisions over candidate entities in `data/30_entity_disambiguation`.
+Two-step model in `data/31_entity_disambiguation`:
 
-### Phase 3.2: Entity Deduplication
+1. Step 311: automated bootstrap by `31_entity_disambiguation.ipynb` (single `Run All`) producing deterministic alignment handoff tables.
+2. Step 312: human reconciliation outside notebook runtime (for example OpenRefine) over those produced tables.
 
-Manual decisions over duplicate entity records in `data/31_entity_deduplication`.
+### Phase 32: Deduplication
+
+Two-step model in `data/32_entity_deduplication`:
+
+1. Step 321: automated deduplication preparation/recommendation.
+2. Step 322: manual validation and merge decisions.
 
 ### Phase 4: Link Prediction
 
@@ -74,14 +80,14 @@ Each phase reads upstream data and writes only inside its owned folder:
 
 1. P1 writes only to `data/10_mention_detection/`
 2. P2 writes only to `data/20_candidate_generation/`
-3. P3.1 writes only to `data/30_entity_disambiguation/`
-4. P3.2 writes only to `data/31_entity_deduplication/`
+3. P31 (Steps 311/312) writes only to `data/31_entity_disambiguation/`
+4. P32 (Steps 321/322) writes only to `data/32_entity_deduplication/`
 5. P4 writes only to `data/40_link_prediction/`
 
 ## Human-In-The-Loop Policy
 
-1. Entity disambiguation is manual.
-2. Entity deduplication is manual.
+1. Phase 31 starts with a fully automated deterministic bootstrap run in notebook 31 (Step 311).
+2. Human-in-the-loop applies to Step 312 reconciliation and Step 322 deduplication validation.
 3. Downstream phases must not treat unresolved manual decisions as final truth.
 
 ## Candidate Source Priority

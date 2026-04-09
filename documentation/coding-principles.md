@@ -104,6 +104,19 @@ Governance reference model:
 5. `findings.md` is the authoritative source for aggregated analysis and evidence.
 6. If a governed topic is mentioned in another document, reference its authoritative file instead of duplicating long operational lists.
 
+## Phase Naming Convention
+
+1. Use numeric domain phases for human-readable workflow grouping:
+	- `Phase 31`: disambiguation
+	- `Phase 32`: deduplication
+2. Use numeric substeps for execution ownership, not letter suffixes:
+	- `311` automated disambiguation
+	- `312` manual disambiguation reconciliation
+	- `321` automated deduplication
+	- `322` manual deduplication validation
+3. Keep naming stable across `workflow.md`, `contracts.md`, notebook markdown headings, and phase-specific docs.
+4. Preserve existing folder ownership boundaries unless an explicit migration task is approved; naming changes alone do not imply folder renames.
+
 ## Minimal Quality Checklist For Contributions
 
 1. Notebook paths and order still valid.
