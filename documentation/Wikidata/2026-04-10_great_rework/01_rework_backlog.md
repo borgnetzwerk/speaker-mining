@@ -2,6 +2,11 @@
 
 Date: 2026-04-09
 
+Note:
+
+1. This file is a retained source inventory.
+2. Canonical planning and execution order lives in `documentation/Wikidata/2026-04-10_great_rework/00_master_rework_map.md`.
+
 ## Priority Legend
 
 - P0: blocks safe high-volume rerun
@@ -122,13 +127,69 @@ Acceptance:
 2. Decision record and implementation.
 3. Tests/documentation aligned to final lifecycle.
 
+### GRW-009 (P1): Context-aware fallback for unknown strings
+
+Origin: rework intake 2026-04-09
+
+Goal:
+
+- Add a faster, class-scoped candidate acquisition path for long unknown-string sets, especially when the class is already known but the Wikidata match is not.
+
+Acceptance:
+
+1. Identify at least one class-scoped retrieval strategy that reduces pressure compared with the current fallback string matching stage.
+2. Define how the known class context is supplied to the lookup path and how the result re-enters graph expansion.
+3. Document when SPARQL-style or equivalent class-aware queries should be preferred over generic fallback matching.
+
+### GRW-010 (P1): Notebook architecture reconsideration and consolidation
+
+Origin: rework intake 2026-04-09
+
+Goal:
+
+- Re-evaluate the notebook structure as a whole and allow major consolidation, including the possibility of collapsing currently scattered orchestration into fewer cells when that improves clarity, maintainability, or event-sourcing alignment.
+
+Acceptance:
+
+1. Define the notebook-architecture principles that justify consolidation or decomposition.
+2. Identify which existing cells remain essential and which can be deprecated or merged once full event-sourcing potential is in place.
+3. Establish a decision path for future restructuring so large-scale redesign is treated as an explicit rework option, not an exception.
+
+### GRW-011 (P1): Recover subclass logic from reverse-engineered class hierarchy
+
+Origin: reverse_engineering_potential/class_hierarchy.csv
+
+Goal:
+
+- Reconstruct the lost subclass and lineage logic from preserved reverse-engineering artifacts so class-aware eligibility, rollups, and context-scoped retrieval can rely on a locally derivable hierarchy instead of ad hoc checks.
+
+Acceptance:
+
+1. Derive subclass closure and `path_to_core_class` behavior from the reverse-engineering hierarchy evidence.
+2. Reconcile recovered lineage with the normative Wikidata contracts before any rewrite of runtime behavior.
+3. Document exactly which old subclass logic is recovered, which parts remain intentionally deprecated, and which gaps still require live Wikidata evidence.
+
+Implementation detail plan:
+
+1. `documentation/Wikidata/2026-04-10_great_rework/05_grw_011_lineage_recovery_implementation_plan.md`
+
 ## Suggested Execution Order
 
-1. GRW-006
-2. GRW-005
-3. GRW-004
-4. GRW-003
-5. GRW-007
-6. GRW-008
+1. GRW-011
+2. GRW-006
+3. GRW-005
+4. GRW-009
+5. GRW-004
+6. GRW-003
 7. GRW-002
 8. GRW-001
+9. GRW-007
+10. GRW-008
+11. GRW-010
+
+## Cross-Pipeline Input
+
+Implementation patterns reusable from fernsehserien_de are documented in:
+
+- `documentation/Wikidata/2026-04-10_great_rework/03_fernsehserien_de_event_learnings.md`
+- `documentation/Wikidata/2026-04-10_great_rework/04_fernsehserien_transfer_execution_plan.md`

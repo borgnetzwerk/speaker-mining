@@ -3,6 +3,11 @@
 Date: 2026-04-09
 Source: open git changes and current runtime/test updates
 
+Note:
+
+1. This file is a retained source inventory.
+2. Canonical planning and execution order lives in `documentation/Wikidata/2026-04-10_great_rework/00_master_rework_map.md`.
+
 ## Findings To Track In Great Rework
 
 ### FND-001 (P0): Notebook text encoding corruption in tracked notebook JSON
