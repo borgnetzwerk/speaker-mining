@@ -3,6 +3,7 @@ from __future__ import annotations
 # pyright: reportMissingImports=false
 
 from pathlib import Path
+import json
 
 import pandas as pd
 
@@ -43,6 +44,8 @@ def test_empty_target_bootstraps_required_tree(tmp_path: Path) -> None:
     assert (paths.projections_dir / "instances_core_episodes.csv").exists()
     assert (paths.projections_dir / "instances_core_persons.parquet").exists()
     assert (paths.projections_dir / "instances_core_episodes.parquet").exists()
+    assert json.loads((paths.projections_dir / "persons.json").read_text(encoding="utf-8")) == {}
+    assert json.loads((paths.projections_dir / "episodes.json").read_text(encoding="utf-8")) == {}
     assert not paths.entities_json.exists()
     assert not paths.properties_json.exists()
     assert not paths.triples_events_json.exists()

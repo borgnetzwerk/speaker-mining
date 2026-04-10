@@ -24,6 +24,7 @@ from process.io_guardrails import atomic_write_csv, atomic_write_parquet, atomic
 from .contact_loader import load_contact_info, format_contact_info_for_user_agent
 from .common import canonical_qid, normalize_query_budget
 from .event_log import get_query_event_field, iter_query_events
+from .graceful_shutdown import should_terminate
 
 
 WIKIDATA_API_BASE = "https://www.wikidata.org/wiki/Special:EntityData"
@@ -354,6 +355,8 @@ def _http_get_json(
 		backoff_base_seconds = max(0.0, float(backoff_base_seconds))
 
 	for attempt in range(max_retries + 1):
+		if should_terminate():
+			raise RuntimeError("Termination requested")
 		max_queries = normalize_query_budget(_REQUEST_CONTEXT.get("budget_remaining", 0))
 		used_queries = int(_REQUEST_CONTEXT.get("network_queries", 0))
 		endpoint, request_kind, query_hash, entity_qid = _infer_network_metadata(url)
@@ -587,6 +590,8 @@ def _http_get_json(
 					},
 				},
 			)
+			if should_terminate():
+				raise RuntimeError("Termination requested")
 			time.sleep(sleep_seconds)
 
 	# Defensive fallback (unreachable under normal flow)

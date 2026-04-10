@@ -20,7 +20,7 @@ In scope:
 
 1. enforce and test the two-hop discovery boundary in output materialization
 2. align output schema fields across all core classes
-3. validate CSV and Parquet parity for the same output family
+3. Validate JSON handoff structure plus CSV and Parquet compatibility outputs for the same output family.
 4. document schema stability expectations
 
 Out of scope:

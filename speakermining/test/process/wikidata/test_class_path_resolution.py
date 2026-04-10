@@ -3,6 +3,7 @@ from __future__ import annotations
 # pyright: reportMissingImports=false
 
 from pathlib import Path
+import json
 
 import pandas as pd
 
@@ -322,19 +323,29 @@ def test_materializer_writes_per_core_and_leftovers_projections(tmp_path: Path) 
 
     persons_core_projection = paths.projections_dir / "instances_core_persons.csv"
     episodes_core_projection = paths.projections_dir / "instances_core_episodes.csv"
+    persons_core_json = paths.projections_dir / "persons.json"
+    episodes_core_json = paths.projections_dir / "episodes.json"
     leftovers_projection = paths.instances_leftovers_csv
 
     assert persons_core_projection.exists()
     assert episodes_core_projection.exists()
+    assert persons_core_json.exists()
+    assert episodes_core_json.exists()
     assert leftovers_projection.exists()
 
     persons_df = pd.read_csv(persons_core_projection)
     episodes_df = pd.read_csv(episodes_core_projection)
     leftovers_df = pd.read_csv(leftovers_projection)
+    persons_json = json.loads(persons_core_json.read_text(encoding="utf-8"))
+    episodes_json = json.loads(episodes_core_json.read_text(encoding="utf-8"))
 
     assert set(persons_df["id"].tolist()) == {"Q100"}
     assert episodes_df.empty
     assert set(leftovers_df["id"].tolist()) == {"Q300"}
+    assert set(persons_json.keys()) == {"Q100"}
+    assert persons_json["Q100"]["id"] == "Q100"
+    assert persons_json["Q100"]["claims"]["P31"][0]["mainsnak"]["datavalue"]["value"]["id"] == "Q5"
+    assert episodes_json == {}
 
 
 def test_materializer_core_projections_enforce_two_hop_boundary(tmp_path: Path) -> None:

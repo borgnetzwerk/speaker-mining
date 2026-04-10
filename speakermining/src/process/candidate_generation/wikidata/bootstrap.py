@@ -7,7 +7,12 @@ import pandas as pd
 
 from .cache import _atomic_write_df, _atomic_write_parquet_df, _atomic_write_text
 from .common import language_projection_suffix, projection_languages
-from .schemas import build_artifact_paths, canonical_class_filename, core_instances_projection_filename
+from .schemas import (
+    build_artifact_paths,
+    canonical_class_filename,
+    core_instances_json_filename,
+    core_instances_projection_filename,
+)
 
 _QID_RE = re.compile(r"^Q[1-9][0-9]*$")
 
@@ -17,6 +22,11 @@ def _empty_csv(path: Path, columns: list[str]) -> None:
         empty_df = pd.DataFrame(columns=columns)
         _atomic_write_df(path, empty_df)
         _atomic_write_parquet_df(path.with_suffix(".parquet"), empty_df)
+
+
+def _empty_json_object(path: Path) -> None:
+    if not path.exists():
+        _atomic_write_text(path, "{}")
 
 
 def _load_class_setup_rows(repo_root: Path, setup_filename: str) -> list[dict]:
@@ -154,12 +164,15 @@ def ensure_output_bootstrap(repo_root: Path) -> None:
     )
     core_rows = load_core_classes(repo_root)
     active_core_projection_files: set[str] = set()
+    active_core_json_files: set[str] = set()
     for row in core_rows:
         class_filename = str(row.get("filename", "") or "")
         if not class_filename:
             continue
         projection_name = core_instances_projection_filename(class_filename)
+        json_name = core_instances_json_filename(class_filename)
         active_core_projection_files.add(projection_name)
+        active_core_json_files.add(json_name)
         _empty_csv(
             paths.projections_dir / projection_name,
             [
@@ -175,12 +188,25 @@ def ensure_output_bootstrap(repo_root: Path) -> None:
                 "expanded_at_utc",
             ],
         )
+        _empty_json_object(paths.projections_dir / json_name)
+    stale_core_json_names: set[str] = set()
+    for core_projection_path in paths.projections_dir.glob("instances_core_*.csv"):
+        name = core_projection_path.name
+        if name.startswith("instances_core_") and name.endswith(".csv"):
+            class_filename = name[len("instances_core_") : -len(".csv")]
+            stale_core_json_names.add(core_instances_json_filename(class_filename))
     for core_projection_path in paths.projections_dir.glob("instances_core_*.csv"):
         if core_projection_path.name not in active_core_projection_files and core_projection_path.is_file():
             core_projection_path.unlink()
         core_projection_parquet = core_projection_path.with_suffix(".parquet")
         if core_projection_path.name not in active_core_projection_files and core_projection_parquet.is_file():
             core_projection_parquet.unlink()
+    for stale_json_name in sorted(stale_core_json_names):
+        if stale_json_name in active_core_json_files:
+            continue
+        stale_json_path = paths.projections_dir / stale_json_name
+        if stale_json_path.is_file():
+            stale_json_path.unlink()
     _empty_csv(paths.properties_csv, ["id", *label_columns, *description_columns, *alias_columns])
     active_alias_files: set[str] = set()
     for suffix in language_suffixes:

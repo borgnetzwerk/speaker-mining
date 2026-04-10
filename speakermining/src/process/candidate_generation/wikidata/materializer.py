@@ -30,6 +30,7 @@ from .event_log import get_query_event_field, get_query_event_response_data, ite
 from .node_store import flush_node_store, iter_items, iter_properties
 from .query_inventory import materialize_query_inventory
 from .schemas import build_artifact_paths
+from .schemas import core_instances_json_filename
 from .schemas import core_instances_projection_filename
 from .triple_store import flush_triple_events, iter_unique_triples
 
@@ -536,16 +537,26 @@ def _resolve_row_core_class_id(row: pd.Series, core_class_qids: set[str]) -> str
 
 def _remove_stale_core_instance_projections(paths, active_projection_files: set[str]) -> None:
     for projection_path in paths.projections_dir.glob("instances_core_*.csv"):
-        if projection_path.name not in active_projection_files and projection_path.is_file():
+        is_active = projection_path.name in active_projection_files
+        if not is_active and projection_path.is_file():
             projection_path.unlink()
         projection_parquet = projection_path.with_suffix(".parquet")
-        if projection_path.name not in active_projection_files and projection_parquet.is_file():
+        if not is_active and projection_parquet.is_file():
             projection_parquet.unlink()
+        if projection_path.name.startswith("instances_core_") and projection_path.name.endswith(".csv"):
+            class_filename = projection_path.name[len("instances_core_") : -len(".csv")]
+            legacy_json_path = paths.projections_dir / core_instances_json_filename(class_filename)
+            if not is_active and legacy_json_path.is_file():
+                legacy_json_path.unlink()
 
 
 def _write_tabular_artifact(csv_path: Path, df: pd.DataFrame) -> None:
     _atomic_write_df(csv_path, df)
     _atomic_write_parquet_df(csv_path.with_suffix(".parquet"), df)
+
+
+def _write_json_object_artifact(json_path: Path, payload: dict) -> None:
+    _atomic_write_text(json_path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
 
 
 def _resolve_chunk_max_bytes() -> int:
@@ -852,6 +863,12 @@ def _write_core_instance_projections(paths, instances_df: pd.DataFrame, class_hi
         lambda row: _resolve_row_core_class_id(row, core_class_qids), axis=1
     )
 
+    entity_by_qid = {
+        canonical_qid(str(item.get("id", "") or "")): item
+        for item in iter_items(repo_root)
+        if canonical_qid(str(item.get("id", "") or ""))
+    }
+
     core_rows = load_core_classes(repo_root)
     active_projection_files: set[str] = set()
     for row in core_rows:
@@ -861,12 +878,19 @@ def _write_core_instance_projections(paths, instances_df: pd.DataFrame, class_hi
             continue
         projection_name = core_instances_projection_filename(class_filename)
         projection_path = paths.projections_dir / projection_name
+        json_path = paths.projections_dir / core_instances_json_filename(class_filename)
         active_projection_files.add(projection_name)
         core_projection_df = non_class_instances_df[non_class_instances_df["resolved_core_class_id"] == core_qid].copy()
         if "resolved_core_class_id" in core_projection_df.columns:
             core_projection_df = core_projection_df.drop(columns=["resolved_core_class_id"])
         core_projection_df = core_projection_df.sort_values("id").reset_index(drop=True)
         _write_tabular_artifact(projection_path, core_projection_df)
+        core_json_payload = {
+            qid: entity_by_qid[qid]
+            for qid in core_projection_df["id"].tolist()
+            if qid in entity_by_qid
+        }
+        _write_json_object_artifact(json_path, core_json_payload)
         projection_row_counts[projection_name] = int(len(core_projection_df))
 
     leftovers_df = non_class_instances_df[non_class_instances_df["resolved_core_class_id"] == ""].copy()

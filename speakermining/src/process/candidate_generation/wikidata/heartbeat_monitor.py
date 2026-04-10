@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import signal
 import threading
 from pathlib import Path
 
 from process.notebook_event_log import NOTEBOOK_21_ID, get_or_create_notebook_logger
+from .graceful_shutdown import request_termination, reset_termination_flag
 from .phase_contracts import PhaseContract, phase_contract_payload, phase_outcome_payload
 
 
@@ -45,6 +47,21 @@ def run_with_progress_heartbeat(
         input_contract=f"{work_label}:inputs",
         output_contract=f"{work_label}:outputs",
     )
+    terminal_status = "completed"
+
+    # Keep previous handlers so notebook-local wiring remains reversible.
+    previous_sigint = signal.getsignal(signal.SIGINT)
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+
+    def _interrupt_handler(signum, frame) -> None:
+        _ = frame
+        request_termination()
+        logger.append_event(
+            event_type="interrupt_requested",
+            phase=phase,
+            message=f"interrupt signal received ({signum}); requesting graceful stop",
+            extra={"phase_contract": phase_contract_payload(contract)},
+        )
 
     def _pump() -> None:
         logger.append_event(
@@ -72,8 +89,12 @@ def run_with_progress_heartbeat(
     thread = threading.Thread(target=_pump, name=f"{phase}_heartbeat", daemon=True)
     thread.start()
     try:
+        reset_termination_flag()
+        signal.signal(signal.SIGINT, _interrupt_handler)
+        signal.signal(signal.SIGTERM, _interrupt_handler)
         return work_fn()
     except KeyboardInterrupt:
+        terminal_status = "interrupted"
         logger.append_event(
             event_type="phase_interrupted",
             phase=phase,
@@ -91,6 +112,10 @@ def run_with_progress_heartbeat(
         )
         raise
     except Exception as exc:
+        if "Termination requested" in str(exc):
+            terminal_status = "interrupted"
+        else:
+            terminal_status = "failed"
         logger.append_event(
             event_type="phase_failed",
             phase=phase,
@@ -113,6 +138,8 @@ def run_with_progress_heartbeat(
         )
         raise
     finally:
+        signal.signal(signal.SIGINT, previous_sigint)
+        signal.signal(signal.SIGTERM, previous_sigterm)
         stop_event.set()
         thread.join(timeout=interval_seconds + 1)
         final_heartbeat = emit_event_derived_heartbeat(repo_root, phase=phase, window_size=window_size)
@@ -126,7 +153,7 @@ def run_with_progress_heartbeat(
                 "phase_outcome": phase_outcome_payload(
                     phase=phase,
                     work_label=work_label,
-                    status="completed",
+                    status=terminal_status,
                     details={"final_heartbeat": final_heartbeat},
                 ),
             },

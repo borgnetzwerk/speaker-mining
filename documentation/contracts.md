@@ -191,10 +191,11 @@ Legacy note:
 15. `instances_leftovers.csv`: same columns as `instances.csv`; contains non-class rows with no resolved core-class mapping
 	- Parquet sidecar: `instances_leftovers.parquet`
 
-Per-core projection note:
+Per-core handoff note:
 
-1. `instances_core_<core_filename>.csv` uses the same schema as `instances.csv` and contains non-class rows mapped to the corresponding core class.
-	- Parquet sidecar: `instances_core_<core_filename>.parquet`
+1. `instances_core_<core_filename>.json` is the primary handoff for future phases. It is a QID-keyed object whose values are the full entity payloads we have for that core class.
+	- CSV compatibility sidecar: `instances_core_<core_filename>.csv`
+	- Parquet compatibility sidecar: `instances_core_<core_filename>.parquet`
 
 Lazy sidecar note:
 

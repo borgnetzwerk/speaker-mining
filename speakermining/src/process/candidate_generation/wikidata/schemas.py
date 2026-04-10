@@ -73,6 +73,10 @@ def core_instances_projection_filename(class_filename: str) -> str:
     return f"instances_core_{canonical_class_filename(class_filename)}.csv"
 
 
+def core_instances_json_filename(class_filename: str) -> str:
+    return f"{canonical_class_filename(class_filename)}.json"
+
+
 def canonical_class_filename(name: str) -> str:
     token = str(name or "").strip().lower().replace(" ", "_")
     if token == "organisations":
