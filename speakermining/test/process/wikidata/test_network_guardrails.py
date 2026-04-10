@@ -2,9 +2,14 @@ from __future__ import annotations
 
 # pyright: reportMissingImports=false
 
+from pathlib import Path
+
+import pandas as pd
 import pytest
 
 from process.candidate_generation.wikidata.cache import (
+    _atomic_write_df,
+    _atomic_write_text,
     _http_get_json,
     begin_request_context,
     end_request_context,
@@ -171,3 +176,40 @@ def test_http_uses_request_context_retry_defaults(monkeypatch) -> None:
     assert payload.get("ok") is True
     assert attempts["count"] == 2
     assert used == 2
+
+
+def test_atomic_write_df_skips_identical_csv_rewrites(tmp_path: Path, monkeypatch) -> None:
+    output_path = tmp_path / "projection.csv"
+    df = pd.DataFrame([
+        {"id": "Q1", "label": "Alpha"},
+        {"id": "Q2", "label": "Beta"},
+    ])
+
+    _atomic_write_df(output_path, df)
+    before_text = output_path.read_text(encoding="utf-8")
+
+    def _forbidden_replace(self, target):
+        raise AssertionError("identical CSV rewrites should not rename the file")
+
+    monkeypatch.setattr(Path, "replace", _forbidden_replace, raising=False)
+
+    _atomic_write_df(output_path, df)
+
+    assert output_path.read_text(encoding="utf-8") == before_text
+
+
+def test_atomic_write_text_skips_identical_rewrites(tmp_path: Path, monkeypatch) -> None:
+    output_path = tmp_path / "summary.json"
+    text = '{"a":1}'
+
+    _atomic_write_text(output_path, text)
+    before_text = output_path.read_text(encoding="utf-8")
+
+    def _forbidden_replace(self, target):
+        raise AssertionError("identical text rewrites should not rename the file")
+
+    monkeypatch.setattr(Path, "replace", _forbidden_replace, raising=False)
+
+    _atomic_write_text(output_path, text)
+
+    assert output_path.read_text(encoding="utf-8") == before_text

@@ -60,17 +60,17 @@ def test_node_store_defers_writes_until_flush(tmp_path: Path, monkeypatch) -> No
 
     node_store.flush_node_store(tmp_path)
 
-    assert writes == ["entities.json"]
+    assert writes == ["entity_store.jsonl"]
 
 
 def test_triple_store_defers_writes_until_flush(tmp_path: Path, monkeypatch) -> None:
     writes: list[str] = []
 
-    def _fake_atomic_write_text(path: Path, text: str) -> None:
-        _ = text
+    def _fake_atomic_write_df(path: Path, df) -> None:
+        _ = df
         writes.append(Path(path).name)
 
-    monkeypatch.setattr(triple_store, "_atomic_write_text", _fake_atomic_write_text)
+    monkeypatch.setattr(triple_store, "_atomic_write_df", _fake_atomic_write_df)
 
     triple_store.record_item_edges(
         tmp_path,
@@ -91,7 +91,7 @@ def test_triple_store_defers_writes_until_flush(tmp_path: Path, monkeypatch) -> 
 
     triple_store.flush_triple_events(tmp_path)
 
-    assert writes == ["triple_events.json"]
+    assert writes == ["triples.csv"]
 
 
 def test_triple_store_emits_triple_discovered_events(tmp_path: Path) -> None:

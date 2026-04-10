@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # pyright: reportMissingImports=false
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -352,3 +353,194 @@ def test_orchestrator_replay_after_domain_only_events_keeps_projections_stable(t
     assert before_instances == _normalized_records(paths.instances_csv)
     assert before_classes == _normalized_records(paths.classes_csv)
     assert before_triples == _normalized_records(paths.triples_csv)
+
+
+def test_orchestrator_writes_handler_run_summary_artifact(tmp_path: Path) -> None:
+    store = EventStore(tmp_path)
+    _append_entity_event(
+        store,
+        "Q1",
+        {
+            "id": "Q1",
+            "labels": {"en": {"value": "Node 1"}},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {},
+        },
+        "A",
+    )
+
+    run_handlers(tmp_path)
+
+    paths = build_artifact_paths(tmp_path)
+    latest_summary = paths.wikidata_dir / "handler_runs" / "handler_run_summary_latest.json"
+    assert latest_summary.exists()
+
+    payload = json.loads(latest_summary.read_text(encoding="utf-8"))
+    assert isinstance(payload.get("handler_stats"), list)
+    assert payload.get("run_timestamp_utc")
+    assert any(row.get("handler_name") == "InstancesHandler" for row in payload.get("handler_stats", []))
+
+
+def test_orchestrator_prunes_stale_registry_handlers(tmp_path: Path) -> None:
+    paths = build_artifact_paths(tmp_path)
+    registry_path = paths.wikidata_dir / "eventhandler.csv"
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text(
+        "handler_name,last_processed_sequence,artifact_path,updated_at\n"
+        "StaleHandler,42,stale.csv,2026-04-09T10:00:00Z\n",
+        encoding="utf-8",
+    )
+
+    store = EventStore(tmp_path)
+    _append_entity_event(
+        store,
+        "Q1",
+        {
+            "id": "Q1",
+            "labels": {"en": {"value": "Node 1"}},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {},
+        },
+        "A",
+    )
+
+    run_handlers(tmp_path)
+
+    registry_df = pd.read_csv(registry_path)
+    assert "StaleHandler" not in set(registry_df["handler_name"])
+
+
+def test_orchestrator_incremental_mode_skips_materialize_when_no_pending(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    store = EventStore(tmp_path)
+    _append_entity_event(
+        store,
+        "Q1",
+        {
+            "id": "Q1",
+            "labels": {"en": {"value": "Node 1"}},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {},
+        },
+        "A",
+    )
+
+    run_handlers(tmp_path)
+
+    def _forbidden_materialize(*_args, **_kwargs):
+        raise AssertionError("materialize must be skipped in incremental mode when no events are pending")
+
+    monkeypatch.setattr(
+        "process.candidate_generation.wikidata.handlers.instances_handler.InstancesHandler.materialize",
+        _forbidden_materialize,
+    )
+
+    summary = run_handlers(tmp_path)
+    assert int(summary["InstancesHandler"]) >= 1
+
+    latest_summary_path = (
+        build_artifact_paths(tmp_path).wikidata_dir / "handler_runs" / "handler_run_summary_latest.json"
+    )
+    payload = json.loads(latest_summary_path.read_text(encoding="utf-8"))
+    assert payload.get("materialization_mode") == "incremental"
+    instance_row = next(
+        row for row in payload.get("handler_stats", []) if row.get("handler_name") == "InstancesHandler"
+    )
+    assert instance_row.get("materialization_status") == "skipped_up_to_date"
+
+
+def test_orchestrator_full_rebuild_materializes_when_no_pending(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    store = EventStore(tmp_path)
+    _append_entity_event(
+        store,
+        "Q1",
+        {
+            "id": "Q1",
+            "labels": {"en": {"value": "Node 1"}},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {},
+        },
+        "A",
+    )
+
+    run_handlers(tmp_path)
+
+    from process.candidate_generation.wikidata.handlers.instances_handler import InstancesHandler
+
+    original_materialize = InstancesHandler.materialize
+    calls = {"count": 0}
+
+    def _counting_materialize(self, output_path):
+        calls["count"] += 1
+        return original_materialize(self, output_path)
+
+    monkeypatch.setattr(InstancesHandler, "materialize", _counting_materialize)
+
+    summary = run_handlers(tmp_path, materialization_mode="full_rebuild")
+
+    assert int(summary["InstancesHandler"]) >= 1
+    assert calls["count"] >= 1
+
+    latest_summary_path = (
+        build_artifact_paths(tmp_path).wikidata_dir / "handler_runs" / "handler_run_summary_latest.json"
+    )
+    payload = json.loads(latest_summary_path.read_text(encoding="utf-8"))
+    assert payload.get("materialization_mode") == "full_rebuild"
+    instance_row = next(
+        row for row in payload.get("handler_stats", []) if row.get("handler_name") == "InstancesHandler"
+    )
+    assert instance_row.get("materialization_status") == "materialized_no_pending"
+
+
+def test_orchestrator_incremental_pending_run_uses_projection_bootstrap(tmp_path: Path) -> None:
+    store = EventStore(tmp_path)
+    _append_entity_event(
+        store,
+        "Q1",
+        {
+            "id": "Q1",
+            "labels": {"en": {"value": "Node 1"}},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {},
+        },
+        "A",
+    )
+    run_handlers(tmp_path)
+
+    _append_entity_event(
+        store,
+        "Q2",
+        {
+            "id": "Q2",
+            "labels": {"en": {"value": "Node 2"}},
+            "descriptions": {},
+            "aliases": {},
+            "claims": {},
+        },
+        "B",
+    )
+
+    run_handlers(tmp_path)
+
+    paths = build_artifact_paths(tmp_path)
+    latest_summary = paths.wikidata_dir / "handler_runs" / "handler_run_summary_latest.json"
+    payload = json.loads(latest_summary.read_text(encoding="utf-8"))
+    instance_row = next(
+        row for row in payload.get("handler_stats", []) if row.get("handler_name") == "InstancesHandler"
+    )
+    assert int(instance_row.get("pending_events", 0)) >= 1
+    assert int(instance_row.get("historical_replay_events", 0)) == 0
+    assert instance_row.get("bootstrap_status") == "bootstrapped"
+
+    instances_df = pd.read_csv(paths.instances_csv)
+    assert set(instances_df["qid"]) == {"Q1", "Q2"}

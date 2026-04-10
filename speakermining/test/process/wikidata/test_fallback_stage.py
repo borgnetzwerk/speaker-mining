@@ -230,6 +230,172 @@ def test_fallback_discovers_candidates_via_endpoint_search(tmp_path: Path, monke
     assert result.fallback_candidates[0]["candidate_id"] == "Q1499182"
 
 
+def test_fallback_prefers_class_scoped_search_when_available(tmp_path: Path, monkeypatch) -> None:
+    calls = {"scoped": 0, "generic": 0}
+
+    def _fake_scoped_search(*args, **kwargs):
+        _ = (args, kwargs)
+        calls["scoped"] += 1
+        return {"search": [{"id": "Q1499182"}]}
+
+    def _fake_generic_search(*args, **kwargs):
+        _ = (args, kwargs)
+        calls["generic"] += 1
+        return {"search": []}
+
+    def _fake_fetch(*args, **kwargs):
+        _ = (args, kwargs)
+        return {
+            "entities": {
+                "Q1499182": {
+                    "id": "Q1499182",
+                    "labels": {"de": {"value": "Markus Lanz"}},
+                    "descriptions": {},
+                    "aliases": {},
+                    "claims": {
+                        "P31": [
+                            {
+                                "mainsnak": {
+                                    "datavalue": {
+                                        "value": {"entity-type": "item", "id": "Q215627"}
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                }
+            }
+        }
+
+    monkeypatch.setattr(
+        "process.candidate_generation.wikidata.fallback_matcher.get_or_search_entities_by_label_in_class_ranked",
+        _fake_scoped_search,
+    )
+    monkeypatch.setattr(
+        "process.candidate_generation.wikidata.fallback_matcher.get_or_search_entities_by_label",
+        _fake_generic_search,
+    )
+    monkeypatch.setattr(
+        "process.candidate_generation.wikidata.fallback_matcher.get_or_fetch_entity",
+        _fake_fetch,
+    )
+
+    unresolved = [
+        {
+            "mention_id": "m1",
+            "mention_type": "person",
+            "mention_label": "Markus Lanz",
+            "context": "test",
+        }
+    ]
+    class_scope_hints = {"person": ["Q215627"]}
+
+    result = run_fallback_string_matching_stage(
+        tmp_path,
+        unresolved_targets=unresolved,
+        seeds={"Q100"},
+        core_class_qids={"Q215627"},
+        class_scope_hints=class_scope_hints,
+        config={
+            "fallback_enabled_mention_types": ["person"],
+            "fallback_search_languages": ["de"],
+            "fallback_prefer_class_scoped_search": True,
+            "fallback_allow_generic_search_after_class_scoped": False,
+        },
+    )
+
+    assert calls["scoped"] >= 1
+    assert calls["generic"] == 0
+    assert len(result.fallback_candidates) == 1
+    assert int(result.class_scoped_search_queries) >= 1
+    assert int(result.generic_search_queries) == 0
+    assert int(result.class_scoped_hits) >= 1
+    assert int(result.generic_hits) == 0
+
+
+def test_fallback_uses_generic_search_if_scoped_search_is_empty(tmp_path: Path, monkeypatch) -> None:
+    calls = {"scoped": 0, "generic": 0}
+
+    def _fake_scoped_search(*args, **kwargs):
+        _ = (args, kwargs)
+        calls["scoped"] += 1
+        return {"search": []}
+
+    def _fake_generic_search(*args, **kwargs):
+        _ = (args, kwargs)
+        calls["generic"] += 1
+        return {"search": [{"id": "Q1499182"}]}
+
+    def _fake_fetch(*args, **kwargs):
+        _ = (args, kwargs)
+        return {
+            "entities": {
+                "Q1499182": {
+                    "id": "Q1499182",
+                    "labels": {"de": {"value": "Markus Lanz"}},
+                    "descriptions": {},
+                    "aliases": {},
+                    "claims": {
+                        "P31": [
+                            {
+                                "mainsnak": {
+                                    "datavalue": {
+                                        "value": {"entity-type": "item", "id": "Q215627"}
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                }
+            }
+        }
+
+    monkeypatch.setattr(
+        "process.candidate_generation.wikidata.fallback_matcher.get_or_search_entities_by_label_in_class_ranked",
+        _fake_scoped_search,
+    )
+    monkeypatch.setattr(
+        "process.candidate_generation.wikidata.fallback_matcher.get_or_search_entities_by_label",
+        _fake_generic_search,
+    )
+    monkeypatch.setattr(
+        "process.candidate_generation.wikidata.fallback_matcher.get_or_fetch_entity",
+        _fake_fetch,
+    )
+
+    unresolved = [
+        {
+            "mention_id": "m1",
+            "mention_type": "person",
+            "mention_label": "Markus Lanz",
+            "context": "test",
+        }
+    ]
+    class_scope_hints = {"person": ["Q215627"]}
+
+    result = run_fallback_string_matching_stage(
+        tmp_path,
+        unresolved_targets=unresolved,
+        seeds={"Q100"},
+        core_class_qids={"Q215627"},
+        class_scope_hints=class_scope_hints,
+        config={
+            "fallback_enabled_mention_types": ["person"],
+            "fallback_search_languages": ["de"],
+            "fallback_prefer_class_scoped_search": True,
+            "fallback_allow_generic_search_after_class_scoped": True,
+        },
+    )
+
+    assert calls["scoped"] >= 1
+    assert calls["generic"] >= 1
+    assert len(result.fallback_candidates) == 1
+    assert int(result.class_scoped_search_queries) >= 1
+    assert int(result.generic_search_queries) >= 1
+    assert int(result.class_scoped_hits) == 0
+    assert int(result.generic_hits) >= 1
+
+
 def test_merge_stage_candidates_keeps_graph_authority() -> None:
     graph = [
         {

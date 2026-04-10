@@ -39,9 +39,8 @@ class ArtifactPaths:
     aliases_de_csv: Path
     triples_csv: Path
     class_hierarchy_csv: Path
-    entities_json: Path
-    properties_json: Path
-    triples_events_json: Path
+    entity_store_jsonl: Path
+    property_store_jsonl: Path
     query_inventory_csv: Path
     entity_lookup_index_csv: Path
     entity_chunks_dir: Path
@@ -55,6 +54,19 @@ class ArtifactPaths:
     fallback_stage_candidates_csv: Path
     fallback_stage_eligible_for_expansion_csv: Path
     fallback_stage_ineligible_csv: Path
+
+    # Backward-compatible aliases for pre-rework callers/tests.
+    @property
+    def entities_json(self) -> Path:
+        return self.entity_store_jsonl
+
+    @property
+    def properties_json(self) -> Path:
+        return self.property_store_jsonl
+
+    @property
+    def triples_events_json(self) -> Path:
+        return self.projections_dir / "triple_events.json"
 
 
 def core_instances_projection_filename(class_filename: str) -> str:
@@ -88,9 +100,8 @@ def build_artifact_paths(repo_root: Path) -> ArtifactPaths:
         aliases_de_csv=projections_dir / "aliases_de.csv",
         triples_csv=projections_dir / "triples.csv",
         class_hierarchy_csv=projections_dir / "class_hierarchy.csv",
-        entities_json=projections_dir / "entities.json",
-        properties_json=projections_dir / "properties.json",
-        triples_events_json=projections_dir / "triple_events.json",
+        entity_store_jsonl=projections_dir / "entity_store.jsonl",
+        property_store_jsonl=projections_dir / "property_store.jsonl",
         query_inventory_csv=projections_dir / "query_inventory.csv",
         entity_lookup_index_csv=projections_dir / "entity_lookup_index.csv",
         entity_chunks_dir=projections_dir / "entity_chunks",

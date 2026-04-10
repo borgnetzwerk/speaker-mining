@@ -91,3 +91,17 @@ def test_rebuild_chunk_catalog_marks_closed_and_active(tmp_path: Path) -> None:
 
     catalog_path = tmp_path / "data" / "20_candidate_generation" / "wikidata" / "chunk_catalog.csv"
     assert catalog_path.exists()
+
+
+def test_rebuild_chunk_catalog_skips_identical_rewrites(tmp_path: Path, monkeypatch) -> None:
+    store = EventStore(tmp_path)
+    store.append_event({"event_type": "query_response", "timestamp_utc": "2026-04-02T10:00:00Z", "payload": {"qid": "Q1"}})
+    rebuild_chunk_catalog(tmp_path)
+
+    def fail_replace(self, target):
+        raise AssertionError("expected chunk catalog rewrite to be skipped")
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+
+    rows = rebuild_chunk_catalog(tmp_path)
+    assert len(rows) == 1

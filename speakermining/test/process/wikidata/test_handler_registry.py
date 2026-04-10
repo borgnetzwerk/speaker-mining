@@ -179,3 +179,29 @@ def test_handler_progress_dict(tmp_path: Path) -> None:
     assert d["last_processed_sequence"] == 99
     assert d["artifact_path"] == "/output.csv"
     assert d["updated_at"] == "2026-04-02T10:00:00Z"
+
+
+def test_registry_snapshot_is_sorted(tmp_path: Path) -> None:
+    registry_path = tmp_path / "eventhandler.csv"
+    registry = HandlerRegistry(registry_path)
+    registry.register_handler("BHandler", artifact_path="b.csv")
+    registry.register_handler("AHandler", artifact_path="a.csv")
+    registry.update_progress("AHandler", 11)
+    registry.update_progress("BHandler", 22)
+
+    snapshot = registry.snapshot()
+    assert [row["handler_name"] for row in snapshot] == ["AHandler", "BHandler"]
+    assert snapshot[0]["last_processed_sequence"] == 11
+    assert snapshot[1]["last_processed_sequence"] == 22
+
+
+def test_registry_prune_to_managed_handlers(tmp_path: Path) -> None:
+    registry_path = tmp_path / "eventhandler.csv"
+    registry = HandlerRegistry(registry_path)
+    registry.register_handler("KeepMe")
+    registry.register_handler("DropMe")
+
+    removed = registry.prune_to_managed_handlers({"KeepMe"})
+
+    assert removed == ["DropMe"]
+    assert registry.list_handlers() == ["KeepMe"]

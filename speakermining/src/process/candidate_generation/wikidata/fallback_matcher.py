@@ -10,12 +10,17 @@ import pandas as pd
 from .cache import _atomic_write_df
 from .cache import begin_request_context, end_request_context
 from .common import canonical_qid, effective_core_class_qids, normalize_query_budget, normalize_text, pick_entity_label
-from .entity import get_or_fetch_entity, get_or_search_entities_by_label
+from .entity import (
+    get_or_fetch_entity,
+    get_or_search_entities_by_label,
+    get_or_search_entities_by_label_in_class_ranked,
+)
 from .expansion_engine import is_expandable_target, resolve_direct_or_subclass_core_match_for_entity
 from .event_log import write_candidate_matched_event, build_entity_discovered_event, build_expansion_decision_event
 from .graceful_shutdown import should_terminate
 from .node_store import flush_node_store, get_item, iter_items
 from .node_store import upsert_discovered_item
+from .phase_contracts import PhaseContract, phase_contract_payload, phase_outcome_payload
 from .schemas import build_artifact_paths
 from .triple_store import flush_triple_events, seed_neighbor_degrees
 from ...notebook_event_log import NOTEBOOK_21_ID, get_or_create_notebook_logger
@@ -27,6 +32,10 @@ class FallbackMatchResult:
     newly_discovered_qids: set[str]
     eligible_for_expansion_qids: set[str]
     ineligible_qids: set[str]
+    class_scoped_search_queries: int = 0
+    generic_search_queries: int = 0
+    class_scoped_hits: int = 0
+    generic_hits: int = 0
 
 
 def merge_stage_candidates(graph_candidates: list[dict], fallback_candidates: list[dict]) -> list[dict]:
@@ -119,6 +128,18 @@ def run_fallback_string_matching_stage(
 ) -> FallbackMatchResult:
     stage_t0 = perf_counter()
     notebook_logger = get_or_create_notebook_logger(repo_root, NOTEBOOK_21_ID)
+    contract = PhaseContract(
+        phase="stage_b_fallback_matching",
+        owner="fallback_matcher",
+        input_contract="unresolved_targets + class_scope_hints + runtime_config",
+        output_contract="fallback_candidates + eligibility_sets + stage_artifacts",
+    )
+    notebook_logger.append_event(
+        event_type="phase_contract_declared",
+        phase="stage_b_fallback_matching",
+        message="phase contract declared",
+        extra={"phase_contract": phase_contract_payload(contract)},
+    )
     notebook_logger.log_phase_started("stage_b_fallback_matching", message="fallback string matching started")
     print("[fallback_stage] Starting fallback string matching", flush=True)
     fallback_candidates: list[dict] = []
@@ -144,7 +165,10 @@ def run_fallback_string_matching_stage(
     search_cache_max_age_days = int(config.get("cache_max_age_days", 365))
     search_timeout = int(config.get("query_timeout_seconds", 30))
     search_limit = int(config.get("fallback_search_limit", 10))
+    scoped_search_limit = int(config.get("fallback_class_scoped_search_limit", search_limit))
     search_languages = config.get("fallback_search_languages", ["de", "en"])
+    prefer_class_scoped_search = bool(config.get("fallback_prefer_class_scoped_search", False))
+    allow_generic_after_class_scoped = bool(config.get("fallback_allow_generic_search_after_class_scoped", True))
     has_explicit_budget = "network_budget_remaining" in config or "max_queries_per_run" in config
     search_query_budget = normalize_query_budget(
         config.get("network_budget_remaining", config.get("max_queries_per_run", 0))
@@ -207,6 +231,11 @@ def run_fallback_string_matching_stage(
     )
 
     searched_labels: set[str] = set()
+    searched_scoped_labels: set[tuple[str, str]] = set()
+    class_scoped_search_queries = 0
+    generic_search_queries = 0
+    class_scoped_hits = 0
+    generic_hits = 0
     endpoint_budget_exhausted = bool(has_explicit_budget and search_query_budget == 0)
     if endpoint_budget_exhausted:
         print("[fallback_stage] Endpoint search disabled because explicit network budget is 0", flush=True)
@@ -247,12 +276,109 @@ def run_fallback_string_matching_stage(
             if mention_type_norm not in enabled_mention_types:
                 continue
             processed += 1
+            scope_qids = sorted(canonical_qid(qid) for qid in class_scope_hints.get(mention_type_norm, []) if canonical_qid(qid))
+            scoped_lookup_key = (mention_label, mention_type_norm)
+            did_class_scoped_search = False
+            found_class_scoped_results = False
+
+            if (
+                not endpoint_budget_exhausted
+                and mention_label not in label_index
+                and scope_qids
+                and prefer_class_scoped_search
+                and scoped_lookup_key not in searched_scoped_labels
+            ):
+                searched_scoped_labels.add(scoped_lookup_key)
+                did_class_scoped_search = True
+                original_label = str(target.get("mention_label", "") or "")
+                for scope_qid in scope_qids:
+                    if endpoint_budget_exhausted:
+                        break
+                    for language in [str(lang).strip().lower() for lang in search_languages if str(lang).strip()]:
+                        if _termination_requested(repo_root):
+                            endpoint_budget_exhausted = True
+                            break
+                        try:
+                            class_scoped_search_queries += 1
+                            search_payload = get_or_search_entities_by_label_in_class_ranked(
+                                repo_root,
+                                original_label,
+                                scope_qid,
+                                search_cache_max_age_days,
+                                language=language,
+                                limit=scoped_search_limit,
+                                timeout=search_timeout,
+                            )
+                        except RuntimeError as exc:
+                            if str(exc) == "Network query budget hit":
+                                endpoint_budget_exhausted = True
+                                break
+                            if _is_termination_runtime_error(exc) or _termination_requested(repo_root):
+                                endpoint_budget_exhausted = True
+                                break
+                            raise
+
+                        hits = search_payload.get("search", []) or []
+                        class_scoped_hits += int(len(hits))
+                        if hits:
+                            found_class_scoped_results = True
+                        for hit in hits:
+                            if _termination_requested(repo_root):
+                                endpoint_budget_exhausted = True
+                                break
+                            qid = canonical_qid(hit.get("id", ""))
+                            if not qid:
+                                continue
+                            try:
+                                entity_payload = get_or_fetch_entity(
+                                    repo_root,
+                                    qid,
+                                    search_cache_max_age_days,
+                                    timeout=search_timeout,
+                                )
+                            except RuntimeError as exc:
+                                if str(exc) == "Network query budget hit":
+                                    endpoint_budget_exhausted = True
+                                    break
+                                if _is_termination_runtime_error(exc) or _termination_requested(repo_root):
+                                    endpoint_budget_exhausted = True
+                                    break
+                                raise
+
+                            entity_doc = entity_payload.get("entities", {}).get(qid, {})
+                            upsert_discovered_item(repo_root, qid, entity_doc, _iso_now())
+                            candidate = _candidate_from_item(entity_doc)
+                            if candidate:
+                                _index_candidate(label_index, candidate)
+                                entity_label = pick_entity_label(entity_doc)
+                                notebook_logger.append_event(
+                                    event_type="entity_discovered",
+                                    phase="stage_b_fallback_matching",
+                                    message=(
+                                        "entity discovered via class-scoped fallback match: "
+                                        f"{qid} ({entity_label})"
+                                    ),
+                                    entity={"qid": qid, "label": entity_label},
+                                    extra=build_entity_discovered_event(
+                                        qid=qid,
+                                        label=entity_label,
+                                        source_step="class_scoped_search",
+                                        discovery_method="class_scoped_fallback_match",
+                                    ).get("payload", {}),
+                                )
+
+                        if endpoint_budget_exhausted:
+                            break
 
             # For unresolved labels that are absent locally, perform bounded endpoint search.
             if (
                 not endpoint_budget_exhausted
                 and mention_label not in label_index
                 and mention_label not in searched_labels
+                and (
+                    not did_class_scoped_search
+                    or (allow_generic_after_class_scoped and not found_class_scoped_results)
+                )
             ):
                 searched_labels.add(mention_label)
                 original_label = str(target.get("mention_label", "") or "")
@@ -261,6 +387,7 @@ def run_fallback_string_matching_stage(
                         endpoint_budget_exhausted = True
                         break
                     try:
+                        generic_search_queries += 1
                         search_payload = get_or_search_entities_by_label(
                             repo_root,
                             original_label,
@@ -278,6 +405,7 @@ def run_fallback_string_matching_stage(
                             break
                         raise
 
+                    generic_hits += int(len(search_payload.get("search", []) or []))
                     for hit in search_payload.get("search", []) or []:
                         if _termination_requested(repo_root):
                             endpoint_budget_exhausted = True
@@ -426,7 +554,8 @@ def run_fallback_string_matching_stage(
         (
             f"[fallback_stage] Completed in {elapsed:.2f}s "
             f"processed_targets={processed} candidates={len(fallback_candidates)} "
-            f"eligible={len(eligible_for_expansion_qids)}"
+            f"eligible={len(eligible_for_expansion_qids)} "
+            f"class_scoped_queries={class_scoped_search_queries} generic_queries={generic_search_queries}"
         ),
         flush=True,
     )
@@ -438,6 +567,24 @@ def run_fallback_string_matching_stage(
             "processed_targets": int(processed),
             "candidates": int(len(fallback_candidates)),
             "eligible": int(len(eligible_for_expansion_qids)),
+            "phase_contract": phase_contract_payload(contract),
+            "fallback_mode_counts": {
+                "class_scoped_search_queries": int(class_scoped_search_queries),
+                "generic_search_queries": int(generic_search_queries),
+                "class_scoped_hits": int(class_scoped_hits),
+                "generic_hits": int(generic_hits),
+            },
+            "phase_outcome": phase_outcome_payload(
+                phase="stage_b_fallback_matching",
+                work_label="run_fallback_string_matching_stage",
+                status="completed",
+                details={
+                    "elapsed_seconds": round(elapsed, 3),
+                    "processed_targets": int(processed),
+                    "candidates": int(len(fallback_candidates)),
+                    "eligible": int(len(eligible_for_expansion_qids)),
+                },
+            ),
         },
     )
 
@@ -446,6 +593,10 @@ def run_fallback_string_matching_stage(
         newly_discovered_qids=newly_discovered_qids,
         eligible_for_expansion_qids=eligible_for_expansion_qids,
         ineligible_qids=ineligible_qids,
+        class_scoped_search_queries=int(class_scoped_search_queries),
+        generic_search_queries=int(generic_search_queries),
+        class_scoped_hits=int(class_scoped_hits),
+        generic_hits=int(generic_hits),
     )
 
 
@@ -458,6 +609,23 @@ def enqueue_eligible_fallback_qids(
     expansion_config,
 ) -> dict:
     from .expansion_engine import run_seed_expansion
+    notebook_logger = get_or_create_notebook_logger(repo_root, NOTEBOOK_21_ID)
+    contract = PhaseContract(
+        phase="step_9_fallback_reentry",
+        owner="fallback_matcher",
+        input_contract="eligible_fallback_qids + seeds + core_class_qids + expansion_config",
+        output_contract="expanded_qid_count + reentry_summary",
+    )
+    notebook_logger.append_event(
+        event_type="phase_contract_declared",
+        phase="step_9_fallback_reentry",
+        message="phase contract declared",
+        extra={"phase_contract": phase_contract_payload(contract)},
+    )
+    notebook_logger.log_phase_started(
+        "step_9_fallback_reentry",
+        message="fallback re-entry expansion started",
+    )
 
     expanded = 0
     ordered = sorted(canonical_qid(qid) for qid in candidate_qids if canonical_qid(qid))
@@ -473,8 +641,26 @@ def enqueue_eligible_fallback_qids(
         )
         expanded += len(set(result.get("expanded_qids", set())))
 
-    return {
+    summary = {
         "eligible_qids": ordered,
         "expanded": expanded,
         "seed_count": len({canonical_qid(s) for s in seeds if canonical_qid(s)}),
     }
+    notebook_logger.log_phase_finished(
+        "step_9_fallback_reentry",
+        message="fallback re-entry expansion finished",
+        extra={
+            "phase_contract": phase_contract_payload(contract),
+            "phase_outcome": phase_outcome_payload(
+                phase="step_9_fallback_reentry",
+                work_label="enqueue_eligible_fallback_qids",
+                status="completed",
+                details={
+                    "eligible_qids": int(len(ordered)),
+                    "expanded": int(expanded),
+                    "seed_count": int(summary["seed_count"]),
+                },
+            ),
+        },
+    )
+    return summary

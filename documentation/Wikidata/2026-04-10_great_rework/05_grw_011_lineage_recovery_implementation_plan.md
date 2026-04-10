@@ -13,6 +13,42 @@ Note:
 
 Recover lost subclass closure and `path_to_core_class` behavior from reverse-engineering evidence and expose it as a reusable lineage service consumed by expansion, node integrity, fallback eligibility, and materialization.
 
+## Progress Update (2026-04-09)
+
+Completed:
+
+1. Slice 1 implemented in `class_resolver.py`:
+   - `RecoveredLineageEvidence` model
+   - `load_recovered_class_hierarchy(...)` loader with normalization and diagnostics
+2. Slice 2 implemented in `class_resolver.py`:
+   - policy-aware resolution (`runtime_only`, `runtime_then_recovered`, `runtime_then_recovered_then_network`)
+   - recovered-lineage precedence before network branch when policy allows
+3. Slice 3 implemented in `materializer.py`:
+   - recovered-lineage loading in materialization path
+   - recovered-lineage wiring into instances/class-hierarchy/entity-lookup resolution
+   - lineage resolution diagnostics in materializer stats (`lineage_resolution_reason_counts`, source, policy)
+4. Slice 4 implemented in expansion and node-integrity paths:
+   - expansion engine now loads recovered lineage and propagates resolution policy through seed filtering and expansion eligibility checks
+   - node integrity now consumes recovered lineage/policy in eligibility decisions and path-to-core transition resolution
+5. Slice 5 implemented (guardrails/telemetry/rollback):
+   - expansion and node integrity now emit explicit lineage resolution configuration telemetry (`resolution_policy`, `recovered_lineage_source`) at runtime and in notebook events
+   - one-switch rollback confirmed via `WIKIDATA_LINEAGE_RESOLUTION_POLICY=runtime_only` (recovered lineage bypassed without code changes)
+
+Validation evidence:
+
+1. `pytest speakermining/test/process/wikidata/test_recovered_class_hierarchy_loader.py` (pass)
+2. Focused resolver-policy tests in `test_class_path_resolution.py` (pass)
+3. `test_materializer_uses_recovered_lineage_when_class_docs_missing` (pass)
+4. Representative node-integrity compatibility test (pass):
+   - `pytest speakermining/test/process/wikidata/test_node_integrity.py -k repairs_discovery_and_expands_eligible_node`
+5. Additional Slice 5 validation:
+   - focused loader tests: `pytest speakermining/test/process/wikidata/test_recovered_class_hierarchy_loader.py` (pass)
+   - full `test_class_path_resolution.py` run still shows known unrelated checkpoint snapshot collision guard in `checkpoint.py` (pre-existing; not lineage-specific)
+
+Remaining:
+
+1. Broader non-focused validation sweep and GRW-011 closure note in master map.
+
 ## Authoritative Inputs
 
 1. `data/20_candidate_generation/wikidata/reverse_engineering_potential/class_hierarchy.csv`

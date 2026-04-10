@@ -14,6 +14,7 @@ from process.candidate_generation.wikidata.common import canonical_qid, effectiv
 from process.candidate_generation.wikidata.event_handler import EventHandler
 from process.candidate_generation.wikidata.event_log import get_query_event_field, get_query_event_response_data
 from process.candidate_generation.wikidata.handler_registry import HandlerRegistry
+from process.candidate_generation.wikidata.node_store import iter_items
 
 
 def _claim_item_qids(entity_doc: dict, pid: str) -> list[str]:
@@ -82,6 +83,22 @@ class ClassesHandler(EventHandler):
         if self.handler_registry:
             return self.handler_registry.get_progress(self.name())
         return self._last_seq
+
+    def bootstrap_from_projection(self, _output_path: Path) -> bool:
+        """Hydrate entity documents from node store for incremental replay.
+
+        `classes.csv` does not include enough raw claim payload to reconstruct
+        `_entity_docs`. The node store is a better replay-safe source for this
+        handler's in-memory model.
+        """
+        hydrated: dict[str, dict] = {}
+        for item in iter_items(self.repo_root):
+            qid = canonical_qid(str(item.get("id", "") or ""))
+            if not qid or not isinstance(item, dict):
+                continue
+            hydrated[qid] = item
+        self._entity_docs = hydrated
+        return True
 
     def process_batch(self, events: list[dict]) -> None:
         for event in events:

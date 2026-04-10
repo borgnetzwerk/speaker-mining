@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from collections import Counter, deque
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Lock
 from uuid import uuid4
 
 from .io_guardrails import atomic_write_text
@@ -83,6 +85,10 @@ class NotebookEventLogger:
         self.notebook_id = str(notebook_id)
         self.run_id = str(run_id)
         self._event_counter = 0
+        self._recent_events = deque(maxlen=250)
+        self._recent_event_types = Counter()
+        self._last_event: dict | None = None
+        self._lock = Lock()
         self.path = (
             self.repo_root
             / "data"
@@ -92,8 +98,48 @@ class NotebookEventLogger:
         )
 
     def _next_event_id(self) -> str:
-        self._event_counter += 1
-        return f"evt_{self._event_counter:06d}"
+        with self._lock:
+            self._event_counter += 1
+            return f"evt_{self._event_counter:06d}"
+
+    def _record_recent_event(self, event: dict) -> None:
+        event_copy = dict(event)
+        self._recent_events.append(event_copy)
+        self._recent_event_types[str(event_copy.get("event_type", "") or "unknown")] += 1
+        self._last_event = event_copy
+
+    def snapshot_recent_activity(self, *, window_size: int = 25) -> dict:
+        window_size = max(1, int(window_size or 1))
+        with self._lock:
+            recent_events = list(self._recent_events)[-window_size:]
+            counts = Counter(str(event.get("event_type", "") or "unknown") for event in recent_events)
+            latest_event = recent_events[-1] if recent_events else (self._last_event or {})
+            total_events_emitted = int(self._event_counter)
+
+        latest_payload_snapshot = {}
+        if isinstance(latest_event, dict):
+            for key in ("budget", "rate_limit", "network", "result", "query", "extra"):
+                value = latest_event.get(key)
+                if isinstance(value, dict) and value:
+                    latest_payload_snapshot[key] = value
+            if not latest_payload_snapshot:
+                for key in ("phase", "event_type", "message"):
+                    value = latest_event.get(key)
+                    if value not in (None, ""):
+                        latest_payload_snapshot[key] = value
+
+        return {
+            "events_seen": len(recent_events),
+            "event_types_seen": dict(sorted(counts.items())),
+            "top_event_types": [
+                {"event_type": event_type, "count": count}
+                for event_type, count in counts.most_common(5)
+            ],
+            "latest_event_type": str((latest_event or {}).get("event_type", "")),
+            "latest_message": str((latest_event or {}).get("message", "")),
+            "latest_payload_snapshot": latest_payload_snapshot,
+            "total_events_emitted": total_events_emitted,
+        }
 
     def append_event(
         self,
@@ -136,9 +182,11 @@ class NotebookEventLogger:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         line = json.dumps(event, ensure_ascii=False)
         try:
-            with self.path.open("a", encoding="utf-8") as handle:
-                handle.write(line + "\n")
-                handle.flush()
+            with self._lock:
+                with self.path.open("a", encoding="utf-8") as handle:
+                    handle.write(line + "\n")
+                    handle.flush()
+                self._record_recent_event(event)
         except PermissionError as exc:
             raise RuntimeError(
                 (

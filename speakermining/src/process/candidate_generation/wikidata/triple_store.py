@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from .cache import _atomic_write_text
+import pandas as pd
+
+from .cache import _atomic_write_df
 from .common import canonical_pid, canonical_qid
 from .event_log import build_triple_discovered_event
 from .schemas import build_artifact_paths
@@ -12,26 +13,63 @@ from .schemas import build_artifact_paths
 _TRIPLE_EVENTS_CACHE: dict[str, list[dict]] = {}
 _TRIPLE_EVENTS_DIRTY: set[str] = set()
 
+_TRIPLE_COLUMNS = [
+    "subject",
+    "predicate",
+    "object",
+    "discovered_at_utc",
+    "source_query_file",
+]
 
-def _load_events(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-    return payload if isinstance(payload, list) else []
+
+def _sanitize_events(rows: list[dict]) -> list[dict]:
+    out: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        subject = canonical_qid(row.get("subject", ""))
+        predicate = canonical_pid(row.get("predicate", ""))
+        obj = canonical_qid(row.get("object", ""))
+        if not subject or not predicate or not obj:
+            continue
+        out.append(
+            {
+                "subject": subject,
+                "predicate": predicate,
+                "object": obj,
+                "discovered_at_utc": str(row.get("discovered_at_utc", "") or ""),
+                "source_query_file": str(row.get("source_query_file", "") or ""),
+            }
+        )
+    return out
+
+
+def _load_events(paths) -> list[dict]:
+    # Projection-first storage: triples.csv is the active runtime source.
+    if paths.triples_csv.exists():
+        try:
+            df = pd.read_csv(paths.triples_csv)
+            return _sanitize_events(df.to_dict(orient="records"))
+        except Exception:
+            pass
+
+    return []
 
 
 def _cache_key(path: Path) -> str:
     return str(Path(path).resolve())
 
 
-def _cached_events(path: Path) -> list[dict]:
-    cache_key = _cache_key(path)
+def _storage_path(paths) -> Path:
+    return paths.triples_csv
+
+
+def _cached_events(paths) -> list[dict]:
+    storage_path = _storage_path(paths)
+    cache_key = _cache_key(storage_path)
     events = _TRIPLE_EVENTS_CACHE.get(cache_key)
     if events is None:
-        events = _load_events(path)
+        events = _load_events(paths)
         _TRIPLE_EVENTS_CACHE[cache_key] = events
     return events
 
@@ -42,13 +80,32 @@ def _mark_dirty(path: Path) -> None:
 
 def flush_triple_events(repo_root: Path) -> None:
     paths = build_artifact_paths(Path(repo_root))
-    cache_key = _cache_key(paths.triples_events_json)
+    storage_path = _storage_path(paths)
+    cache_key = _cache_key(storage_path)
     if cache_key not in _TRIPLE_EVENTS_DIRTY:
         return
     events = _TRIPLE_EVENTS_CACHE.get(cache_key)
     if events is None:
         return
-    _atomic_write_text(paths.triples_events_json, json.dumps(events, ensure_ascii=False, indent=2))
+    dedup: dict[tuple[str, str, str], dict] = {}
+    for event in events:
+        key = (
+            str(event.get("subject", "") or ""),
+            str(event.get("predicate", "") or ""),
+            str(event.get("object", "") or ""),
+        )
+        if key not in dedup:
+            dedup[key] = {
+                "subject": key[0],
+                "predicate": key[1],
+                "object": key[2],
+                "discovered_at_utc": str(event.get("discovered_at_utc", "") or ""),
+                "source_query_file": str(event.get("source_query_file", "") or ""),
+            }
+
+    rows = [dedup[key] for key in sorted(dedup)]
+    frame = pd.DataFrame(rows, columns=_TRIPLE_COLUMNS)
+    _atomic_write_df(paths.triples_csv, frame)
     _TRIPLE_EVENTS_DIRTY.discard(cache_key)
 
 
@@ -58,7 +115,7 @@ def reset_triple_store_cache(repo_root: Path | None = None) -> None:
         _TRIPLE_EVENTS_DIRTY.clear()
         return
     paths = build_artifact_paths(Path(repo_root))
-    cache_key = _cache_key(paths.triples_events_json)
+    cache_key = _cache_key(_storage_path(paths))
     _TRIPLE_EVENTS_CACHE.pop(cache_key, None)
     _TRIPLE_EVENTS_DIRTY.discard(cache_key)
 
@@ -77,7 +134,7 @@ def record_item_edges(
     if not subject_qid:
         return
 
-    events = _cached_events(paths.triples_events_json)
+    events = _cached_events(paths)
     for edge in edges:
         pid = canonical_pid(edge.get("pid", ""))
         obj = canonical_qid(edge.get("to_qid", edge.get("object", "")))
@@ -107,12 +164,12 @@ def record_item_edges(
                 ).get("payload", {}),
             )
 
-    _mark_dirty(paths.triples_events_json)
+    _mark_dirty(_storage_path(paths))
 
 
 def iter_unique_triples(repo_root: Path):
     paths = build_artifact_paths(Path(repo_root))
-    events = _cached_events(paths.triples_events_json)
+    events = _cached_events(paths)
     dedup: dict[tuple[str, str, str], dict] = {}
     for event in events:
         key = (event.get("subject", ""), event.get("predicate", ""), event.get("object", ""))

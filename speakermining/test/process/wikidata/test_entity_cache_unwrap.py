@@ -12,6 +12,8 @@ from process.candidate_generation.wikidata.entity import (
     get_or_fetch_inlinks,
     get_or_fetch_property,
     get_or_search_entities_by_label,
+    get_or_search_entities_by_label_in_class,
+    get_or_search_entities_by_label_in_class_ranked,
 )
 from process.candidate_generation.wikidata.common import get_active_wikidata_languages, set_active_wikidata_languages
 from process.candidate_generation.wikidata import cache as cache_module
@@ -303,3 +305,106 @@ def test_get_or_fetch_entities_batch_continues_after_fallback_timeout(tmp_path: 
     assert calls == ["Q100", "Q101"]
     assert "Q100" not in payloads
     assert payloads["Q101"]["entities"]["Q101"]["id"] == "Q101"
+
+
+def test_get_or_search_entities_by_label_in_class_returns_unwrapped_cached_payload(tmp_path: Path) -> None:
+    key = "Q215627|de|5|exact|Markus Lanz"
+    write_query_event(
+        tmp_path,
+        endpoint="wikidata_sparql",
+        normalized_query=(
+            "class_scoped_label_search:exact:"
+            "class=Q215627;language=de;limit=5;search=Markus Lanz"
+        ),
+        source_step="entity_fetch",
+        status="success",
+        key=key,
+        payload={"search": [{"id": "Q1499182", "label": "Markus Lanz"}]},
+        http_status=200,
+        error=None,
+    )
+
+    payload = get_or_search_entities_by_label_in_class(
+        tmp_path,
+        "Markus Lanz",
+        "Q215627",
+        cache_max_age_days=9999,
+        language="de",
+        limit=5,
+    )
+    assert "search" in payload
+    assert payload["search"][0]["id"] == "Q1499182"
+
+
+def test_get_or_search_entities_by_label_in_class_issues_sparql_query(tmp_path: Path, monkeypatch) -> None:
+    observed_urls: list[str] = []
+
+    def _fake_http_get_json(url: str, accept: str = "application/json", timeout: int = 30, **_kwargs):
+        observed_urls.append(url)
+        assert accept == "application/sparql-results+json"
+        _ = timeout
+        return {
+            "results": {
+                "bindings": [
+                    {
+                        "item": {"value": "http://www.wikidata.org/entity/Q1499182"},
+                        "itemLabel": {"value": "Markus Lanz"},
+                    }
+                ]
+            }
+        }
+
+    monkeypatch.setattr(entity_module, "_http_get_json", _fake_http_get_json)
+
+    payload = get_or_search_entities_by_label_in_class(
+        tmp_path,
+        "Markus Lanz",
+        "Q215627",
+        cache_max_age_days=0,
+        language="de",
+        limit=3,
+        timeout=7,
+    )
+
+    assert observed_urls
+    assert "query=" in observed_urls[0]
+    assert payload["search"][0]["id"] == "Q1499182"
+
+
+def test_get_or_search_entities_by_label_in_class_ranked_prefers_exact_then_prefix(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+
+    def _fake_http_get_json(url: str, accept: str = "application/json", timeout: int = 30, **_kwargs):
+        calls.append(url)
+        _ = (accept, timeout)
+        if len(calls) == 1:
+            return {"results": {"bindings": []}}
+        return {
+            "results": {
+                "bindings": [
+                    {
+                        "item": {"value": "http://www.wikidata.org/entity/Q1499182"},
+                        "itemLabel": {"value": "Markus Lanz"},
+                    }
+                ]
+            }
+        }
+
+    monkeypatch.setattr(entity_module, "_http_get_json", _fake_http_get_json)
+
+    payload = get_or_search_entities_by_label_in_class_ranked(
+        tmp_path,
+        "Markus",
+        "Q215627",
+        cache_max_age_days=0,
+        language="de",
+        limit=3,
+        timeout=7,
+    )
+
+    assert len(calls) == 2
+    assert payload["search"][0]["id"] == "Q1499182"
+    assert payload["search"][0]["match_mode"] == "prefix"

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 from time import perf_counter
 from uuid import uuid4
@@ -12,7 +13,7 @@ import pandas as pd
 from .bootstrap import ensure_output_bootstrap, initialize_bootstrap_files, load_core_classes, load_seed_instances
 from .cache import _atomic_write_df, _entity_from_payload, _latest_cached_record
 from .cache import begin_request_context, end_request_context
-from .class_resolver import resolve_class_path
+from .class_resolver import RecoveredLineageEvidence, load_recovered_class_hierarchy, resolve_class_path
 from .checkpoint import (
     CheckpointManifest,
     decide_resume_mode,
@@ -31,6 +32,7 @@ from .event_log import (
     build_entity_expanded_event,
     build_expansion_decision_event,
 )
+from .phase_contracts import PhaseContract, phase_contract_payload, phase_outcome_payload
 from .schemas import build_artifact_paths
 from .triple_store import record_item_edges
 from .triple_store import flush_triple_events
@@ -76,6 +78,30 @@ def _termination_requested(repo_root: Path) -> bool:
 
 def _is_termination_runtime_error(exc: RuntimeError) -> bool:
     return "Termination requested" in str(exc)
+
+
+def _lineage_resolution_policy() -> str:
+    policy = str(os.getenv("WIKIDATA_LINEAGE_RESOLUTION_POLICY", "runtime_then_recovered_then_network") or "").strip()
+    return policy or "runtime_then_recovered_then_network"
+
+
+def _load_recovered_lineage_evidence(repo_root: Path) -> tuple[RecoveredLineageEvidence | None, str]:
+    reverse_engineering_path = (
+        Path(repo_root)
+        / "data"
+        / "20_candidate_generation"
+        / "wikidata"
+        / "reverse_engineering_potential"
+        / "class_hierarchy.csv"
+    )
+    if reverse_engineering_path.exists():
+        return load_recovered_class_hierarchy(reverse_engineering_path), "reverse_engineering_potential"
+
+    projection_path = build_artifact_paths(Path(repo_root)).class_hierarchy_csv
+    if projection_path.exists():
+        return load_recovered_class_hierarchy(projection_path), "projection_cache"
+
+    return None, "none"
 
 
 def _claim_qids(entity_doc: dict, pid: str) -> set[str]:
@@ -199,12 +225,25 @@ def is_expandable_target(
     return int(seed_neighbor_degree) in {1, 2}
 
 
-def _entity_subclass_core_match(entity_doc: dict, core_class_qids: set[str], get_entity) -> bool:
+def _entity_subclass_core_match(
+    entity_doc: dict,
+    core_class_qids: set[str],
+    get_entity,
+    *,
+    recovered_lineage: RecoveredLineageEvidence | None = None,
+    resolution_policy: str = "runtime_then_recovered_then_network",
+) -> bool:
     if not core_class_qids:
         return False
     if not isinstance(entity_doc, dict) or not entity_doc:
         return False
-    resolution = resolve_class_path(entity_doc, core_class_qids, get_entity)
+    resolution = resolve_class_path(
+        entity_doc,
+        core_class_qids,
+        get_entity,
+        recovered_lineage=recovered_lineage,
+        resolution_policy=resolution_policy,
+    )
     return bool(resolution.get("subclass_of_core_class", False))
 
 
@@ -216,6 +255,8 @@ def _resolve_direct_or_subclass_core_match(
     cache_max_age_days: int,
     timeout_seconds: int,
     discovered_qids: set[str] | None = None,
+    recovered_lineage: RecoveredLineageEvidence | None = None,
+    resolution_policy: str = "runtime_then_recovered_then_network",
 ) -> bool:
     if _entity_p31_core_match(entity_doc, core_class_qids):
         return True
@@ -252,7 +293,13 @@ def _resolve_direct_or_subclass_core_match(
             return fetched
         return None
 
-    return _entity_subclass_core_match(entity_doc, core_class_qids, _lookup_entity)
+    return _entity_subclass_core_match(
+        entity_doc,
+        core_class_qids,
+        _lookup_entity,
+        recovered_lineage=recovered_lineage,
+        resolution_policy=resolution_policy,
+    )
 
 
 def resolve_direct_or_subclass_core_match_for_entity(
@@ -263,6 +310,8 @@ def resolve_direct_or_subclass_core_match_for_entity(
     cache_max_age_days: int,
     timeout_seconds: int,
     discovered_qids: set[str] | None = None,
+    recovered_lineage: RecoveredLineageEvidence | None = None,
+    resolution_policy: str | None = None,
 ) -> bool:
     """Public wrapper used by non-Stage-A paths for canonical class matching."""
     return _resolve_direct_or_subclass_core_match(
@@ -272,6 +321,12 @@ def resolve_direct_or_subclass_core_match_for_entity(
         cache_max_age_days=cache_max_age_days,
         timeout_seconds=timeout_seconds,
         discovered_qids=discovered_qids,
+        recovered_lineage=(
+            recovered_lineage
+            if recovered_lineage is not None
+            else _load_recovered_lineage_evidence(repo_root)[0]
+        ),
+        resolution_policy=(resolution_policy or _lineage_resolution_policy()),
     )
 
 
@@ -437,6 +492,8 @@ def run_seed_expansion(
     flush_persistence: bool = True,
     event_emitter=None,
     event_phase: str = "stage_a_graph_expansion",
+    recovered_lineage: RecoveredLineageEvidence | None = None,
+    resolution_policy: str = "runtime_then_recovered_then_network",
 ) -> dict:
     seed_qid = canonical_qid(seed.get("wikidata_id", ""))
     if not seed_qid:
@@ -721,6 +778,8 @@ def run_seed_expansion(
                         cache_max_age_days=config.cache_max_age_days,
                         timeout_seconds=config.query_timeout_seconds,
                         discovered_qids=discovered_qids,
+                        recovered_lineage=recovered_lineage,
+                        resolution_policy=resolution_policy,
                     )
 
                     can_expand = is_expandable_target(
@@ -807,6 +866,8 @@ def _filter_seed_instances_by_broadcasting_program(
     network_progress_every: int,
     event_emitter=None,
     event_phase: str = "stage_a_graph_expansion",
+    recovered_lineage: RecoveredLineageEvidence | None = None,
+    resolution_policy: str = "runtime_then_recovered_then_network",
 ) -> tuple[list[dict], list[dict], int]:
     expected_qid = canonical_qid(expected_class_qid or "")
     if not expected_qid:
@@ -904,6 +965,8 @@ def _filter_seed_instances_by_broadcasting_program(
                             ).get("payload", {}),
                         )) if callable(event_emitter) else None
                     ),
+                    recovered_lineage=recovered_lineage,
+                    resolution_policy=resolution_policy,
                 )
                 if bool(resolution.get("subclass_of_core_class", False)):
                     subclass_match = True
@@ -936,8 +999,36 @@ def run_graph_expansion_stage(
 ) -> GraphExpansionResult:
     repo_root = Path(repo_root)
     notebook_logger = get_or_create_notebook_logger(repo_root, NOTEBOOK_21_ID)
+    contract = PhaseContract(
+        phase="stage_a_graph_expansion",
+        owner="expansion_engine",
+        input_contract="seed_rows + targets + core_class_qids + config",
+        output_contract="checkpoint_stats + discovered_candidates + unresolved_targets",
+    )
+    notebook_logger.append_event(
+        event_type="phase_contract_declared",
+        phase="stage_a_graph_expansion",
+        message="phase contract declared",
+        extra={"phase_contract": phase_contract_payload(contract)},
+    )
     notebook_logger.log_phase_started("stage_a_graph_expansion", message="graph expansion stage started")
     stage_t0 = perf_counter()
+    recovered_lineage, recovered_lineage_source = _load_recovered_lineage_evidence(repo_root)
+    resolution_policy = _lineage_resolution_policy()
+    print(
+        f"[graph_stage] lineage policy={resolution_policy} recovered_source={recovered_lineage_source}",
+        flush=True,
+    )
+    notebook_logger.append_event(
+        event_type="lineage_resolution_config",
+        phase="stage_a_graph_expansion",
+        message="lineage resolution configuration",
+        extra={
+            "resolution_policy": resolution_policy,
+            "recovered_lineage_source": recovered_lineage_source,
+            "phase_contract": phase_contract_payload(contract),
+        },
+    )
     print("[graph_stage] Starting graph expansion stage", flush=True)
     resume_info = decide_resume_mode(repo_root, requested_mode)
 
@@ -994,6 +1085,8 @@ def run_graph_expansion_stage(
         network_progress_every=config.network_progress_every,
         event_emitter=notebook_logger.append_event,
         event_phase="stage_a_graph_expansion",
+        recovered_lineage=recovered_lineage,
+        resolution_policy=resolution_policy,
     )
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + uuid4().hex[:8]
@@ -1093,6 +1186,8 @@ def run_graph_expansion_stage(
             resume_inlinks_cursor=seed_resume_cursor,
             event_emitter=notebook_logger.append_event,
             event_phase="stage_a_graph_expansion",
+            recovered_lineage=recovered_lineage,
+            resolution_policy=resolution_policy,
         )
         newly_discovered_qids |= set(seed_summary.get("discovered_qids", set()))
         expanded_qids |= set(seed_summary.get("expanded_qids", set()))
@@ -1267,6 +1362,17 @@ def run_graph_expansion_stage(
             "elapsed_seconds": checkpoint_stats["stage_elapsed_seconds"],
             "total_queries": int(checkpoint_stats.get("total_queries", 0)),
             "stop_reason": str(last_stop_reason),
+            "phase_contract": phase_contract_payload(contract),
+            "phase_outcome": phase_outcome_payload(
+                phase="stage_a_graph_expansion",
+                work_label="run_graph_expansion_stage",
+                status="completed",
+                details={
+                    "elapsed_seconds": checkpoint_stats["stage_elapsed_seconds"],
+                    "total_queries": int(checkpoint_stats.get("total_queries", 0)),
+                    "stop_reason": str(last_stop_reason),
+                },
+            ),
         },
     )
     return GraphExpansionResult(

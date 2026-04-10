@@ -19,6 +19,8 @@ from urllib.request import Request, urlopen
 
 import pandas as pd
 
+from process.io_guardrails import atomic_write_csv, atomic_write_parquet, atomic_write_text
+
 from .contact_loader import load_contact_info, format_contact_info_for_user_agent
 from .common import canonical_qid, normalize_query_budget
 from .event_log import get_query_event_field, iter_query_events
@@ -294,55 +296,7 @@ def _atomic_write_text(path: Path, text: str) -> None:
 		path: Target file path.
 		text: Content to write.
 	"""
-	path.parent.mkdir(parents=True, exist_ok=True)
-	tmp_path = path.with_suffix(path.suffix + ".tmp")
-	try:
-		tmp_path.write_text(text, encoding="utf-8")
-		tmp_path.replace(path)
-	except PermissionError as exc:
-		recovery_path = path.with_suffix(path.suffix + ".recovery")
-		recovery_payload = {
-			"target_path": str(path),
-			"written_at_utc": datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-			"text": text,
-		}
-		recovery_path.write_text(
-			json.dumps(recovery_payload, ensure_ascii=False, indent=2),
-			encoding="utf-8",
-		)
-		try:
-			if tmp_path.exists():
-				tmp_path.unlink()
-		except Exception:
-			pass
-		raise RuntimeError(
-			(
-				f"Permission denied while writing {path}. "
-				f"A recovery snapshot was written to {recovery_path}. "
-				"Stop this run, close any editor/process that may lock the target file, "
-				"then rerun: recovery will be merged automatically before processing continues."
-			)
-		) from exc
-
-
-def _restore_csv_recovery_if_present(path: Path) -> None:
-	"""Restore a previous CSV recovery snapshot before normal writes.
-
-	This supports resume-after-failure workflows where a prior run could not
-	replace the target file due to an OS-level file lock.
-	"""
-	recovery_path = path.with_suffix(path.suffix + ".recovery")
-	if not recovery_path.exists():
-		return
-	try:
-		recovery_path.replace(path)
-	except PermissionError as exc:
-		raise RuntimeError(
-			(
-				f"Recovery snapshot exists for {path} but could not be restored from {recovery_path}. "
-				"Close any process locking the target file and rerun."
-			)
-		) from exc
+	atomic_write_text(path, text, encoding="utf-8")
 
 
 def _atomic_write_df(path: Path, df: pd.DataFrame) -> None:
@@ -352,68 +306,12 @@ def _atomic_write_df(path: Path, df: pd.DataFrame) -> None:
 		path: Target CSV file path.
 		df: DataFrame to write.
 	"""
-	path.parent.mkdir(parents=True, exist_ok=True)
-	_restore_csv_recovery_if_present(path)
-	tmp_path = path.with_suffix(path.suffix + ".tmp")
-	try:
-		df.to_csv(tmp_path, index=False)
-		tmp_path.replace(path)
-	except PermissionError as exc:
-		recovery_path = path.with_suffix(path.suffix + ".recovery")
-		try:
-			# Preserve the exact attempted content when final rename is blocked.
-			if tmp_path.exists():
-				tmp_path.replace(recovery_path)
-			else:
-				df.to_csv(recovery_path, index=False)
-		except Exception:
-			df.to_csv(recovery_path, index=False)
-		finally:
-			try:
-				if tmp_path.exists():
-					tmp_path.unlink()
-			except Exception:
-				pass
-		raise RuntimeError(
-			(
-				f"Permission denied while writing {path}. "
-				f"A recovery snapshot was written to {recovery_path}. "
-				"Stop this run, close any editor/process that may lock the target file, "
-				"then rerun to restore and continue."
-			)
-		) from exc
+	atomic_write_csv(path, df, index=False)
 
 
 def _atomic_write_parquet_df(path: Path, df: pd.DataFrame) -> None:
 	"""Write DataFrame atomically as Parquet via temp file + rename."""
-	path.parent.mkdir(parents=True, exist_ok=True)
-	tmp_path = path.with_suffix(path.suffix + ".tmp")
-	try:
-		df.to_parquet(tmp_path, index=False)
-		tmp_path.replace(path)
-	except PermissionError as exc:
-		recovery_path = path.with_suffix(path.suffix + ".recovery")
-		try:
-			if tmp_path.exists():
-				tmp_path.replace(recovery_path)
-			else:
-				df.to_parquet(recovery_path, index=False)
-		except Exception:
-			df.to_parquet(recovery_path, index=False)
-		finally:
-			try:
-				if tmp_path.exists():
-					tmp_path.unlink()
-			except Exception:
-				pass
-		raise RuntimeError(
-			(
-				f"Permission denied while writing {path}. "
-				f"A recovery snapshot was written to {recovery_path}. "
-				"Stop this run, close any editor/process that may lock the target file, "
-				"then rerun to restore and continue."
-			)
-		) from exc
+	atomic_write_parquet(path, df, index=False)
 
 
 def _http_get_json(

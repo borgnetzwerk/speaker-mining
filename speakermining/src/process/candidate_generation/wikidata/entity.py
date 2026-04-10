@@ -21,6 +21,7 @@ from .common import (
 	canonical_pid,
 	canonical_qid,
 	get_active_wikidata_languages,
+	qid_from_uri,
 )
 from .inlinks import build_inlinks_query
 from .outlinks import extract_outlinks
@@ -575,3 +576,226 @@ def get_or_search_entities_by_label(
 		if cached:
 			return get_query_event_response_data(cached[0])
 		raise
+
+
+def _build_class_scoped_label_search_query(*, label: str, class_qid: str, language: str, limit: int) -> str:
+	safe_label = str(label or "").replace('\\', '\\\\').replace('"', '\\"')
+	safe_language = str(language or "de").strip().lower() or "de"
+	safe_limit = max(1, int(limit))
+	return f"""
+SELECT DISTINCT ?item ?itemLabel ?itemDescription WHERE {{
+  VALUES ?scopeClass {{ wd:{class_qid} }}
+  ?item wdt:P31/wdt:P279* ?scopeClass .
+  FILTER(STRSTARTS(STR(?item), STR(wd:)))
+  {{
+    ?item rdfs:label ?labelValue .
+    FILTER(LANG(?labelValue) = \"{safe_language}\")
+		FILTER(LCASE(STR(?labelValue)) = LCASE(\"{safe_label}\"))
+  }}
+  UNION
+  {{
+    ?item skos:altLabel ?aliasValue .
+    FILTER(LANG(?aliasValue) = \"{safe_language}\")
+    FILTER(LCASE(STR(?aliasValue)) = LCASE(\"{safe_label}\"))
+  }}
+  SERVICE wikibase:label {{ bd:serviceParam wikibase:language \"{safe_language},en,mul\". }}
+}}
+LIMIT {safe_limit}
+""".strip()
+
+
+def _build_class_scoped_prefix_search_query(*, label: str, class_qid: str, language: str, limit: int) -> str:
+	safe_label = str(label or "").replace('\\', '\\\\').replace('"', '\\"')
+	safe_language = str(language or "de").strip().lower() or "de"
+	safe_limit = max(1, int(limit))
+	return f"""
+SELECT DISTINCT ?item ?itemLabel ?itemDescription WHERE {{
+	VALUES ?scopeClass {{ wd:{class_qid} }}
+	?item wdt:P31/wdt:P279* ?scopeClass .
+	FILTER(STRSTARTS(STR(?item), STR(wd:)))
+	{{
+		?item rdfs:label ?labelValue .
+		FILTER(LANG(?labelValue) = \"{safe_language}\")
+		FILTER(STRSTARTS(LCASE(STR(?labelValue)), LCASE(\"{safe_label}\")))
+	}}
+	UNION
+	{{
+		?item skos:altLabel ?aliasValue .
+		FILTER(LANG(?aliasValue) = \"{safe_language}\")
+		FILTER(STRSTARTS(LCASE(STR(?aliasValue)), LCASE(\"{safe_label}\")))
+	}}
+	SERVICE wikibase:label {{ bd:serviceParam wikibase:language \"{safe_language},en,mul\". }}
+}}
+LIMIT {safe_limit}
+""".strip()
+
+
+def _parse_class_scoped_label_search_payload(payload: dict, *, match_mode: str) -> dict:
+	search_rows: list[dict] = []
+	bindings = payload.get("results", {}).get("bindings", []) if isinstance(payload, dict) else []
+	for row in bindings or []:
+		if not isinstance(row, dict):
+			continue
+		qid = qid_from_uri((row.get("item", {}) or {}).get("value", ""))
+		if not qid:
+			continue
+		search_rows.append(
+			{
+				"id": qid,
+				"label": str((row.get("itemLabel", {}) or {}).get("value", "") or qid),
+				"description": str((row.get("itemDescription", {}) or {}).get("value", "") or ""),
+				"match_mode": match_mode,
+			}
+		)
+
+	seen: set[str] = set()
+	deduped_rows: list[dict] = []
+	for row in search_rows:
+		qid = str(row.get("id", "") or "")
+		if not qid or qid in seen:
+			continue
+		seen.add(qid)
+		deduped_rows.append(row)
+	return {"search": deduped_rows}
+
+
+def _run_class_scoped_label_search(
+	root: Path,
+	label: str,
+	class_qid: str,
+	cache_max_age_days: int,
+	*,
+	language: str,
+	limit: int,
+	match_mode: str,
+	timeout: int,
+) -> dict:
+	match_mode = str(match_mode or "exact").strip().lower() or "exact"
+	sparql_query = (
+		_build_class_scoped_label_search_query if match_mode == "exact" else _build_class_scoped_prefix_search_query
+	)(
+		label=label,
+		class_qid=class_qid,
+		language=language,
+		limit=limit,
+	)
+	cache_key = f"{class_qid}|{language}|{limit}|{match_mode}|{label}"
+	cached = _latest_cached_record(root, "label_search", cache_key)
+	if cached and cached[1] <= cache_max_age_days:
+		return get_query_event_response_data(cached[0])
+
+	url = f"{WIKIDATA_SPARQL_ENDPOINT}?query={quote(sparql_query)}&format=json"
+	try:
+		raw_payload = _http_get_json(url, accept="application/sparql-results+json", timeout=timeout)
+		payload = _parse_class_scoped_label_search_payload(raw_payload, match_mode=match_mode)
+		write_query_event(
+			root,
+			endpoint="wikidata_sparql",
+			normalized_query=(
+				f"class_scoped_label_search:{match_mode}:"
+				f"class={class_qid};language={language};limit={limit};search={label}"
+			),
+			source_step="entity_fetch",
+			status="success",
+			key=cache_key,
+			payload=payload,
+			http_status=200,
+			error=None,
+		)
+		return payload
+	except Exception:
+		if cached:
+			return get_query_event_response_data(cached[0])
+		raise
+
+
+def get_or_search_entities_by_label_in_class(
+	root: Path | str,
+	label: str,
+	class_qid: str,
+	cache_max_age_days: int,
+	*,
+	language: str = "de",
+	limit: int = 10,
+	timeout: int = 30,
+) -> dict:
+	"""Search entities by exact label/alias within a class scope via SPARQL.
+
+	This is used by class-aware fallback matching to reduce generic label-search
+	pressure when mention type already implies class context.
+	"""
+	root = Path(root)
+	query = str(label or "").strip()
+	scope_qid = canonical_qid(class_qid)
+	if not query or not scope_qid:
+		return {"search": []}
+
+	language = str(language or "de").strip().lower() or "de"
+	limit = max(1, int(limit))
+	return _run_class_scoped_label_search(
+		root,
+		query,
+		scope_qid,
+		cache_max_age_days,
+		language=language,
+		limit=limit,
+		match_mode="exact",
+		timeout=timeout,
+	)
+
+
+def get_or_search_entities_by_label_in_class_ranked(
+	root: Path | str,
+	label: str,
+	class_qid: str,
+	cache_max_age_days: int,
+	*,
+	language: str = "de",
+	limit: int = 10,
+	timeout: int = 30,
+) -> dict:
+	"""Search class-scoped candidates with exact-match preference and relaxed prefix fallback."""
+	root = Path(root)
+	query = str(label or "").strip()
+	scope_qid = canonical_qid(class_qid)
+	if not query or not scope_qid:
+		return {"search": []}
+
+	language = str(language or "de").strip().lower() or "de"
+	limit = max(1, int(limit))
+	try:
+		exact_payload = _run_class_scoped_label_search(
+			root,
+			query,
+			scope_qid,
+			cache_max_age_days,
+			language=language,
+			limit=limit,
+			match_mode="exact",
+			timeout=timeout,
+		)
+		if exact_payload.get("search", []):
+			return exact_payload
+		prefix_payload = _run_class_scoped_label_search(
+			root,
+			query,
+			scope_qid,
+			cache_max_age_days,
+			language=language,
+			limit=limit,
+			match_mode="prefix",
+			timeout=timeout,
+		)
+		return prefix_payload if prefix_payload.get("search", []) else exact_payload
+	except Exception:
+		# Preserve the existing contract: if ranked search fails and we have exact cached data,
+		# callers should still receive the best available local result through the exact helper.
+		return get_or_search_entities_by_label_in_class(
+			root,
+			label,
+			class_qid,
+			cache_max_age_days,
+			language=language,
+			limit=limit,
+			timeout=timeout,
+		)

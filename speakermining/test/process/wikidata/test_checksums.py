@@ -30,6 +30,20 @@ def test_write_and_validate_chunk_checksum(tmp_path: Path) -> None:
     assert validate_chunk_checksum(tmp_path, chunk) is False
 
 
+def test_write_chunk_checksum_skips_identical_registry_rewrites(tmp_path: Path, monkeypatch) -> None:
+    chunk = tmp_path / "chunk.jsonl"
+    chunk.write_text('{"a":1}\n', encoding="utf-8")
+
+    write_chunk_checksum(tmp_path, chunk)
+
+    def fail_replace(self, target):
+        raise AssertionError("expected checksum registry rewrite to be skipped")
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+
+    write_chunk_checksum(tmp_path, chunk)
+
+
 def test_eventstore_rotation_records_checksum(tmp_path: Path) -> None:
     store = EventStore(tmp_path)
     store.append_event({"event_type": "query_response", "timestamp_utc": "2026-04-02T10:00:00Z", "payload": {}})

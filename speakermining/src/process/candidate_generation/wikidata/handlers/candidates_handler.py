@@ -33,6 +33,39 @@ class CandidatesHandler(EventHandler):
             return self.handler_registry.get_progress(self.name())
         return self._last_seq
 
+    def bootstrap_from_projection(self, output_path: Path) -> bool:
+        """Hydrate in-memory candidates from existing projection for incremental replay."""
+        output_path = Path(output_path)
+        if not output_path.exists() or output_path.stat().st_size == 0:
+            return False
+        try:
+            df = pd.read_csv(output_path)
+        except Exception:
+            return False
+        if df.empty:
+            self._candidates = []
+            return True
+        df = df.fillna("")
+        rows: list[dict] = []
+        for row in df.to_dict(orient="records"):
+            mention_id = str(row.get("mention_id", "") or "").strip()
+            candidate_id = str(row.get("candidate_id", "") or "").strip()
+            if not mention_id or not candidate_id:
+                continue
+            rows.append(
+                {
+                    "mention_id": mention_id,
+                    "mention_type": str(row.get("mention_type", "") or ""),
+                    "mention_label": str(row.get("mention_label", "") or ""),
+                    "candidate_id": candidate_id,
+                    "candidate_label": str(row.get("candidate_label", "") or ""),
+                    "source": str(row.get("source", "") or ""),
+                    "context": str(row.get("context", "") or ""),
+                }
+            )
+        self._candidates = rows
+        return True
+
     def process_batch(self, events: list[dict]) -> None:
         for event in events:
             seq = event.get("sequence_num")

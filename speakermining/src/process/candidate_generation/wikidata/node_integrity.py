@@ -6,10 +6,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 import csv
 import copy
+import os
 
 from .bootstrap import load_core_classes, load_seed_instances
 from .cache import begin_request_context, end_request_context
-from .class_resolver import resolve_class_path
+from .class_resolver import RecoveredLineageEvidence, load_recovered_class_hierarchy, resolve_class_path
 from .common import (
     DEFAULT_WIKIDATA_FALLBACK_LANGUAGE,
     canonical_qid,
@@ -26,6 +27,7 @@ from .event_log import build_eligibility_transition_event
 from .graceful_shutdown import should_terminate
 from .materializer import materialize_final
 from .node_store import flush_node_store, get_item, iter_items, upsert_discovered_item
+from .phase_contracts import PhaseContract, phase_contract_payload, phase_outcome_payload
 from .triple_store import iter_unique_triples, record_item_edges, seed_neighbor_degrees
 from .triple_store import flush_triple_events
 from time import perf_counter
@@ -82,6 +84,30 @@ def _termination_requested(repo_root: Path) -> bool:
 
 def _is_termination_runtime_error(exc: RuntimeError) -> bool:
     return "Termination requested" in str(exc)
+
+
+def _lineage_resolution_policy() -> str:
+    policy = str(os.getenv("WIKIDATA_LINEAGE_RESOLUTION_POLICY", "runtime_then_recovered_then_network") or "").strip()
+    return policy or "runtime_then_recovered_then_network"
+
+
+def _load_recovered_lineage_evidence(repo_root: Path) -> tuple[RecoveredLineageEvidence | None, str]:
+    reverse_engineering_path = (
+        Path(repo_root)
+        / "data"
+        / "20_candidate_generation"
+        / "wikidata"
+        / "reverse_engineering_potential"
+        / "class_hierarchy.csv"
+    )
+    if reverse_engineering_path.exists():
+        return load_recovered_class_hierarchy(reverse_engineering_path), "reverse_engineering_potential"
+
+    projection_path = build_artifact_paths(Path(repo_root)).class_hierarchy_csv
+    if projection_path.exists():
+        return load_recovered_class_hierarchy(projection_path), "projection_cache"
+
+    return None, "none"
 
 
 def _claim_qids(entity_doc: dict, pid: str) -> set[str]:
@@ -147,6 +173,8 @@ def _p31_core_match_with_subclass_resolution(
     class_resolution_cache: dict[str, bool] | None = None,
     projected_class_resolution: dict[str, bool] | None = None,
     class_resolution_event_emitter=None,
+    recovered_lineage: RecoveredLineageEvidence | None = None,
+    resolution_policy: str = "runtime_then_recovered_then_network",
 ) -> bool:
     core_qids = effective_core_class_qids(core_class_qids)
     if not core_qids:
@@ -197,6 +225,8 @@ def _p31_core_match_with_subclass_resolution(
                     ).get("payload", {}),
                 )) if callable(class_resolution_event_emitter) else None
             ),
+            recovered_lineage=recovered_lineage,
+            resolution_policy=resolution_policy,
         )
         is_subclass_of_core = bool(resolution.get("subclass_of_core_class", False))
         class_resolution_cache[class_qid] = is_subclass_of_core
@@ -324,6 +354,9 @@ def _resolve_first_path_to_core(
     entity_doc: dict,
     core_class_qids: set[str],
     get_entity_fn,
+    *,
+    recovered_lineage: RecoveredLineageEvidence | None = None,
+    resolution_policy: str = "runtime_then_recovered_then_network",
 ) -> str:
     if not isinstance(entity_doc, dict) or not entity_doc:
         return ""
@@ -336,7 +369,13 @@ def _resolve_first_path_to_core(
         class_doc = get_entity_fn(class_qid)
         if not isinstance(class_doc, dict) or not class_doc:
             continue
-        resolution = resolve_class_path(class_doc, effective_core_class_qids(core_class_qids), get_entity_fn)
+        resolution = resolve_class_path(
+            class_doc,
+            effective_core_class_qids(core_class_qids),
+            get_entity_fn,
+            recovered_lineage=recovered_lineage,
+            resolution_policy=resolution_policy,
+        )
         if bool(resolution.get("subclass_of_core_class", False)):
             return str(resolution.get("path_to_core_class", "") or "")
     return ""
@@ -352,6 +391,8 @@ def _eligibility_decision(
     repo_root: Path,
     class_resolution_cache: dict[str, bool],
     projected_class_resolution: dict[str, bool],
+    recovered_lineage: RecoveredLineageEvidence | None,
+    resolution_policy: str,
 ) -> dict:
     is_class_node = _is_class_node(item)
     seed_neighbor_degree = seed_neighbor_degree_map.get(qid)
@@ -362,6 +403,8 @@ def _eligibility_decision(
         class_resolution_cache=class_resolution_cache,
         projected_class_resolution=projected_class_resolution,
         class_resolution_event_emitter=None,
+        recovered_lineage=recovered_lineage,
+        resolution_policy=resolution_policy,
     )
     eligible = is_expandable_target(
         qid,
@@ -399,6 +442,37 @@ def run_node_integrity_pass(
     repo_root = Path(repo_root)
     config = config or NodeIntegrityConfig()
     notebook_logger = get_or_create_notebook_logger(repo_root, NOTEBOOK_21_ID)
+    discovery_contract = PhaseContract(
+        phase="node_integrity_discovery",
+        owner="node_integrity",
+        input_contract="known_qids + seed/core class context + discovery budgets",
+        output_contract="repaired/newly_discovered qids + discovery telemetry",
+    )
+    expansion_contract = PhaseContract(
+        phase="node_integrity_expansion",
+        owner="node_integrity",
+        input_contract="eligible_unexpanded_qids + expansion budgets",
+        output_contract="expanded_qids + expansion telemetry + materialization stats",
+    )
+    recovered_lineage, recovered_lineage_source = _load_recovered_lineage_evidence(repo_root)
+    resolution_policy = _lineage_resolution_policy()
+    print(
+        f"[node_integrity] lineage policy={resolution_policy} recovered_source={recovered_lineage_source}",
+        flush=True,
+    )
+    notebook_logger.append_event(
+        event_type="lineage_resolution_config",
+        phase="node_integrity",
+        message="lineage resolution configuration",
+        extra={
+            "resolution_policy": resolution_policy,
+            "recovered_lineage_source": recovered_lineage_source,
+            "phase_contracts": {
+                "discovery": phase_contract_payload(discovery_contract),
+                "expansion": phase_contract_payload(expansion_contract),
+            },
+        },
+    )
 
     resolved_seed_qids, resolved_core_classes = _resolve_runtime_seed_and_core_classes(
         repo_root,
@@ -438,6 +512,12 @@ def run_node_integrity_pass(
         print(f"[node_integrity] Interrupt detected - now exiting ({where})", flush=True)
         interrupt_notice_emitted = True
 
+    notebook_logger.append_event(
+        event_type="phase_contract_declared",
+        phase="node_integrity_discovery",
+        message="phase contract declared",
+        extra={"phase_contract": phase_contract_payload(discovery_contract)},
+    )
     notebook_logger.log_phase_started("node_integrity_discovery", message="node integrity discovery started")
     begin_request_context(
         budget_remaining=normalize_query_budget(config.discovery_query_budget),
@@ -631,6 +711,17 @@ def run_node_integrity_pass(
                 "checked_qids": int(checked_qids),
                 "repaired_discovery_qids": int(repaired_discovery_qids),
                 "network_queries": int(network_queries_discovery),
+                "phase_contract": phase_contract_payload(discovery_contract),
+                "phase_outcome": phase_outcome_payload(
+                    phase="node_integrity_discovery",
+                    work_label="run_node_integrity_discovery",
+                    status="completed",
+                    details={
+                        "checked_qids": int(checked_qids),
+                        "repaired_discovery_qids": int(repaired_discovery_qids),
+                        "network_queries": int(network_queries_discovery),
+                    },
+                ),
             },
         )
 
@@ -648,6 +739,8 @@ def run_node_integrity_pass(
             repo_root=repo_root,
             class_resolution_cache=pre_class_resolution_cache,
             projected_class_resolution=projected_class_resolution,
+            recovered_lineage=recovered_lineage,
+            resolution_policy=resolution_policy,
         )
 
     seed_neighbor_degree_map = _seed_neighbor_degree_map(repo_root, resolved_seed_qids)
@@ -667,6 +760,8 @@ def run_node_integrity_pass(
             repo_root=repo_root,
             class_resolution_cache=class_resolution_cache,
             projected_class_resolution=projected_class_resolution,
+            recovered_lineage=recovered_lineage,
+            resolution_policy=resolution_policy,
         )
 
     eligible_unexpanded_qids: list[str] = []
@@ -683,6 +778,8 @@ def run_node_integrity_pass(
             class_resolution_cache=class_resolution_cache,
             projected_class_resolution=projected_class_resolution,
             class_resolution_event_emitter=notebook_logger.append_event,
+            recovered_lineage=recovered_lineage,
+            resolution_policy=resolution_policy,
         )
         if is_expandable_target(
             qid,
@@ -704,7 +801,13 @@ def run_node_integrity_pass(
             continue
 
         item_now = get_item(repo_root, qid)
-        path_to_core_class = _resolve_first_path_to_core(item_now, resolved_core_classes, _get_entity_for_path)
+        path_to_core_class = _resolve_first_path_to_core(
+            item_now,
+            resolved_core_classes,
+            _get_entity_for_path,
+            recovered_lineage=recovered_lineage,
+            resolution_policy=resolution_policy,
+        )
         transition = {
             "qid": qid,
             "previous_eligible": bool(previous.get("is_eligible", False)),
@@ -756,6 +859,12 @@ def run_node_integrity_pass(
     expansion_progress_last_emit = perf_counter()
     expansion_progress_interval_seconds = 60.0
     expansion_latest_action = "startup: waiting for first expansion"
+    notebook_logger.append_event(
+        event_type="phase_contract_declared",
+        phase="node_integrity_expansion",
+        message="phase contract declared",
+        extra={"phase_contract": phase_contract_payload(expansion_contract)},
+    )
     notebook_logger.log_phase_started("node_integrity_expansion", message="node integrity expansion started")
     expansion_flush_every = 100
     try:
@@ -839,6 +948,18 @@ def run_node_integrity_pass(
             "network_queries": int(network_queries_expansion),
             "timeout_warnings": int(timeout_warnings),
             "stop_reason": stop_reason,
+            "phase_contract": phase_contract_payload(expansion_contract),
+            "phase_outcome": phase_outcome_payload(
+                phase="node_integrity_expansion",
+                work_label="run_node_integrity_expansion",
+                status="completed" if stop_reason != "user_interrupted" else "interrupted",
+                details={
+                    "expanded_qids": int(len(expanded_qids)),
+                    "network_queries": int(network_queries_expansion),
+                    "timeout_warnings": int(timeout_warnings),
+                    "stop_reason": str(stop_reason),
+                },
+            ),
         },
     )
 

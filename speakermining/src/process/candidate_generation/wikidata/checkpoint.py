@@ -49,9 +49,8 @@ def _runtime_state_files(repo_root: Path) -> list[Path]:
         paths.aliases_de_csv,
         paths.triples_csv,
         paths.class_hierarchy_csv,
-        paths.entities_json,
-        paths.properties_json,
-        paths.triples_events_json,
+        paths.entity_store_jsonl,
+        paths.property_store_jsonl,
         paths.query_inventory_csv,
         paths.entity_lookup_index_csv,
         paths.summary_json,
@@ -238,14 +237,22 @@ def write_checkpoint_snapshot(repo_root: Path, checkpoint_path: Path) -> Path:
     snapshot_dir = _snapshot_dir_for_checkpoint(repo_root, checkpoint_path)
     manifest_name = Path(checkpoint_path).name
     preserved_manifest_text: str | None = None
-    if Path(checkpoint_path).exists() and Path(checkpoint_path).resolve().parent == snapshot_dir.resolve():
+    checkpoint_is_in_snapshot_dir = (
+        Path(checkpoint_path).exists()
+        and Path(checkpoint_path).resolve().parent == snapshot_dir.resolve()
+    )
+    if checkpoint_is_in_snapshot_dir:
         preserved_manifest_text = Path(checkpoint_path).read_text(encoding="utf-8")
     if snapshot_dir.exists():
-        raise RuntimeError(f"Refusing to overwrite existing checkpoint backup directory: {snapshot_dir}")
-    snapshot_dir.mkdir(parents=True, exist_ok=True)
+        # write_checkpoint_manifest pre-creates this directory and writes the
+        # manifest file into it before snapshot copy begins.
+        if not checkpoint_is_in_snapshot_dir:
+            raise RuntimeError(f"Refusing to overwrite existing checkpoint backup directory: {snapshot_dir}")
+    else:
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
 
     if preserved_manifest_text is not None:
-        (snapshot_dir / manifest_name).write_text(preserved_manifest_text, encoding="utf-8")
+        _atomic_write_text(snapshot_dir / manifest_name, preserved_manifest_text)
 
     if checkpoint_path.exists() and Path(checkpoint_path).resolve().parent != snapshot_dir.resolve():
         shutil.copy2(checkpoint_path, snapshot_dir / checkpoint_path.name)
@@ -258,6 +265,8 @@ def write_checkpoint_snapshot(repo_root: Path, checkpoint_path: Path) -> Path:
 
     raw_snapshot_dir = snapshot_dir / "raw_queries"
     if paths.raw_queries_dir.exists():
+        if raw_snapshot_dir.exists():
+            safe_rmtree(raw_snapshot_dir)
         shutil.copytree(paths.raw_queries_dir, raw_snapshot_dir)
     else:
         raw_snapshot_dir.mkdir(parents=True, exist_ok=True)
@@ -267,6 +276,8 @@ def write_checkpoint_snapshot(repo_root: Path, checkpoint_path: Path) -> Path:
 
     chunks_snapshot_dir = eventstore_snapshot_dir / "chunks"
     if event_store_paths["chunks_dir"].exists():
+        if chunks_snapshot_dir.exists():
+            safe_rmtree(chunks_snapshot_dir)
         shutil.copytree(event_store_paths["chunks_dir"], chunks_snapshot_dir)
     else:
         chunks_snapshot_dir.mkdir(parents=True, exist_ok=True)
@@ -323,6 +334,8 @@ def restore_checkpoint_snapshot(repo_root: Path, checkpoint_path: Path) -> None:
 
     snapshot_raw_dir = snapshot_dir / "raw_queries"
     if snapshot_raw_dir.exists():
+        if paths.raw_queries_dir.exists():
+            safe_rmtree(paths.raw_queries_dir)
         shutil.copytree(snapshot_raw_dir, paths.raw_queries_dir)
     else:
         paths.raw_queries_dir.mkdir(parents=True, exist_ok=True)
@@ -330,6 +343,8 @@ def restore_checkpoint_snapshot(repo_root: Path, checkpoint_path: Path) -> None:
     snapshot_eventstore_dir = snapshot_dir / "eventstore"
     snapshot_chunks_dir = snapshot_eventstore_dir / "chunks"
     if snapshot_chunks_dir.exists():
+        if event_store_paths["chunks_dir"].exists():
+            safe_rmtree(event_store_paths["chunks_dir"])
         shutil.copytree(snapshot_chunks_dir, event_store_paths["chunks_dir"])
 
     snapshot_chunk_catalog = snapshot_eventstore_dir / "chunk_catalog.csv"

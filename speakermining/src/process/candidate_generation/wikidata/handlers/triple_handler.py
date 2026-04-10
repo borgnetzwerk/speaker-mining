@@ -52,6 +52,37 @@ class TripleHandler(EventHandler):
             return self.handler_registry.get_progress(self.name())
         return self._last_seq
 
+    def bootstrap_from_projection(self, output_path: Path) -> bool:
+        """Hydrate in-memory triples from existing projection for incremental replay."""
+        output_path = Path(output_path)
+        if not output_path.exists() or output_path.stat().st_size == 0:
+            return False
+        try:
+            df = pd.read_csv(output_path)
+        except Exception:
+            return False
+        if df.empty:
+            self._triples = {}
+            return True
+        df = df.fillna("")
+        triples: dict[tuple[str, str, str], dict] = {}
+        for row in df.to_dict(orient="records"):
+            subject = canonical_qid(str(row.get("subject", "") or ""))
+            predicate = canonical_pid(str(row.get("predicate", "") or ""))
+            obj = canonical_qid(str(row.get("object", "") or ""))
+            if not subject or not predicate or not obj:
+                continue
+            key = (subject, predicate, obj)
+            triples[key] = {
+                "subject": subject,
+                "predicate": predicate,
+                "object": obj,
+                "discovered_at_utc": str(row.get("discovered_at_utc", "") or ""),
+                "source_query_file": str(row.get("source_query_file", "") or ""),
+            }
+        self._triples = triples
+        return True
+
     def process_batch(self, events: list[dict]) -> None:
         for event in events:
             if event.get("event_type") != "query_response":

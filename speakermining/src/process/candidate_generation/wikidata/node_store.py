@@ -49,26 +49,23 @@ def _apply_recovery_if_present(path: Path, root_key: str) -> None:
             "Stop and inspect manually before continuing."
         ) from exc
 
-    if not isinstance(recovery_payload, dict):
-        raise RuntimeError(
-            f"Found recovery file at {recovery}, but content format is invalid. "
-            "Stop and inspect manually before continuing."
-        )
-
-    recovered_text = str(recovery_payload.get("text", "") or "")
-    if not recovered_text:
-        raise RuntimeError(
-            f"Found recovery file at {recovery}, but no stored text payload was present. "
-            "Stop and inspect manually before continuing."
-        )
-
-    try:
-        recovered_store_raw = json.loads(recovered_text)
-    except Exception as exc:
-        raise RuntimeError(
-            f"Found recovery file at {recovery}, but stored text is not valid JSON. "
-            "Stop and inspect manually before continuing."
-        ) from exc
+    if isinstance(recovery_payload, dict) and isinstance(recovery_payload.get("text"), str):
+        recovered_text = str(recovery_payload.get("text", "") or "")
+        if not recovered_text:
+            raise RuntimeError(
+                f"Found recovery file at {recovery}, but no stored text payload was present. "
+                "Stop and inspect manually before continuing."
+            )
+        try:
+            recovered_store_raw = json.loads(recovered_text)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Found recovery file at {recovery}, but stored text is not valid JSON. "
+                "Stop and inspect manually before continuing."
+            ) from exc
+    else:
+        # Shared io_guardrails recovery snapshots store the target payload directly.
+        recovered_store_raw = recovery_payload
 
     recovered_store = _normalize_store_payload(recovered_store_raw, root_key)
     current_store = _normalize_store_payload(
@@ -175,8 +172,8 @@ def _flush_store(path: Path, cache: dict[str, dict], dirty: set[str]) -> None:
 
 def flush_node_store(repo_root: Path) -> None:
     paths = build_artifact_paths(Path(repo_root))
-    flush_entity_store(paths.entities_json)
-    flush_property_store(paths.properties_json)
+    flush_entity_store(paths.entity_store_jsonl)
+    flush_property_store(paths.property_store_jsonl)
 
 
 def flush_entity_store(path: Path) -> None:
@@ -199,7 +196,10 @@ def reset_node_store_cache(repo_root: Path | None = None) -> None:
         _LOOKUP_INDEX_CACHE_MTIME.clear()
         return
     paths = build_artifact_paths(Path(repo_root))
-    for path in (paths.entities_json, paths.properties_json):
+    for path in (
+        paths.entity_store_jsonl,
+        paths.property_store_jsonl,
+    ):
         cache_key = _store_cache_key(path)
         _ENTITY_STORE_CACHE.pop(cache_key, None)
         _PROPERTY_STORE_CACHE.pop(cache_key, None)
@@ -288,7 +288,7 @@ def _chunk_entity_from_index_row(paths, row: dict) -> dict | None:
 
 def upsert_discovered_item(repo_root: Path, qid: str, entity_doc: dict, discovered_at_utc: str) -> None:
     paths = build_artifact_paths(Path(repo_root))
-    store = _cached_store(paths.entities_json, "entities", _ENTITY_STORE_CACHE)
+    store = _cached_store(paths.entity_store_jsonl, "entities", _ENTITY_STORE_CACHE)
     qid = canonical_qid(qid)
     if not qid:
         return
@@ -306,12 +306,12 @@ def upsert_discovered_item(repo_root: Path, qid: str, entity_doc: dict, discover
         merged["expanded_at_utc_history"] = list(current.get("expanded_at_utc_history", []) or [])
     merged.setdefault("expanded_at_utc", None)
     store["entities"][qid] = merged
-    _mark_store_dirty(paths.entities_json, _ENTITY_STORE_DIRTY)
+    _mark_store_dirty(paths.entity_store_jsonl, _ENTITY_STORE_DIRTY)
 
 
 def upsert_expanded_item(repo_root: Path, qid: str, expanded_payload: dict, expanded_at_utc: str) -> None:
     paths = build_artifact_paths(Path(repo_root))
-    store = _cached_store(paths.entities_json, "entities", _ENTITY_STORE_CACHE)
+    store = _cached_store(paths.entity_store_jsonl, "entities", _ENTITY_STORE_CACHE)
     qid = canonical_qid(qid)
     if not qid:
         return
@@ -324,12 +324,12 @@ def upsert_expanded_item(repo_root: Path, qid: str, expanded_payload: dict, expa
     merged["discovered_at_utc"] = current.get("discovered_at_utc") or expanded_at_utc
     merged["discovered_at_utc_history"] = _append_unique_timestamp(current, "discovered_at_utc_history", merged["discovered_at_utc"])
     store["entities"][qid] = merged
-    _mark_store_dirty(paths.entities_json, _ENTITY_STORE_DIRTY)
+    _mark_store_dirty(paths.entity_store_jsonl, _ENTITY_STORE_DIRTY)
 
 
 def upsert_discovered_property(repo_root: Path, pid: str, property_doc: dict, discovered_at_utc: str) -> None:
     paths = build_artifact_paths(Path(repo_root))
-    store = _cached_store(paths.properties_json, "properties", _PROPERTY_STORE_CACHE)
+    store = _cached_store(paths.property_store_jsonl, "properties", _PROPERTY_STORE_CACHE)
     pid = canonical_pid(pid)
     if not pid:
         return
@@ -341,12 +341,12 @@ def upsert_discovered_property(repo_root: Path, pid: str, property_doc: dict, di
     merged["discovered_at_utc"] = current.get("discovered_at_utc") or discovered_at_utc
     merged["discovered_at_utc_history"] = _append_unique_timestamp(current, "discovered_at_utc_history", discovered_at_utc)
     store["properties"][pid] = merged
-    _mark_store_dirty(paths.properties_json, _PROPERTY_STORE_DIRTY)
+    _mark_store_dirty(paths.property_store_jsonl, _PROPERTY_STORE_DIRTY)
 
 
 def get_item(repo_root: Path, qid: str) -> dict | None:
     paths = build_artifact_paths(Path(repo_root))
-    store = _cached_store(paths.entities_json, "entities", _ENTITY_STORE_CACHE)
+    store = _cached_store(paths.entity_store_jsonl, "entities", _ENTITY_STORE_CACHE)
     qid_norm = canonical_qid(qid)
     if not qid_norm:
         return None
@@ -358,7 +358,7 @@ def get_item(repo_root: Path, qid: str) -> dict | None:
 
 def iter_items(repo_root: Path) -> Iterator[dict]:
     paths = build_artifact_paths(Path(repo_root))
-    store = _cached_store(paths.entities_json, "entities", _ENTITY_STORE_CACHE)
+    store = _cached_store(paths.entity_store_jsonl, "entities", _ENTITY_STORE_CACHE)
     if store["entities"]:
         for qid in sorted(store["entities"]):
             yield store["entities"][qid]
@@ -373,6 +373,6 @@ def iter_items(repo_root: Path) -> Iterator[dict]:
 
 def iter_properties(repo_root: Path) -> Iterator[dict]:
     paths = build_artifact_paths(Path(repo_root))
-    store = _cached_store(paths.properties_json, "properties", _PROPERTY_STORE_CACHE)
+    store = _cached_store(paths.property_store_jsonl, "properties", _PROPERTY_STORE_CACHE)
     for pid in sorted(store["properties"]):
         yield store["properties"][pid]

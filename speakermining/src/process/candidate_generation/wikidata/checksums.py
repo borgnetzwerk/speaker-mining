@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from process.io_guardrails import atomic_write_text
+
 
 def _wikidata_dir(repo_root: Path) -> Path:
     return Path(repo_root) / "data" / "20_candidate_generation" / "wikidata"
@@ -41,9 +43,8 @@ def _write_checksum_registry(path: Path, registry: dict[str, str]) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = [f"{name}={registry[name]}" for name in sorted(registry)]
-    temp = path.with_suffix(".tmp")
-    temp.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
-    temp.replace(path)
+    text = "\n".join(lines) + ("\n" if lines else "")
+    atomic_write_text(path, text, encoding="utf-8")
 
 
 def write_chunk_checksum(repo_root: Path, chunk_path: Path) -> str:

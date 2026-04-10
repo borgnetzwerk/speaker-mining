@@ -4,6 +4,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from process.io_guardrails import atomic_write_text
+
 
 def _chunks_dir(repo_root: Path) -> Path:
     return Path(repo_root) / "data" / "20_candidate_generation" / "wikidata" / "chunks"
@@ -11,13 +13,6 @@ def _chunks_dir(repo_root: Path) -> Path:
 
 def _catalog_path(repo_root: Path) -> Path:
     return Path(repo_root) / "data" / "20_candidate_generation" / "wikidata" / "chunk_catalog.csv"
-
-
-def _atomic_write_text(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8", newline="")
-    tmp.replace(path)
 
 
 @dataclass(frozen=True)
@@ -144,5 +139,5 @@ def rebuild_chunk_catalog(repo_root: Path) -> list[dict]:
             escaped.append(value)
         output_rows.append(",".join(escaped))
 
-    _atomic_write_text(_catalog_path(repo_root), "\n".join(output_rows) + "\n")
+    atomic_write_text(_catalog_path(repo_root), "\n".join(output_rows) + "\n", encoding="utf-8")
     return rows

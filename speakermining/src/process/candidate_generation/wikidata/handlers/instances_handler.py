@@ -37,6 +37,37 @@ class InstancesHandler(EventHandler):
             return self.handler_registry.get_progress(self.name())
         return self._last_seq
 
+    def bootstrap_from_projection(self, output_path: Path) -> bool:
+        """Hydrate in-memory state from existing projection for incremental replay."""
+        output_path = Path(output_path)
+        if not output_path.exists() or output_path.stat().st_size == 0:
+            return False
+        try:
+            df = pd.read_csv(output_path)
+        except Exception:
+            return False
+        if df.empty:
+            self.entities = {}
+            return True
+        df = df.fillna("")
+        entities: dict[str, dict] = {}
+        for row in df.to_dict(orient="records"):
+            qid = str(row.get("qid", "") or "").strip()
+            if not qid:
+                continue
+            entities[qid] = {
+                "qid": qid,
+                "label": str(row.get("label", "") or ""),
+                "labels_de": str(row.get("labels_de", "") or ""),
+                "labels_en": str(row.get("labels_en", "") or ""),
+                "aliases": str(row.get("aliases", "") or ""),
+                "description": str(row.get("description", "") or ""),
+                "discovered_at": str(row.get("discovered_at", "") or ""),
+                "expanded_at": str(row.get("expanded_at", "") or ""),
+            }
+        self.entities = entities
+        return True
+
     def process_batch(self, events: list[dict]) -> None:
         """Process entity_fetch query responses and extract entity metadata."""
         for event in events:

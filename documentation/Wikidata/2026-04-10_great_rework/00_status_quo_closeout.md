@@ -5,7 +5,7 @@ Scope: Candidate generation (Notebook 21, Stage A, Node Integrity, fallback, pro
 
 ## Purpose
 
-Catastrophic backup loss means the next large Wikidata run should happen only after a clean closeout and one final pre-rework commit. This document captures the current state from tracker, design docs, and open git changes.
+The next large Wikidata run should happen only after coding closeout is complete. This document captures the current state from tracker, design docs, and open git changes.
 
 ## What Was Completed In This Wave
 
@@ -52,12 +52,12 @@ Status updates in `documentation/Wikidata/2026-04-09_design_improvements`:
    - 03_stage_a_reliability.md
    - 04_core_class_output_hardening.md
 2. Unresolved and transferred to Great Rework:
-   - 05_legacy_json_cutover.md -> GRW-007
+   - 05_legacy_json_cutover.md (retired-artifact cutover) -> GRW-007
    - 06_triple_events_decision.md -> GRW-008
 
 ## Rework Readiness Summary
 
-The codebase now has stronger deterministic behavior, better safety around backup deletion, and a scalable lookup/index layer. The remaining work is concentrated in full legacy cutover, strict event-sourcing completion, long-run network efficiency, and hard runtime validation under very large refresh workloads.
+The codebase now has stronger deterministic behavior, better safety around backup deletion, and a scalable lookup/index layer. The remaining work is concentrated in retired-artifact cutover completion, strict event-sourcing completion, long-run network efficiency, and hard runtime validation under very large refresh workloads.
 
 All unresolved work is consolidated in:
 

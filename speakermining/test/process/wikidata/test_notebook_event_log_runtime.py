@@ -123,3 +123,33 @@ def test_notebook_logger_repairs_malformed_jsonl_lines(tmp_path: Path) -> None:
     corrupt_files = list(log_dir.glob("notebook_corrupt.events.jsonl.corrupt.*"))
     assert corrupt_files
     assert "{this is not json" in corrupt_files[-1].read_text(encoding="utf-8")
+
+
+def test_notebook_logger_snapshot_recent_activity(tmp_path: Path) -> None:
+    logger = NotebookEventLogger(
+        repo_root=tmp_path,
+        notebook_id="notebook_snapshot",
+        run_id="run_snapshot_001",
+    )
+    logger.append_event(
+        event_type="phase_started",
+        phase="stage_a_graph_expansion",
+        message="stage started",
+        budget={"remaining": 10},
+    )
+    logger.append_event(
+        event_type="runtime_heartbeat",
+        phase="stage_a_graph_expansion",
+        message="still running",
+        rate_limit={"heartbeat_interval_seconds": 60},
+        extra={"tick": 1},
+    )
+
+    snapshot = logger.snapshot_recent_activity(window_size=25)
+
+    assert snapshot["events_seen"] == 2
+    assert snapshot["latest_event_type"] == "runtime_heartbeat"
+    assert snapshot["event_types_seen"]["phase_started"] == 1
+    assert snapshot["event_types_seen"]["runtime_heartbeat"] == 1
+    assert snapshot["top_event_types"][0]["event_type"] in {"phase_started", "runtime_heartbeat"}
+    assert snapshot["latest_payload_snapshot"]["rate_limit"]["heartbeat_interval_seconds"] == 60

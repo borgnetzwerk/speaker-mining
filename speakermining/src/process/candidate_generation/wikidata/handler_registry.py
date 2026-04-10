@@ -14,6 +14,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+import pandas as pd
+
+from process.io_guardrails import atomic_write_csv
+
 
 def _iso_now() -> str:
     """Return current UTC time in ISO 8601 format."""
@@ -91,23 +95,11 @@ class HandlerRegistry:
     def _write_registry(self) -> None:
         """Atomically write handlers to eventhandler.csv."""
         self.registry_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Write to temp file first
-        temp_path = self.registry_path.with_suffix(".tmp")
-        try:
-            with temp_path.open("w", encoding="utf-8", newline="") as f:
-                fieldnames = ["handler_name", "last_processed_sequence", "artifact_path", "updated_at"]
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                writer.writeheader()
-                for handler in sorted(self.handlers.values(), key=lambda h: h.handler_name):
-                    writer.writerow(handler.to_dict())
-            
-            # Atomic rename
-            temp_path.replace(self.registry_path)
-        except Exception:
-            if temp_path.exists():
-                temp_path.unlink(missing_ok=True)
-            raise
+
+        fieldnames = ["handler_name", "last_processed_sequence", "artifact_path", "updated_at"]
+        rows = [handler.to_dict() for handler in sorted(self.handlers.values(), key=lambda h: h.handler_name)]
+        frame = pd.DataFrame(rows, columns=fieldnames)
+        atomic_write_csv(self.registry_path, frame, index=False)
 
     def register_handler(self, handler_name: str, artifact_path: str = "") -> None:
         """Register a new handler (or update its artifact_path).
@@ -168,3 +160,21 @@ class HandlerRegistry:
     def list_handlers(self) -> list[str]:
         """Return sorted list of registered handler names."""
         return sorted(self.handlers.keys())
+
+    def snapshot(self) -> list[dict]:
+        """Return deterministic snapshot rows for governance/audit artifacts."""
+        return [self.handlers[name].to_dict() for name in sorted(self.handlers)]
+
+    def prune_to_managed_handlers(self, managed_handler_names: set[str]) -> list[str]:
+        """Remove unmanaged/stale handlers from the registry.
+
+        Returns a sorted list of removed handler names.
+        """
+        managed = {str(name or "").strip() for name in (managed_handler_names or set()) if str(name or "").strip()}
+        stale = sorted(name for name in self.handlers if name not in managed)
+        if not stale:
+            return []
+        for name in stale:
+            self.handlers.pop(name, None)
+        self._write_registry()
+        return stale

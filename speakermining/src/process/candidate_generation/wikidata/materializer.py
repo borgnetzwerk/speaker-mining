@@ -2,15 +2,23 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
+from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
+from collections import Counter
 
 import pandas as pd
 
 from .cache import _atomic_write_df, _atomic_write_parquet_df, _atomic_write_text, _entity_from_payload
 from .bootstrap import load_core_classes, load_other_interesting_classes, load_root_classes
 from .bootstrap import load_seed_instances
-from .class_resolver import compute_class_rollups, resolve_class_path
+from .class_resolver import (
+    RecoveredLineageEvidence,
+    compute_class_rollups,
+    load_recovered_class_hierarchy,
+    resolve_class_path,
+)
 from .common import (
     DEFAULT_WIKIDATA_FALLBACK_LANGUAGE,
     canonical_qid,
@@ -24,6 +32,130 @@ from .query_inventory import materialize_query_inventory
 from .schemas import build_artifact_paths
 from .schemas import core_instances_projection_filename
 from .triple_store import flush_triple_events, iter_unique_triples
+
+
+@dataclass(frozen=True)
+class SnapshotArtifactParity:
+    artifact_name: str
+    left_exists: bool
+    right_exists: bool
+    left_rows: int
+    right_rows: int
+    left_digest: str
+    right_digest: str
+    matches: bool
+
+
+@dataclass(frozen=True)
+class MaterializationParityReport:
+    left_root: str
+    right_root: str
+    artifacts_compared: list[SnapshotArtifactParity]
+
+    @property
+    def matches(self) -> bool:
+        return all(row.matches for row in self.artifacts_compared)
+
+
+_PARITY_CSV_ARTIFACTS = (
+    "instances_csv",
+    "classes_csv",
+    "properties_csv",
+    "triples_csv",
+    "class_hierarchy_csv",
+    "query_inventory_csv",
+    "entity_lookup_index_csv",
+    "instances_leftovers_csv",
+    "fallback_stage_candidates_csv",
+    "fallback_stage_eligible_for_expansion_csv",
+    "fallback_stage_ineligible_csv",
+)
+
+
+def _artifact_signature_for_csv(path: Path) -> tuple[int, str]:
+    if not path.exists() or path.stat().st_size == 0:
+        return 0, hashlib.sha256(b"").hexdigest()
+
+    df = pd.read_csv(path)
+    if df.empty:
+        normalized = df.copy()
+    else:
+        normalized = df.fillna("").copy()
+        ordered_columns = sorted(normalized.columns.tolist())
+        normalized = normalized[ordered_columns]
+        sort_columns = ordered_columns or list(normalized.columns)
+        if sort_columns:
+            normalized = normalized.sort_values(sort_columns).reset_index(drop=True)
+
+    normalized_csv = normalized.to_csv(index=False)
+    digest = hashlib.sha256(normalized_csv.encode("utf-8")).hexdigest()
+    return int(len(normalized)), digest
+
+
+def compare_materialization_snapshots(
+    left_repo_root: Path | str,
+    right_repo_root: Path | str,
+    *,
+    artifact_names: tuple[str, ...] = _PARITY_CSV_ARTIFACTS,
+) -> MaterializationParityReport:
+    """Compare two materialization snapshots using deterministic CSV normalization.
+
+    This is intended for parity validation between incremental bootstrap runs and
+    controlled full-rebuild runs, without depending on raw file ordering.
+    """
+
+    left_repo_root = Path(left_repo_root)
+    right_repo_root = Path(right_repo_root)
+    left_paths = build_artifact_paths(left_repo_root)
+    right_paths = build_artifact_paths(right_repo_root)
+
+    compared: list[SnapshotArtifactParity] = []
+    for artifact_name in artifact_names:
+        left_path = getattr(left_paths, artifact_name)
+        right_path = getattr(right_paths, artifact_name)
+        left_rows, left_digest = _artifact_signature_for_csv(left_path)
+        right_rows, right_digest = _artifact_signature_for_csv(right_path)
+        compared.append(
+            SnapshotArtifactParity(
+                artifact_name=artifact_name,
+                left_exists=left_path.exists(),
+                right_exists=right_path.exists(),
+                left_rows=left_rows,
+                right_rows=right_rows,
+                left_digest=left_digest,
+                right_digest=right_digest,
+                matches=bool(left_path.exists() == right_path.exists() and left_rows == right_rows and left_digest == right_digest),
+            )
+        )
+
+    return MaterializationParityReport(
+        left_root=str(left_repo_root),
+        right_root=str(right_repo_root),
+        artifacts_compared=compared,
+    )
+
+
+def _lineage_resolution_policy() -> str:
+    policy = str(os.getenv("WIKIDATA_LINEAGE_RESOLUTION_POLICY", "runtime_then_recovered_then_network") or "").strip()
+    return policy or "runtime_then_recovered_then_network"
+
+
+def _load_recovered_lineage_evidence(repo_root: Path, paths) -> tuple[RecoveredLineageEvidence | None, str]:
+    reverse_engineering_path = (
+        Path(repo_root)
+        / "data"
+        / "20_candidate_generation"
+        / "wikidata"
+        / "reverse_engineering_potential"
+        / "class_hierarchy.csv"
+    )
+    if reverse_engineering_path.exists():
+        return load_recovered_class_hierarchy(reverse_engineering_path), "reverse_engineering_potential"
+
+    if paths.class_hierarchy_csv.exists():
+        return load_recovered_class_hierarchy(paths.class_hierarchy_csv), "projection_cache"
+
+    return None, "none"
 
 
 def _pick_lang_text(mapping: dict, lang: str) -> str:
@@ -135,7 +267,14 @@ def _latest_entity_cache_docs(repo_root: Path) -> dict[str, dict]:
     return docs
 
 
-def _build_instances_df(repo_root: Path, core_class_qids: set[str]) -> pd.DataFrame:
+def _build_instances_df(
+    repo_root: Path,
+    core_class_qids: set[str],
+    *,
+    recovered_lineage: RecoveredLineageEvidence | None,
+    resolution_policy: str,
+    resolution_reasons: Counter,
+) -> pd.DataFrame:
     rows = []
     label_columns, description_columns, alias_columns = _projection_language_columns()
     languages = [column.replace("label_", "", 1) for column in label_columns]
@@ -168,7 +307,16 @@ def _build_instances_df(repo_root: Path, core_class_qids: set[str]) -> pd.DataFr
 
     for item in items:
         claims = item.get("claims", {}) if isinstance(item.get("claims"), dict) else {}
-        resolution = resolve_class_path(item, core_class_qids, _get_entity)
+        resolution = resolve_class_path(
+            item,
+            core_class_qids,
+            _get_entity,
+            on_resolved=lambda payload: resolution_reasons.update(
+                [str(payload.get("resolution_reason", "unknown") or "unknown")]
+            ),
+            recovered_lineage=recovered_lineage,
+            resolution_policy=resolution_policy,
+        )
         class_id = str(resolution.get("class_id", "") or "")
         row = {
             "id": item.get("id", ""),
@@ -280,7 +428,15 @@ def _build_triples_df(repo_root: Path) -> pd.DataFrame:
     return df[columns].sort_values(["subject", "predicate", "object"]).reset_index(drop=True)
 
 
-def _build_class_hierarchy_df(repo_root: Path, core_class_qids: set[str], root_class_qids: set[str]) -> pd.DataFrame:
+def _build_class_hierarchy_df(
+    repo_root: Path,
+    core_class_qids: set[str],
+    root_class_qids: set[str],
+    *,
+    recovered_lineage: RecoveredLineageEvidence | None,
+    resolution_policy: str,
+    resolution_reasons: Counter,
+) -> pd.DataFrame:
     columns = [
         "class_id",
         "class_filename",
@@ -330,10 +486,23 @@ def _build_class_hierarchy_df(repo_root: Path, core_class_qids: set[str], root_c
         class_doc = _get_entity(class_qid) or {}
         claims = class_doc.get("claims", {}) if isinstance(class_doc.get("claims"), dict) else {}
         parent_qids = _extract_claim_qids(claims, "P279")
-        resolution = resolve_class_path(class_doc, core_class_qids, _get_entity) if class_doc else {
+        resolution = (
+            resolve_class_path(
+                class_doc,
+                core_class_qids,
+                _get_entity,
+                on_resolved=lambda payload: resolution_reasons.update(
+                    [str(payload.get("resolution_reason", "unknown") or "unknown")]
+                ),
+                recovered_lineage=recovered_lineage,
+                resolution_policy=resolution_policy,
+            )
+            if class_doc
+            else {
             "path_to_core_class": "",
             "subclass_of_core_class": False,
-        }
+            }
+        )
         rows.append(
             {
                 "class_id": class_qid,
@@ -448,6 +617,10 @@ def _build_entity_lookup_rows(
     repo_root: Path,
     core_class_qids: set[str],
     triples_df: pd.DataFrame,
+    *,
+    recovered_lineage: RecoveredLineageEvidence | None,
+    resolution_policy: str,
+    resolution_reasons: Counter,
 ) -> tuple[list[dict], list[dict]]:
     items = list(iter_items(repo_root))
     item_by_id = {
@@ -474,7 +647,16 @@ def _build_entity_lookup_rows(
         if not qid:
             continue
         claims = item.get("claims", {}) if isinstance(item.get("claims"), dict) else {}
-        resolution = resolve_class_path(item, core_class_qids, _get_entity)
+        resolution = resolve_class_path(
+            item,
+            core_class_qids,
+            _get_entity,
+            on_resolved=lambda payload: resolution_reasons.update(
+                [str(payload.get("resolution_reason", "unknown") or "unknown")]
+            ),
+            recovered_lineage=recovered_lineage,
+            resolution_policy=resolution_policy,
+        )
         direct_p31 = _extract_claim_qids(claims, "P31")
         direct_p279 = _extract_claim_qids(claims, "P279")
         path_to_core_class = str(resolution.get("path_to_core_class", "") or "")
@@ -548,8 +730,19 @@ def _write_entity_lookup_artifacts(
     paths,
     core_class_qids: set[str],
     triples_df: pd.DataFrame,
+    *,
+    recovered_lineage: RecoveredLineageEvidence | None,
+    resolution_policy: str,
+    resolution_reasons: Counter,
 ) -> int:
-    _, chunk_records = _build_entity_lookup_rows(repo_root, core_class_qids, triples_df)
+    _, chunk_records = _build_entity_lookup_rows(
+        repo_root,
+        core_class_qids,
+        triples_df,
+        recovered_lineage=recovered_lineage,
+        resolution_policy=resolution_policy,
+        resolution_reasons=resolution_reasons,
+    )
     max_bytes = _resolve_chunk_max_bytes()
     paths.entity_chunks_dir.mkdir(parents=True, exist_ok=True)
 
@@ -746,9 +939,18 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
     paths = build_artifact_paths(Path(repo_root))
     core_class_qids = _core_class_qids(repo_root)
     root_class_qids = _root_class_qids(repo_root)
+    recovered_lineage, recovered_lineage_source = _load_recovered_lineage_evidence(repo_root, paths)
+    resolution_policy = _lineage_resolution_policy()
+    resolution_reasons: Counter = Counter()
 
     t0 = perf_counter()
-    instances_df = _build_instances_df(repo_root, core_class_qids)
+    instances_df = _build_instances_df(
+        repo_root,
+        core_class_qids,
+        recovered_lineage=recovered_lineage,
+        resolution_policy=resolution_policy,
+        resolution_reasons=resolution_reasons,
+    )
     print(f"[materializer] build instances done in {perf_counter() - t0:.2f}s", flush=True)
     t0 = perf_counter()
     classes_df = _build_classes_df(repo_root, instances_df)
@@ -765,7 +967,14 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
     triples_df = _build_triples_df(repo_root)
     print(f"[materializer] build triples done in {perf_counter() - t0:.2f}s", flush=True)
     t0 = perf_counter()
-    class_hierarchy_df = _build_class_hierarchy_df(repo_root, core_class_qids, root_class_qids)
+    class_hierarchy_df = _build_class_hierarchy_df(
+        repo_root,
+        core_class_qids,
+        root_class_qids,
+        recovered_lineage=recovered_lineage,
+        resolution_policy=resolution_policy,
+        resolution_reasons=resolution_reasons,
+    )
     print(f"[materializer] build class_hierarchy done in {perf_counter() - t0:.2f}s", flush=True)
     t0 = perf_counter()
     query_inventory_df = materialize_query_inventory(repo_root)
@@ -786,7 +995,15 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
     _write_tabular_artifact(paths.instances_csv, instances_df)
     _write_tabular_artifact(paths.classes_csv, classes_df)
     _write_tabular_artifact(paths.properties_csv, properties_df)
-    entity_lookup_rows = _write_entity_lookup_artifacts(repo_root, paths, core_class_qids, triples_df)
+    entity_lookup_rows = _write_entity_lookup_artifacts(
+        repo_root,
+        paths,
+        core_class_qids,
+        triples_df,
+        recovered_lineage=recovered_lineage,
+        resolution_policy=resolution_policy,
+        resolution_reasons=resolution_reasons,
+    )
     core_projection_counts = _write_core_instance_projections(
         paths,
         instances_df,
@@ -806,6 +1023,9 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
         "entity_lookup_rows": int(entity_lookup_rows),
         "core_instance_projection_files": int(len(core_projection_counts)),
         "instances_leftovers_rows": int(core_projection_counts.get(paths.instances_leftovers_csv.name, 0)),
+        "lineage_resolution_policy": resolution_policy,
+        "lineage_recovered_source": recovered_lineage_source,
+        "lineage_resolution_reason_counts": dict(sorted(resolution_reasons.items())),
     }
     _write_summary(paths, run_id, stage, stats)
     elapsed = perf_counter() - total_t0

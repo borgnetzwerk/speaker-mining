@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import process.notebook_event_log as notebook_event_log
+
 from process.candidate_generation.wikidata.node_integrity import (
     NodeIntegrityConfig,
     run_node_integrity_pass,
@@ -375,6 +377,176 @@ def test_node_integrity_continues_after_timeout_error(tmp_path: Path, monkeypatc
     assert result.checked_qids >= 1
     assert result.repaired_discovery_qids == 0
     assert result.timeout_warnings >= 1
+
+
+def test_node_integrity_timeout_warning_is_logged_with_phase_summary(tmp_path: Path, monkeypatch) -> None:
+    notebook_event_log._LOGGER_BY_NOTEBOOK.clear()
+    notebook_event_log._STARTED_RUNS.clear()
+
+    setup_dir = tmp_path / "data" / "00_setup"
+    setup_dir.mkdir(parents=True, exist_ok=True)
+    (setup_dir / "classes.csv").write_text(
+        "wikibase_id,filename,label,description,alias,label_de,description_de,alias_de,wikidata_id,fernsehserien_de_id\n"
+        ",persons,person,,,,,,Q215627,\n",
+        encoding="utf-8",
+    )
+    (setup_dir / "broadcasting_programs.csv").write_text(
+        "label,wikidata_id\n"
+        "Seed Program,Q100\n",
+        encoding="utf-8",
+    )
+
+    paths = build_artifact_paths(tmp_path)
+    paths.entities_json.parent.mkdir(parents=True, exist_ok=True)
+    paths.entities_json.write_text(
+        json.dumps(
+            {
+                "entities": {
+                    "Q200": {
+                        "id": "Q200",
+                        "claims": {
+                            "P31": [
+                                {
+                                    "mainsnak": {
+                                        "datavalue": {
+                                            "value": {"entity-type": "item", "id": "Q5"}
+                                        }
+                                    }
+                                }
+                            ]
+                        },
+                        "discovered_at_utc": "2026-03-31T12:00:00Z",
+                        "discovered_at_utc_history": ["2026-03-31T12:00:00Z"],
+                    }
+                }
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    def _timeout_fetch(*_args, **_kwargs):
+        raise TimeoutError("The read operation timed out")
+
+    monkeypatch.setattr(
+        "process.candidate_generation.wikidata.node_integrity.get_or_fetch_entity",
+        _timeout_fetch,
+    )
+
+    result = run_node_integrity_pass(
+        tmp_path,
+        config=NodeIntegrityConfig(
+            cache_max_age_days=365,
+            query_timeout_seconds=5,
+            query_delay_seconds=0.0,
+            network_progress_every=0,
+            discovery_query_budget=-1,
+            per_node_expansion_query_budget=0,
+            total_expansion_query_budget=0,
+            inlinks_limit=50,
+            max_nodes_to_expand=0,
+        ),
+    )
+
+    log_path = tmp_path / "data" / "logs" / "notebooks" / "notebook_21_candidate_generation_wikidata.events.jsonl"
+    log_rows = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    timeout_events = [
+        row
+        for row in log_rows
+        if row.get("event_type") == "timeout_warning" and row.get("phase") == "node_integrity_discovery"
+    ]
+    assert timeout_events
+
+    expansion_finished = [
+        row
+        for row in log_rows
+        if row.get("event_type") == "phase_finished" and row.get("phase") == "node_integrity_expansion"
+    ]
+    assert expansion_finished
+    summary_extra = expansion_finished[-1].get("extra", {})
+    assert int(summary_extra.get("timeout_warnings", 0)) >= 1
+    assert str(summary_extra.get("stop_reason", "")) == "seed_complete"
+
+    assert result.timeout_warnings >= 1
+    assert result.stop_reason == "seed_complete"
+
+
+def test_node_integrity_timeout_stress_harness_survives_repeated_batches(tmp_path: Path, monkeypatch) -> None:
+    notebook_event_log._LOGGER_BY_NOTEBOOK.clear()
+    notebook_event_log._STARTED_RUNS.clear()
+
+    setup_dir = tmp_path / "data" / "00_setup"
+    setup_dir.mkdir(parents=True, exist_ok=True)
+    (setup_dir / "classes.csv").write_text(
+        "wikibase_id,filename,label,description,alias,label_de,description_de,alias_de,wikidata_id,fernsehserien_de_id\n"
+        ",persons,person,,,,,,Q215627,\n",
+        encoding="utf-8",
+    )
+    (setup_dir / "broadcasting_programs.csv").write_text(
+        "label,wikidata_id\n"
+        "Seed Program,Q100\n",
+        encoding="utf-8",
+    )
+
+    paths = build_artifact_paths(tmp_path)
+    paths.entities_json.parent.mkdir(parents=True, exist_ok=True)
+    entities = {}
+    for idx in range(6):
+        qid = f"Q2{idx:02d}"
+        entities[qid] = {
+            "id": qid,
+            "claims": {
+                "P31": [
+                    {
+                        "mainsnak": {
+                            "datavalue": {
+                                "value": {"entity-type": "item", "id": "Q5"}
+                            }
+                        }
+                    }
+                ]
+            },
+            "discovered_at_utc": "2026-03-31T12:00:00Z",
+            "discovered_at_utc_history": ["2026-03-31T12:00:00Z"],
+        }
+    paths.entities_json.write_text(
+        json.dumps({"entities": entities}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    def _timeout_fetch(*_args, **_kwargs):
+        raise TimeoutError("The read operation timed out")
+
+    monkeypatch.setattr(
+        "process.candidate_generation.wikidata.node_integrity.get_or_fetch_entity",
+        _timeout_fetch,
+    )
+    monkeypatch.setattr(
+        "process.candidate_generation.wikidata.node_integrity.get_or_fetch_entities_batch",
+        _timeout_fetch,
+    )
+
+    result = run_node_integrity_pass(
+        tmp_path,
+        config=NodeIntegrityConfig(
+            cache_max_age_days=365,
+            query_timeout_seconds=5,
+            query_delay_seconds=0.0,
+            network_progress_every=0,
+            discovery_query_budget=-1,
+            per_node_expansion_query_budget=0,
+            total_expansion_query_budget=0,
+            inlinks_limit=50,
+            discovery_batch_fetch_size=2,
+            max_nodes_to_expand=0,
+        ),
+    )
+
+    assert result.checked_qids >= 6
+    assert result.timeout_warnings >= 3
+    assert result.stop_reason == "seed_complete"
 
 
 def test_node_integrity_forwards_http_retry_policy_to_request_context(

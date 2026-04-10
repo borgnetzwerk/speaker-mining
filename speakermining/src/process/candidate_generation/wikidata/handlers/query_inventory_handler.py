@@ -84,6 +84,39 @@ class QueryInventoryHandler(EventHandler):
             return self.handler_registry.get_progress(self.name())
         return self._last_seq
 
+    def bootstrap_from_projection(self, output_path: Path) -> bool:
+        """Hydrate query inventory from existing projection for incremental replay."""
+        output_path = Path(output_path)
+        if not output_path.exists() or output_path.stat().st_size == 0:
+            return False
+        try:
+            df = pd.read_csv(output_path)
+        except Exception:
+            return False
+        if df.empty:
+            self.queries = {}
+            return True
+        df = df.fillna("")
+        hydrated: dict[str, QueryRecord] = {}
+        for row in df.to_dict(orient="records"):
+            query_hash = str(row.get("query_hash", "") or "").strip()
+            if not query_hash:
+                continue
+            record = QueryRecord(
+                query_hash=query_hash,
+                endpoint=str(row.get("endpoint", "") or ""),
+                normalized_query=str(row.get("normalized_query", "") or ""),
+                status=str(row.get("status", "") or ""),
+                first_seen=str(row.get("first_seen", "") or ""),
+                source_step="",
+                key="",
+                count=int(row.get("count", 0) or 0),
+            )
+            record.last_seen = str(row.get("last_seen", "") or "")
+            hydrated[query_hash] = record
+        self.queries = hydrated
+        return True
+
     def process_batch(self, events: list[dict]) -> None:
         """Process all query_response events and deduplicate by query_hash."""
         for event in events:
