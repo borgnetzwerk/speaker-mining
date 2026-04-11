@@ -555,8 +555,42 @@ def _write_tabular_artifact(csv_path: Path, df: pd.DataFrame) -> None:
     _atomic_write_parquet_df(csv_path.with_suffix(".parquet"), df)
 
 
+_WIKIDATA_ENTITY_KEY_ORDER = (
+    "_fetched_literal_languages",
+    "type",
+    "id",
+    "labels",
+    "descriptions",
+    "aliases",
+    "claims",
+)
+
+
+def _order_entity_doc_keys(entity_doc: dict) -> dict:
+    if not isinstance(entity_doc, dict):
+        return {}
+
+    ordered: dict = {}
+    for key in _WIKIDATA_ENTITY_KEY_ORDER:
+        if key in entity_doc:
+            ordered[key] = entity_doc[key]
+
+    for key, value in entity_doc.items():
+        if key not in ordered:
+            ordered[key] = value
+
+    return ordered
+
+
 def _write_json_object_artifact(json_path: Path, payload: dict) -> None:
-    _atomic_write_text(json_path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    if not isinstance(payload, dict):
+        payload = {}
+
+    ordered_payload = {
+        str(qid): _order_entity_doc_keys(entity_doc) if isinstance(entity_doc, dict) else entity_doc
+        for qid, entity_doc in sorted(payload.items(), key=lambda item: str(item[0]))
+    }
+    _atomic_write_text(json_path, json.dumps(ordered_payload, ensure_ascii=False, indent=2))
 
 
 def _resolve_chunk_max_bytes() -> int:
@@ -868,6 +902,21 @@ def _write_core_instance_projections(paths, instances_df: pd.DataFrame, class_hi
         for item in iter_items(repo_root)
         if canonical_qid(str(item.get("id", "") or ""))
     }
+    latest_entity_docs = _latest_entity_cache_docs(repo_root)
+
+    def _claim_statement_count(entity_doc: dict) -> int:
+        claims = entity_doc.get("claims", {}) if isinstance(entity_doc, dict) else {}
+        if not isinstance(claims, dict):
+            return 0
+        return int(sum(len(v) for v in claims.values() if isinstance(v, list)))
+
+    for qid, latest_doc in latest_entity_docs.items():
+        existing_doc = entity_by_qid.get(qid)
+        if not isinstance(existing_doc, dict):
+            entity_by_qid[qid] = latest_doc
+            continue
+        if _claim_statement_count(latest_doc) >= _claim_statement_count(existing_doc):
+            entity_by_qid[qid] = latest_doc
 
     core_rows = load_core_classes(repo_root)
     active_projection_files: set[str] = set()

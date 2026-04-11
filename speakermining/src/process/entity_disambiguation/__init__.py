@@ -18,6 +18,7 @@ from .alignment import (
     EpisodeAligner,
     PersonAligner,
     BroadcastingProgramAligner,
+    RoleOrganizationAligner,
 )
 from .event_log import AlignmentEventLog
 from .event_handlers import (
@@ -34,6 +35,7 @@ __all__ = [
     "EpisodeAligner",
     "PersonAligner",
     "BroadcastingProgramAligner",
+    "RoleOrganizationAligner",
     "AlignmentEventLog",
     "HandlerProgressDB",
     "ReplayableHandler",

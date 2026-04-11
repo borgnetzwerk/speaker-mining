@@ -18,6 +18,8 @@ from typing import Optional
 
 import pandas as pd
 
+from .normalization import name_similarity, normalize_name
+
 
 class AlignmentStatus(str, Enum):
     """Status of an alignment attempt."""
@@ -145,35 +147,13 @@ class EpisodeAligner:
 class PersonAligner:
     """Deterministic person alignment within an episode context (Layer 3)."""
     
-    def _normalize_name(self, name: Optional[str]) -> str:
-        """Normalize name for comparison."""
-        if not name:
-            return ""
-        # Convert to uppercase, remove non-alphanumeric
-        normalized = re.sub(r'[^a-zäöüß]', '', name.lower())
-        return normalized
-    
-    def _name_similarity(self, name1: Optional[str], name2: Optional[str]) -> float:
-        """Simple similarity metric for names (0.0 to 1.0)."""
-        n1 = self._normalize_name(name1)
-        n2 = self._normalize_name(name2)
-        
-        if not n1 or not n2:
-            return 0.0
-        if n1 == n2:
-            return 1.0
-        # Partial overlap (either is substring of other)
-        if n1 in n2 or n2 in n1:
-            return 0.7
-        return 0.0
-    
     def align_person_in_episode(
         self,
         episode_key: str,
         mention_id: str,
         mention_name: str,
-        wikidata_candidate: Optional[dict],
-        fernsehserien_candidate: Optional[dict],
+        wikidata_candidates: Optional[list[dict]] = None,
+        fernsehserien_candidates: Optional[list[dict]] = None,
     ) -> AlignmentResult:
         """Align a single person mention in an episode context.
         
@@ -181,38 +161,72 @@ class PersonAligner:
         1. Exact name match across sources
         2. Keep unmatched as unresolved (precision-first)
         """
-        sources = []
+        wd_candidates = wikidata_candidates or []
+        fs_candidates = fernsehserien_candidates or []
+
+        best_wd: Optional[dict] = None
+        best_wd_score = 0.0
+        for candidate in wd_candidates:
+            label = candidate.get("label") or candidate.get("name") or ""
+            score = name_similarity(mention_name, label)
+            if score > best_wd_score:
+                best_wd_score = score
+                best_wd = candidate
+
+        best_fs: Optional[dict] = None
+        best_fs_score = 0.0
+        for candidate in fs_candidates:
+            label = candidate.get("guest_name") or candidate.get("name") or ""
+            score = name_similarity(mention_name, label)
+            if score > best_fs_score:
+                best_fs_score = score
+                best_fs = candidate
+
+        wd_name = (best_wd or {}).get("label") or (best_wd or {}).get("name")
+        fs_name = (best_fs or {}).get("guest_name") or (best_fs or {}).get("name")
+
+        matched_fields: list[str] = []
+        sources = ["zdf"]
         best_score = 0.0
-        best_method = ""
-        matched_fields = []
-        
-        wd_name = wikidata_candidate.get("name") if wikidata_candidate else None
-        fs_name = fernsehserien_candidate.get("name") if fernsehserien_candidate else None
-        
-        # Check exact match
-        wd_sim = self._name_similarity(mention_name, wd_name) if wd_name else 0.0
-        fs_sim = self._name_similarity(mention_name, fs_name) if fs_name else 0.0
-        
-        if wd_sim == 1.0 and fs_sim == 1.0:
-            # Exact match across sources
+        best_method = "no_deterministic_match"
+        status = AlignmentStatus.UNRESOLVED
+        requires_review = True
+
+        if best_wd_score == 1.0 and best_fs_score == 1.0:
             best_score = 0.95
             best_method = "name_exact_multi_source"
-            matched_fields = ["name"]
-            sources = ["zdf", "wikidata", "fernsehserien"]
             status = AlignmentStatus.ALIGNED
             requires_review = False
-        elif wd_sim == 1.0 or fs_sim == 1.0:
-            # Exact match in one source
+            matched_fields = ["name_normalized_exact"]
+            sources.extend(["wikidata", "fernsehserien"])
+        elif best_wd_score == 1.0:
+            best_score = 0.90
+            best_method = "name_exact_zdf_wikidata"
+            status = AlignmentStatus.ALIGNED
+            requires_review = False
+            matched_fields = ["name_normalized_exact"]
+            sources.append("wikidata")
+        elif best_fs_score == 1.0:
+            best_score = 0.85
+            best_method = "name_exact_zdf_fernsehserien"
+            status = AlignmentStatus.ALIGNED
+            requires_review = False
+            matched_fields = ["name_normalized_exact"]
+            sources.append("fernsehserien")
+        elif best_wd_score >= 0.7 or best_fs_score >= 0.7:
             best_score = 0.70
-            best_method = "name_exact_single_source"
-            matched_fields = ["name"]
-            sources = ["zdf", "wikidata" if wd_sim > 0 else "fernsehserien"]
+            best_method = "name_substring_match"
             status = AlignmentStatus.ALIGNED
             requires_review = True
-        else:
-            # No sufficient match
-            status = AlignmentStatus.UNRESOLVED
-            requires_review = True
+            matched_fields = ["name_normalized_substring"]
+            if best_wd_score >= 0.7:
+                sources.append("wikidata")
+            if best_fs_score >= 0.7:
+                sources.append("fernsehserien")
+
+        mention_norm = normalize_name(mention_name)
+        wd_norm = normalize_name(wd_name)
+        fs_norm = normalize_name(fs_name)
         
         return AlignmentResult(
             alignment_unit_id="",  # Will be set by handler
@@ -227,11 +241,12 @@ class PersonAligner:
             deterministic_alignment_method=best_method,
             deterministic_alignment_reason=(
                 f"Person mention '{mention_name}' in episode {episode_key}: "
-                f"Wikidata name similarity {wd_sim:.2f}, Fernsehserien {fs_sim:.2f}"
+                f"Wikidata name similarity {best_wd_score:.2f}, Fernsehserien {best_fs_score:.2f}; "
+                f"normalized forms zdf='{mention_norm}', wd='{wd_norm}', fs='{fs_norm}'"
             ),
             requires_human_review=requires_review,
             matched_on_fields=matched_fields,
-            candidate_count=len([c for c in [wikidata_candidate, fernsehserien_candidate] if c]),
+            candidate_count=len(wd_candidates) + len(fs_candidates),
             evidence_sources=sources,
         )
 
@@ -256,3 +271,122 @@ class BroadcastingProgramAligner:
             candidate_count=1,
             evidence_sources=["setup"],
         )
+
+
+class RoleOrganizationAligner:
+    """Role and organization context enrichment (Layer 4 - optional confidence boosting)."""
+    
+    def enrich_person_alignment_with_layer4_signals(
+        self,
+        existing_alignment: AlignmentResult,
+        zdf_description: Optional[str],
+        wikidata_occupations: Optional[list[str]],
+        wikidata_positions: Optional[list[str]],
+        fernsehserien_role: Optional[str],
+    ) -> AlignmentResult:
+        """
+        Enhance person alignment with Layer 4 role/organization signals.
+        
+        Layer 4 evidence can:
+        - Increase confidence score if roles align across sources
+        - Flag for human review if role contradicts across sources
+        - Never downgrade ALIGNED status to UNRESOLVED (precision-first)
+        
+        Args:
+            existing_alignment: Result from PersonAligner (Layer 3)
+            zdf_description: Description/role from ZDF
+            wikidata_occupations: List of occupation identifiers from Wikidata
+            wikidata_positions: List of position identifiers from Wikidata
+            fernsehserien_role: Role/title from Fernsehserien
+        
+        Returns:
+            Updated AlignmentResult with enriched evidence
+        """
+        # Only enrich if base alignment is ALIGNED with mid-range confidence
+        # (don't waste effort on UNRESOLVED or already-high-confidence matches)
+        if existing_alignment.deterministic_alignment_status != AlignmentStatus.ALIGNED:
+            return existing_alignment
+        
+        if existing_alignment.deterministic_alignment_score >= 0.95:
+            # Already very high confidence; Layer 4 won't improve it
+            return existing_alignment
+        
+        # Extract role keywords from descriptions
+        zdf_roles = self._extract_role_keywords(zdf_description) if zdf_description else []
+        fs_roles = self._extract_role_keywords(fernsehserien_role) if fernsehserien_role else []
+        
+        # Check for role alignment across sources
+        role_alignment_count = 0
+        if zdf_roles and fs_roles:
+            # Simple keyword overlap check
+            overlap = set(zdf_roles) & set(fs_roles)
+            role_alignment_count += len(overlap)
+        
+        if zdf_roles and wikidata_occupations:
+            # Check for semantic role matches (simplified: presence of certain keywords)
+            wikidata_keywords = self._extract_keywords_from_qids(wikidata_occupations)
+            overlap = set(zdf_roles) & set(wikidata_keywords)
+            role_alignment_count += len(overlap)
+        
+        # Boost confidence if strong layer 4 evidence
+        confidence_boost = 0.0
+        layer4_reason = ""
+        
+        if role_alignment_count >= 2:
+            # Multiple role signals align across sources
+            confidence_boost = 0.05
+            layer4_reason = f" [Layer 4 boost: {role_alignment_count} role/occupation signals align across sources]"
+        elif role_alignment_count == 1:
+            # Single role signal; modest boost
+            confidence_boost = 0.03
+            layer4_reason = " [Layer 4 modest boost: 1 role signal aligns]"
+        
+        # Apply boost
+        new_score = min(existing_alignment.deterministic_alignment_score + confidence_boost, 0.99)
+        
+        return AlignmentResult(
+            alignment_unit_id=existing_alignment.alignment_unit_id,
+            core_class=existing_alignment.core_class,
+            broadcasting_program_key=existing_alignment.broadcasting_program_key,
+            episode_key=existing_alignment.episode_key,
+            source_zdf_value=existing_alignment.source_zdf_value,
+            source_wikidata_value=existing_alignment.source_wikidata_value,
+            source_fernsehserien_value=existing_alignment.source_fernsehserien_value,
+            deterministic_alignment_status=existing_alignment.deterministic_alignment_status,
+            deterministic_alignment_score=new_score,
+            deterministic_alignment_method=existing_alignment.deterministic_alignment_method,
+            deterministic_alignment_reason=existing_alignment.deterministic_alignment_reason + layer4_reason,
+            requires_human_review=existing_alignment.requires_human_review,
+            matched_on_fields=existing_alignment.matched_on_fields + (["role_alignment"] if layer4_reason else []),
+            candidate_count=existing_alignment.candidate_count,
+            evidence_sources=existing_alignment.evidence_sources,
+        )
+    
+    def _extract_role_keywords(self, text: str) -> list[str]:
+        """Extract role/occupation keywords from descriptive text."""
+        keywords = []
+        text_lower = text.lower()
+        
+        # Common German/English occupation keywords
+        known_keywords = [
+            "moderator", "host", "schauspieler", "actor", "regisseur", "director",
+            "journalist", "author", "politician", "politiker", "ceo", "präsident",
+            "minister", "justiz", "foreign", "wissenschaftler", "researcher",
+            "künstler", "artist", "sänger", "singer", "musiker", "musician",
+        ]
+        
+        for kw in known_keywords:
+            if kw in text_lower:
+                keywords.append(kw)
+        
+        return keywords
+    
+    def _extract_keywords_from_qids(self, qids: list[str]) -> list[str]:
+        """Convert Wikidata QIDs to simple keyword representations.
+        
+        Note: This is a placeholder. In production, would use a mapping table
+        or query Wikidata for labels.
+        """
+        # Placeholder: just return empty list for now
+        # In a real system, would map Q IDs to human-readable labels
+        return []

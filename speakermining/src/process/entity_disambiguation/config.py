@@ -40,14 +40,14 @@ WIKIDATA_PROJECTIONS_DIR = INPUT_PHASE_DIR / "wikidata" / "projections"
 FERNSEHSERIEN_PROJECTIONS_DIR = INPUT_PHASE_DIR / "fernsehserien_de" / "projections"
 CANDIDATE_EPISODES_CSV = INPUT_PHASE_DIR / "episodes.csv"
 
-# Wikidata projection files
-WD_BROADCASTING_PROGRAMS = WIKIDATA_PROJECTIONS_DIR / "instances_core_broadcasting_programs.csv"
-WD_SERIES = WIKIDATA_PROJECTIONS_DIR / "instances_core_series.csv"
-WD_EPISODES = WIKIDATA_PROJECTIONS_DIR / "instances_core_episodes.csv"
-WD_PERSONS = WIKIDATA_PROJECTIONS_DIR / "instances_core_persons.csv"
-WD_TOPICS = WIKIDATA_PROJECTIONS_DIR / "instances_core_topics.csv"
-WD_ROLES = WIKIDATA_PROJECTIONS_DIR / "instances_core_roles.csv"
-WD_ORGANIZATIONS = WIKIDATA_PROJECTIONS_DIR / "instances_core_organizations.csv"
+# Wikidata projection files (JSON-first policy for Phase 31)
+WD_BROADCASTING_PROGRAMS = WIKIDATA_PROJECTIONS_DIR / "broadcasting_programs.json"
+WD_SERIES = WIKIDATA_PROJECTIONS_DIR / "series.json"
+WD_EPISODES = WIKIDATA_PROJECTIONS_DIR / "episodes.json"
+WD_PERSONS = WIKIDATA_PROJECTIONS_DIR / "persons.json"
+WD_TOPICS = WIKIDATA_PROJECTIONS_DIR / "topics.json"
+WD_ROLES = WIKIDATA_PROJECTIONS_DIR / "roles.json"
+WD_ORGANIZATIONS = WIKIDATA_PROJECTIONS_DIR / "organizations.json"
 
 # Fernsehserien.de projection files
 FS_EPISODE_GUESTS = FERNSEHSERIEN_PROJECTIONS_DIR / "episode_guests_normalized.csv"
@@ -100,6 +100,17 @@ EVENT_METADATA_COLUMNS = [
     "action_type",              # Action performed on the IDs
     "action_status",            # emitted|updated|skipped|failed
     "action_reason",            # Human-readable reason
+    "wikidata_claim_properties",
+    "wikidata_claim_property_count",
+    "wikidata_claim_statement_count",
+    "wikidata_property_counts_json",
+    "wikidata_p31_qids",
+    "wikidata_p179_qids",
+    "wikidata_p106_qids",
+    "wikidata_p39_qids",
+    "wikidata_p921_qids",
+    "wikidata_p527_qids",
+    "wikidata_p361_qids",
 ]
 
 PERSONS_EXTENDED_COLUMNS = [

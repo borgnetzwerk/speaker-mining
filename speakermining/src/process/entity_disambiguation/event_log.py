@@ -88,6 +88,9 @@ class AlignmentEventLog:
             "alignment_method": str(alignment_result.deterministic_alignment_method),
             "alignment_reason": str(alignment_result.deterministic_alignment_reason),
             "requires_human_review": bool(alignment_result.requires_human_review),
+            "matched_on_fields": list(alignment_result.matched_on_fields),
+            "candidate_count": int(alignment_result.candidate_count),
+            "evidence_sources": list(alignment_result.evidence_sources),
         }
         
         if source_mention_data:

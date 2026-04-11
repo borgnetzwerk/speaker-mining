@@ -169,18 +169,41 @@ class ReplayableHandler:
             "action_type": str(event.get("action", {}).get("type", "")),
             "action_status": str(event.get("action", {}).get("status", "")),
             "action_reason": str(event.get("action", {}).get("reason", "")),
+            "matched_on_fields": "|".join(str(x) for x in event.get("matched_on_fields", []) if str(x)),
+            "candidate_count": event.get("candidate_count", 0),
+            "evidence_sources": "|".join(str(x) for x in event.get("evidence_sources", []) if str(x)),
         }
         
         # Add core-class-specific columns
         if "source_data" in event:
             source = event["source_data"]
+            common_wd_fields = [
+                "wikidata_claim_properties",
+                "wikidata_claim_property_count",
+                "wikidata_claim_statement_count",
+                "wikidata_property_counts_json",
+                "wikidata_p31_qids",
+                "wikidata_p179_qids",
+                "wikidata_p106_qids",
+                "wikidata_p39_qids",
+                "wikidata_p921_qids",
+                "wikidata_p527_qids",
+                "wikidata_p361_qids",
+            ]
+            for field_name in common_wd_fields:
+                row[field_name] = source.get(field_name, "")
+
             if self.core_class == "persons":
                 row["mention_id"] = source.get("mention_id", "")
                 row["person_name"] = source.get("mention_name", "")
                 row["person_episode_publication_date"] = source.get("person_episode_publication_date", "")
                 row["person_episode_publication_time"] = source.get("person_episode_publication_time", "")
                 row["wikidata_id"] = source.get("wikidata_id", "")
+                row["wikidata_label"] = source.get("wikidata_label", "")
                 row["fernsehserien_url"] = source.get("fernsehserien_url", "")
+                row["fernsehserien_label"] = source.get("fernsehserien_label", "")
+                row["occupation_evidence"] = source.get("occupation_evidence", "")
+                row["affiliation_evidence"] = source.get("affiliation_evidence", "")
             elif self.core_class == "episodes":
                 row["episode_id"] = source.get("episode_id", "")
                 row["publication_date"] = source.get("publication_date", "")
@@ -188,6 +211,22 @@ class ReplayableHandler:
                 row["duration_seconds"] = source.get("duration_seconds", "")
                 row["season_number"] = source.get("season_number", "")
                 row["episode_number"] = source.get("episode_number", "")
+            elif self.core_class == "series":
+                row["series_id"] = source.get("series_id", "")
+                row["series_label"] = source.get("series_label", "")
+            elif self.core_class == "topics":
+                row["topic_id"] = source.get("topic_id", "")
+                row["topic_label"] = source.get("topic_label", "")
+            elif self.core_class == "roles":
+                row["role_id"] = source.get("role_id", "")
+                row["role_label"] = source.get("role_label", "")
+                row["confidence_role"] = source.get("confidence_role", "")
+            elif self.core_class == "organizations":
+                row["org_id"] = source.get("org_id", "")
+                row["org_label"] = source.get("org_label", "")
+                row["confidence_org"] = source.get("confidence_org", "")
+            elif self.core_class == "broadcasting_programs":
+                row["program_label"] = source.get("program_label", source.get("mention_name", ""))
         
         return row
     

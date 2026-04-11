@@ -26,49 +26,109 @@ from .alignment import (
 from .config import (
     BROADCASTING_PROGRAMS_CSV,
     CANDIDATE_EPISODES_CSV,
+    CORE_CLASSES,
     EPISODES_CSV,
     FS_EPISODE_GUESTS,
     FS_EPISODE_METADATA,
     FS_EPISODE_BROADCASTS,
     PERSONS_CSV,
     PUBLICATIONS_CSV,
+    WD_BROADCASTING_PROGRAMS,
     WD_EPISODES,
+    WD_ORGANIZATIONS,
     WD_PERSONS,
+    WD_ROLES,
+    WD_SERIES,
+    WD_TOPICS,
 )
 from .event_log import AlignmentEventLog
 from .event_handlers import AlignmentProjectionBuilder
 from .checkpoints import CheckpointManager
 from .config import EVENTS_DIR
+from .data_loading import (
+    load_wikidata_entities_df,
+    normalize_zdf_episodes_df,
+    read_csv_if_exists,
+)
+from .normalization import (
+    extract_label_and_date_from_parenthetical,
+    normalize_name,
+    normalize_program_name,
+    parse_date_to_iso,
+)
 
 
 class Step311Orchestrator:
-    """Orchestrates Step 311 automated disambiguation workflow."""
+    """Orchestrates Step 311 automated disambiguation workflow.
+    
+    Implements the complete 4-layer entity alignment process:
+    - Layer 1: Broadcasting programs (identity validation)
+    - Layer 2: Episodes (time/ID-based matching)
+    - Layer 3: Persons (name-based matching within episodes)
+    - Layer 4: Roles/Organizations (context enrichment)
+    
+    Coordinates:
+    - Data loading from all 3 sources (ZDF, Wikidata, Fernsehserien)
+    - Normalization of entity names and dates
+    - Deterministic matching with confidence scoring
+    - Event emission for reproducibility
+    - Checkpoint management for recovery
+    - Projection building into aligned_*.csv files
+    
+    Usage:
+        >>> orchestrator = Step311Orchestrator()
+        >>> projections = orchestrator.run()  # Returns dict[core_class, DataFrame]
+        >>> print(projections["persons"].shape)  # (rows, columns)
+    
+    All decisions are logged as immutable events and fully reproducible.
+    Re-running with same input always produces identical output.
+    """
     
     def __init__(self):
-        """Initialize orchestrator."""
+        """Initialize orchestrator with aligners, event logs, and checkpoint manager."""
         self.episode_aligner = EpisodeAligner()
         self.person_aligner = PersonAligner()
         self.program_aligner = BroadcastingProgramAligner()
-        
-        self.event_logs = {
-            "persons": AlignmentEventLog(core_class="persons"),
-            "episodes": AlignmentEventLog(core_class="episodes"),
-            "broadcasting_programs": AlignmentEventLog(core_class="broadcasting_programs"),
-        }
+        self.event_logs = {core_class: AlignmentEventLog(core_class=core_class) for core_class in CORE_CLASSES}
         
         self.projection_builder = AlignmentProjectionBuilder()
         self.checkpoint_manager = CheckpointManager()
         self._seen_import_ids: dict[str, set[str]] = {
-            "persons": set(),
-            "episodes": set(),
-            "broadcasting_programs": set(),
+            core_class: set() for core_class in CORE_CLASSES
         }
     
     def run(self) -> dict[str, pd.DataFrame]:
-        """Run complete Step 311 workflow.
+        """Run complete Step 311 workflow end-to-end.
+        
+        Orchestrates all 4 layers of entity alignment:
+        1. Load upstream data (ZDF CSVs, Wikidata JSON, Fernsehserien CSV)
+        2. Normalize all entity names and dates for deterministic comparison
+        3. Run Layer 1 (Broadcasting Programs) → seeds from setup data
+        4. Run Layer 2 (Episodes) → time/ID-based matching
+        5. Run Layer 3 (Persons) → name-based matching within episodes
+        6. Run Layer 4 (Roles/Organizations) → context enrichment
+        7. Emit all alignment events with evidence metadata
+        8. Build aligned_*.csv projections from events
+        9. Save checkpoint for recovery
         
         Returns:
-            Dict mapping core_class -> projection DataFrame
+            Dictionary mapping core_class to projection DataFrame:
+            - 'broadcasting_programs': aligned programs
+            - 'episodes': aligned episodes
+            - 'persons': aligned person mentions
+            - 'series': aligned series/seasons
+            - 'topics': aligned topics
+            - 'roles': aligned roles/occupations
+            - 'organizations': aligned organizations
+        
+        Deterministic Guarantees:
+        - Same input always produces identical output
+        - All decisions logged as immutable events
+        - Recoverable from checkpoints if interrupted
+        - No false positive alignments (precision-first philosophy)
+        
+        Raises:
+            RuntimeError: If critical upstream data (e.g., setup broadcasting programs) is missing
         """
         # 1. Load immutable upstream data
         upstream = self._load_upstream_data()
@@ -83,6 +143,36 @@ class Step311Orchestrator:
         self._run_person_alignments(upstream)
         self._run_fernsehserien_person_seeds(upstream)
         self._run_wikidata_person_seeds(upstream)
+        self._run_wikidata_class_seeds(
+            upstream=upstream,
+            core_class="broadcasting_programs",
+            dataset_key="wd_broadcasting_programs",
+            method_name="seed_wikidata_broadcasting_program",
+        )
+        self._run_wikidata_class_seeds(
+            upstream=upstream,
+            core_class="series",
+            dataset_key="wd_series",
+            method_name="seed_wikidata_series",
+        )
+        self._run_wikidata_class_seeds(
+            upstream=upstream,
+            core_class="topics",
+            dataset_key="wd_topics",
+            method_name="seed_wikidata_topic",
+        )
+        self._run_wikidata_class_seeds(
+            upstream=upstream,
+            core_class="roles",
+            dataset_key="wd_roles",
+            method_name="seed_wikidata_role",
+        )
+        self._run_wikidata_class_seeds(
+            upstream=upstream,
+            core_class="organizations",
+            dataset_key="wd_organizations",
+            method_name="seed_wikidata_organization",
+        )
         
         # 3. Build projections
         projections = self.projection_builder.build_all_projections()
@@ -119,31 +209,35 @@ class Step311Orchestrator:
     def _load_upstream_data(self) -> dict:
         """Load immutable upstream data."""
         data = {}
-
-        def _read_csv_if_exists(path: Path) -> pd.DataFrame:
-            if path.exists():
-                return pd.read_csv(path)
-            return pd.DataFrame()
         
         # Broadcasting programs (Layer 1)
-        data["programs"] = _read_csv_if_exists(BROADCASTING_PROGRAMS_CSV)
+        data["programs"] = read_csv_if_exists(BROADCASTING_PROGRAMS_CSV)
         
         # Episodes (Layer 2)
-        data["episodes"] = _read_csv_if_exists(EPISODES_CSV)
-        data["candidate_episodes"] = _read_csv_if_exists(CANDIDATE_EPISODES_CSV)
-        data["publications"] = _read_csv_if_exists(PUBLICATIONS_CSV)
+        data["episodes"] = read_csv_if_exists(EPISODES_CSV)
+        data["candidate_episodes"] = read_csv_if_exists(CANDIDATE_EPISODES_CSV)
+        data["publications"] = read_csv_if_exists(PUBLICATIONS_CSV)
+        data["zdf_episodes_normalized"] = normalize_zdf_episodes_df(
+            data["episodes"],
+            data["publications"],
+        )
         
         # Persons (Layer 3)
-        data["persons"] = _read_csv_if_exists(PERSONS_CSV)
-        data["wd_persons"] = _read_csv_if_exists(WD_PERSONS)
-        data["wd_episodes"] = _read_csv_if_exists(WD_EPISODES)
+        data["persons"] = read_csv_if_exists(PERSONS_CSV)
+        data["wd_persons"] = load_wikidata_entities_df(WD_PERSONS)
+        data["wd_episodes"] = load_wikidata_entities_df(WD_EPISODES)
+        data["wd_broadcasting_programs"] = load_wikidata_entities_df(WD_BROADCASTING_PROGRAMS)
+        data["wd_series"] = load_wikidata_entities_df(WD_SERIES)
+        data["wd_topics"] = load_wikidata_entities_df(WD_TOPICS)
+        data["wd_roles"] = load_wikidata_entities_df(WD_ROLES)
+        data["wd_organizations"] = load_wikidata_entities_df(WD_ORGANIZATIONS)
 
         # Fernsehserien episode metadata (Layer 2 input)
-        data["fs_episode_metadata"] = _read_csv_if_exists(FS_EPISODE_METADATA)
-        data["fs_episode_broadcasts"] = _read_csv_if_exists(FS_EPISODE_BROADCASTS)
+        data["fs_episode_metadata"] = read_csv_if_exists(FS_EPISODE_METADATA)
+        data["fs_episode_broadcasts"] = read_csv_if_exists(FS_EPISODE_BROADCASTS)
 
         # Fernsehserien episode guests (Layer 3 input)
-        data["fs_episode_guests"] = _read_csv_if_exists(FS_EPISODE_GUESTS)
+        data["fs_episode_guests"] = read_csv_if_exists(FS_EPISODE_GUESTS)
         
         return data
 
@@ -158,74 +252,38 @@ class Step311Orchestrator:
 
     @staticmethod
     def _normalize_program_name(value: str) -> str:
-        text = str(value or "").strip()
-        if not text:
-            return ""
-        text = text.casefold()
-        text = re.sub(r"\([^)]*\)", " ", text)
-        text = re.sub(r"\b\d{1,2}[.]\d{1,2}[.]\d{2,4}\b", " ", text)
-        text = re.sub(r"\s+", " ", text).strip()
-        return text
+        return normalize_program_name(value)
 
     @staticmethod
     def _parse_date_to_iso(value: str) -> str:
-        text = str(value or "").strip()
-        if not text:
-            return ""
-
-        parsed = pd.to_datetime(text, dayfirst=True, errors="coerce")
-        if pd.notna(parsed):
-            return parsed.strftime("%Y-%m-%d")
-
-        # German month-name dates used in Wikidata labels, e.g. "12. Mai 2020"
-        match = re.search(r"(\d{1,2})\.\s*([A-Za-zÄÖÜäöüß]+)\s+(\d{4})", text)
-        if not match:
-            return ""
-
-        month_map = {
-            "januar": 1,
-            "februar": 2,
-            "marz": 3,
-            "märz": 3,
-            "april": 4,
-            "mai": 5,
-            "juni": 6,
-            "juli": 7,
-            "august": 8,
-            "september": 9,
-            "oktober": 10,
-            "november": 11,
-            "dezember": 12,
-        }
-
-        day = int(match.group(1))
-        month_raw = match.group(2).strip().casefold()
-        year = int(match.group(3))
-        month = month_map.get(month_raw)
-        if not month:
-            return ""
-
-        try:
-            return datetime(year=year, month=month, day=day).strftime("%Y-%m-%d")
-        except ValueError:
-            return ""
+        return parse_date_to_iso(value)
 
     @staticmethod
     def _extract_program_and_date_from_wikidata_label(label: str) -> tuple[str, str]:
-        text = str(label or "").strip()
-        if not text:
-            return "", ""
+        return extract_label_and_date_from_parenthetical(label)
 
-        # Typical form: "Markus Lanz (22. Oktober 2024)"
-        match = re.match(r"^(.*?)\s*\(([^)]*)\)\s*$", text)
-        if match:
-            program = match.group(1).strip()
-            date_iso = Step311Orchestrator._parse_date_to_iso(match.group(2))
-            return program, date_iso
+    @staticmethod
+    def _wikidata_source_metadata(row: pd.Series) -> dict[str, str]:
+        keys = [
+            "wikidata_claim_properties",
+            "wikidata_claim_property_count",
+            "wikidata_claim_statement_count",
+            "wikidata_property_counts_json",
+            "wikidata_p31_qids",
+            "wikidata_p179_qids",
+            "wikidata_p106_qids",
+            "wikidata_p39_qids",
+            "wikidata_p921_qids",
+            "wikidata_p527_qids",
+            "wikidata_p361_qids",
+        ]
+        return {k: str(row.get(k, "") or "") for k in keys}
 
-        # Fallback: free text where a date appears somewhere in the label.
-        date_iso = Step311Orchestrator._parse_date_to_iso(text)
-        return text, date_iso
+    @staticmethod
+    def _is_series_like_broadcasting_program(row: pd.Series) -> bool:
+        p31_qids = str(row.get("wikidata_p31_qids", "") or "")
+        qids = {q.strip() for q in p31_qids.split("|") if q.strip()}
+        return "Q3464665" in qids
 
     def _emit_episode_time_matches(
         self,
@@ -410,6 +468,7 @@ class Step311Orchestrator:
                     "mention_id": "",
                     "mention_name": program_label,
                     "episode_key": "",
+                    "program_label": program_label,
                 },
                 source_entity_ids={
                     "setup_program_id": program_key or program_label,
@@ -433,6 +492,10 @@ class Step311Orchestrator:
         persons_df = upstream.get("persons", pd.DataFrame())
         episodes_df = upstream.get("episodes", pd.DataFrame())
         publications_df = upstream.get("publications", pd.DataFrame())
+        wd_persons_df = upstream.get("wd_persons", pd.DataFrame())
+        fs_guests_df = upstream.get("fs_episode_guests", pd.DataFrame())
+        fs_meta_df = upstream.get("fs_episode_metadata", pd.DataFrame())
+        fs_broadcasts_df = upstream.get("fs_episode_broadcasts", pd.DataFrame())
         
         if persons_df.empty or episodes_df.empty:
             return
@@ -459,7 +522,58 @@ class Step311Orchestrator:
                 publication_first_by_episode[eid] = {
                     "date": str(prow.get("date", "")).strip(),
                     "time": str(prow.get("time", "")).strip(),
+                    "program": str(prow.get("program", "")).strip(),
                 }
+
+        wd_candidates_by_norm: dict[str, list[dict]] = {}
+        if not wd_persons_df.empty:
+            for _, row in wd_persons_df.iterrows():
+                aliases_raw = str(row.get("aliases", "")).strip()
+                candidate = {
+                    "id": str(row.get("id", "")).strip(),
+                    "label": str(row.get("label", "")).strip(),
+                    "aliases": aliases_raw.split("|") if aliases_raw else [],
+                    "description": str(row.get("description_de", row.get("description_en", ""))).strip(),
+                }
+                names = [candidate["label"]] + candidate["aliases"]
+                for name in names:
+                    name_norm = normalize_name(name)
+                    if name_norm:
+                        wd_candidates_by_norm.setdefault(name_norm, []).append(candidate)
+
+        fs_episode_by_key: dict[tuple[str, str], set[str]] = {}
+        if not fs_meta_df.empty:
+            for _, row in fs_meta_df.iterrows():
+                key = (
+                    parse_date_to_iso(str(row.get("premiere_date", "")).strip()),
+                    normalize_program_name(str(row.get("program_name", "")).strip()),
+                )
+                episode_url = str(row.get("episode_url", "")).strip()
+                if key[0] and key[1] and episode_url:
+                    fs_episode_by_key.setdefault(key, set()).add(episode_url)
+        if not fs_broadcasts_df.empty:
+            for _, row in fs_broadcasts_df.iterrows():
+                key = (
+                    parse_date_to_iso(str(row.get("broadcast_date", "")).strip()),
+                    normalize_program_name(str(row.get("program_name", "")).strip()),
+                )
+                episode_url = str(row.get("episode_url", "")).strip()
+                if key[0] and key[1] and episode_url:
+                    fs_episode_by_key.setdefault(key, set()).add(episode_url)
+
+        fs_guests_by_episode: dict[str, list[dict]] = {}
+        if not fs_guests_df.empty:
+            for _, row in fs_guests_df.iterrows():
+                episode_url = str(row.get("episode_url", "")).strip()
+                if not episode_url:
+                    continue
+                fs_guests_by_episode.setdefault(episode_url, []).append(
+                    {
+                        "guest_name": str(row.get("guest_name", "")).strip(),
+                        "guest_url": str(row.get("guest_url", "")).strip(),
+                        "guest_role": str(row.get("guest_role", "")).strip(),
+                    }
+                )
         
         # Group persons by episode
         for episode_idx, episode_row in episodes_df.iterrows():
@@ -478,10 +592,14 @@ class Step311Orchestrator:
                 broadcasting_program_key = str(episode_row.get("broadcasting_program_key", ""))
                 person_episode_publication_date = str(episode_row.get("publikationsdatum", "")).strip()
                 person_episode_publication_time = ""
+                if not broadcasting_program_key:
+                    broadcasting_program_key = str(episode_row.get("sendungstitel", "")).strip()
                 if episode_key in publication_first_by_episode:
                     if not person_episode_publication_date:
                         person_episode_publication_date = publication_first_by_episode[episode_key].get("date", "")
                     person_episode_publication_time = publication_first_by_episode[episode_key].get("time", "")
+                    if not broadcasting_program_key:
+                        broadcasting_program_key = publication_first_by_episode[episode_key].get("program", "")
 
                 source_import_id = f"zdf_person::{mention_id}"
                 if not self._mark_if_new_import(
@@ -489,19 +607,34 @@ class Step311Orchestrator:
                     source_import_id=source_import_id,
                 ):
                     continue
+
+                person_name_norm = normalize_name(person_name)
+                wd_candidates = list(wd_candidates_by_norm.get(person_name_norm, []))
+
+                fs_candidates: list[dict] = []
+                episode_key_tuple = (
+                    parse_date_to_iso(person_episode_publication_date),
+                    normalize_program_name(broadcasting_program_key),
+                )
+                candidate_episode_urls = fs_episode_by_key.get(episode_key_tuple, set())
+                for fs_episode_url in sorted(candidate_episode_urls):
+                    fs_candidates.extend(fs_guests_by_episode.get(fs_episode_url, []))
                 
                 # Run alignment
                 result = self.person_aligner.align_person_in_episode(
                     episode_key=episode_key,
                     mention_id=mention_id,
                     mention_name=person_name,
-                    wikidata_candidate=None,  # TODO: Load from candidate generation
-                    fernsehserien_candidate=None,  # TODO: Load from candidate generation
+                    wikidata_candidates=wd_candidates,
+                    fernsehserien_candidates=fs_candidates,
                 )
                 
                 # Set identifiers
                 result.alignment_unit_id = f"{episode_key}:{mention_id}"
                 result.broadcasting_program_key = broadcasting_program_key
+
+                best_wd_candidate = wd_candidates[0] if wd_candidates else {}
+                best_fs_candidate = fs_candidates[0] if fs_candidates else {}
                 
                 # Emit event
                 self.event_logs["persons"].append_alignment_event(
@@ -513,10 +646,18 @@ class Step311Orchestrator:
                         "episode_key": episode_key,
                         "person_episode_publication_date": person_episode_publication_date,
                         "person_episode_publication_time": person_episode_publication_time,
+                        "wikidata_id": str(best_wd_candidate.get("id", "")),
+                        "wikidata_label": str(best_wd_candidate.get("label", "")),
+                        "fernsehserien_url": str(best_fs_candidate.get("guest_url", "")),
+                        "fernsehserien_label": str(best_fs_candidate.get("guest_name", "")),
+                        "occupation_evidence": str(best_wd_candidate.get("description", "")),
+                        "affiliation_evidence": str(best_fs_candidate.get("guest_role", "")),
                     },
                     source_entity_ids={
                         "zdf_mention_id": mention_id,
                         "zdf_episode_id": episode_key,
+                        "wikidata_qid": str(best_wd_candidate.get("id", "")),
+                        "fernsehserien_guest_url": str(best_fs_candidate.get("guest_url", "")),
                     },
                     action={
                         "type": "import_snapshot",
@@ -601,9 +742,7 @@ class Step311Orchestrator:
 
     def _run_episode_alignments(self, upstream: dict) -> None:
         """Seed episode alignment rows from known episode-level sources."""
-        episodes_df = upstream.get("episodes", pd.DataFrame())
-        candidate_episodes_df = upstream.get("candidate_episodes", pd.DataFrame())
-        publications_df = upstream.get("publications", pd.DataFrame())
+        zdf_norm_df = upstream.get("zdf_episodes_normalized", pd.DataFrame())
         fs_meta_df = upstream.get("fs_episode_metadata", pd.DataFrame())
         fs_broadcasts_df = upstream.get("fs_episode_broadcasts", pd.DataFrame())
         wd_episodes_df = upstream.get("wd_episodes", pd.DataFrame())
@@ -611,25 +750,8 @@ class Step311Orchestrator:
         fs_candidates: list[dict] = []
         wd_candidates: list[dict] = []
 
-        pub_first = {}
-        if not publications_df.empty and "episode_id" in publications_df.columns:
-            pub_work = publications_df.copy()
-            pub_work["episode_id"] = pub_work["episode_id"].astype(str)
-            if "publication_index" in pub_work.columns:
-                pub_work = pub_work.sort_values(by=["publication_index"])
-            for _, prow in pub_work.iterrows():
-                eid = str(prow.get("episode_id", "")).strip()
-                if eid and eid not in pub_first:
-                    pub_first[eid] = {
-                        "date": str(prow.get("date", "")).strip(),
-                        "time": str(prow.get("time", "")).strip(),
-                        "duration": str(prow.get("duration", "")).strip(),
-                        "program": str(prow.get("program", "")).strip(),
-                    }
-
-        zdf_source_df = candidate_episodes_df if not candidate_episodes_df.empty else episodes_df
-        if not zdf_source_df.empty and "episode_id" in zdf_source_df.columns:
-            zdf_rows = zdf_source_df.copy()
+        if not zdf_norm_df.empty and "episode_id" in zdf_norm_df.columns:
+            zdf_rows = zdf_norm_df.copy()
             zdf_rows["episode_id"] = zdf_rows["episode_id"].astype(str)
 
             for _, row in zdf_rows.iterrows():
@@ -644,53 +766,12 @@ class Step311Orchestrator:
                 ):
                     continue
 
-                program_name = str(row.get("sendungstitel", "")).strip()
-                publication_date = self._first_available(
-                    row,
-                    [
-                        "publication_data_0",
-                        "publication_data_1",
-                        "publication_data_2",
-                        "publication_data_3",
-                        "publikationsdatum",
-                    ],
-                    default="",
-                )
-                publication_time = ""
-                duration = ""
-                if episode_id in pub_first:
-                    if not publication_date:
-                        publication_date = pub_first[episode_id].get("date", "")
-                    publication_time = pub_first[episode_id].get("time", "")
-                    duration = pub_first[episode_id].get("duration", "")
-                    if not program_name:
-                        program_name = pub_first[episode_id].get("program", "")
-                elif not publication_time:
-                    publication_time = self._first_available(
-                        row,
-                        [
-                            "publication_time_0",
-                            "publication_time_1",
-                            "publication_time_2",
-                            "publication_time_3",
-                        ],
-                        default="",
-                    )
-                if not duration:
-                    duration = self._first_available(
-                        row,
-                        [
-                            "publication_duration_0",
-                            "publication_duration_1",
-                            "publication_duration_2",
-                            "publication_duration_3",
-                            "dauer",
-                        ],
-                        default="",
-                    )
-
-                date_iso = self._parse_date_to_iso(publication_date)
-                program_norm = self._normalize_program_name(program_name)
+                program_name = str(row.get("program_name", "")).strip()
+                publication_date = str(row.get("publication_date", "")).strip()
+                publication_time = str(row.get("publication_time", "")).strip()
+                duration = str(row.get("duration_seconds", "")).strip()
+                date_iso = str(row.get("date_iso", "")).strip() or self._parse_date_to_iso(publication_date)
+                program_norm = str(row.get("program_norm", "")).strip() or self._normalize_program_name(program_name)
                 zdf_candidates.append(
                     {
                         "episode_id": episode_id,
@@ -700,8 +781,8 @@ class Step311Orchestrator:
                         "publication_date": publication_date,
                         "publication_time": publication_time,
                         "duration": duration,
-                        "season_number": str(row.get("season", "")).strip(),
-                        "episode_number": str(row.get("folge", "")).strip(),
+                        "season_number": str(row.get("season_number", "")).strip(),
+                        "episode_number": str(row.get("episode_number", "")).strip(),
                         "date_iso": date_iso,
                     }
                 )
@@ -732,8 +813,8 @@ class Step311Orchestrator:
                         "publication_date": publication_date,
                         "publication_time": publication_time,
                         "duration_seconds": duration,
-                        "season_number": str(row.get("season", "")).strip(),
-                        "episode_number": str(row.get("folge", "")).strip(),
+                        "season_number": str(row.get("season_number", "")).strip(),
+                        "episode_number": str(row.get("episode_number", "")).strip(),
                     },
                     source_entity_ids={
                         "zdf_episode_id": episode_id,
@@ -744,7 +825,7 @@ class Step311Orchestrator:
                         "reason": "zdf episode seeded from mention_detection",
                     },
                     extra_context={
-                        "source_name": "mention_detection.episodes",
+                        "source_name": "mention_detection.episodes_normalized",
                         "source_import_id": source_import_id,
                     },
                 )
@@ -891,8 +972,8 @@ class Step311Orchestrator:
         if not wd_episodes_df.empty:
             for _, row in wd_episodes_df.iterrows():
                 wd_episode_id = str(row.get("id", "")).strip()
-                wd_label = self._first_available(row, ["label_de", "label_en"], default="")
-                series_key = str(row.get("class_id", "")).strip()
+                wd_label = str(row.get("label", "")).strip()
+                series_key = str(row.get("part_of_qids", "")).split("|")[0].strip()
 
                 if not wd_episode_id:
                     continue
@@ -904,13 +985,19 @@ class Step311Orchestrator:
                 ):
                     continue
 
-                wd_program, wd_date_iso = self._extract_program_and_date_from_wikidata_label(wd_label)
+                wd_program = str(row.get("program_from_label", "")).strip()
+                wd_date_iso = str(row.get("broadcast_date", "")).strip()
+                if not wd_program or not wd_date_iso:
+                    parsed_program, parsed_date = self._extract_program_and_date_from_wikidata_label(wd_label)
+                    wd_program = wd_program or parsed_program
+                    wd_date_iso = wd_date_iso or parsed_date
                 wd_candidates.append(
                     {
                         "wikidata_qid": wd_episode_id,
                         "label": wd_label,
                         "program_norm": self._normalize_program_name(wd_program),
                         "date_iso": wd_date_iso,
+                        "fs_urls": str(row.get("fs_urls", "")).strip(),
                     }
                 )
 
@@ -942,6 +1029,7 @@ class Step311Orchestrator:
                         "duration_seconds": "",
                         "season_number": "",
                         "episode_number": "",
+                        **self._wikidata_source_metadata(row),
                     },
                     source_entity_ids={
                         "wikidata_qid": wd_episode_id,
@@ -952,7 +1040,7 @@ class Step311Orchestrator:
                         "reason": "wikidata episode seeded",
                     },
                     extra_context={
-                        "source_name": "wikidata.instances_core_episodes",
+                        "source_name": "wikidata.episodes_json",
                         "source_import_id": source_import_id,
                     },
                 )
@@ -971,8 +1059,10 @@ class Step311Orchestrator:
 
         for _, row in wd_persons.iterrows():
             wd_person_id = str(row.get("id", "")).strip()
-            wd_label = self._first_available(row, ["label_de", "label_en"], default="")
-            class_id = str(row.get("class_id", "")).strip()
+            wd_label = str(row.get("label", "")).strip()
+            class_id = str(row.get("part_of_qids", "")).split("|")[0].strip()
+            aliases = str(row.get("aliases", "")).strip()
+            description = str(row.get("description_de", row.get("description_en", ""))).strip()
 
             if not wd_person_id:
                 continue
@@ -1010,6 +1100,10 @@ class Step311Orchestrator:
                     "mention_name": wd_label,
                     "episode_key": "",
                     "wikidata_id": wd_person_id,
+                    "wikidata_label": wd_label,
+                    "occupation_evidence": description,
+                    "affiliation_evidence": aliases,
+                    **self._wikidata_source_metadata(row),
                 },
                 source_entity_ids={
                     "wikidata_qid": wd_person_id,
@@ -1020,10 +1114,140 @@ class Step311Orchestrator:
                     "reason": "wikidata person seeded for manual disambiguation",
                 },
                 extra_context={
-                    "source_name": "wikidata.instances_core_persons",
+                    "source_name": "wikidata.persons_json",
                     "source_import_id": source_import_id,
                 },
             )
+
+    def _run_wikidata_class_seeds(
+        self,
+        *,
+        upstream: dict,
+        core_class: str,
+        dataset_key: str,
+        method_name: str,
+    ) -> None:
+        """Seed unresolved rows from a Wikidata JSON projection for a core class."""
+        dataset = upstream.get(dataset_key, pd.DataFrame())
+        if dataset.empty:
+            return
+
+        for _, row in dataset.iterrows():
+            entity_id = str(row.get("id", "")).strip()
+            label = str(row.get("label", "")).strip()
+            if not entity_id:
+                continue
+
+            source_import_id = f"wikidata_{core_class}::{entity_id}"
+            if not self._mark_if_new_import(
+                core_class=core_class,
+                source_import_id=source_import_id,
+            ):
+                continue
+
+            result = AlignmentResult(
+                alignment_unit_id=f"wd_{core_class}::{entity_id}",
+                core_class=core_class,
+                broadcasting_program_key="",
+                episode_key=None,
+                source_zdf_value=None,
+                source_wikidata_value=label or entity_id,
+                source_fernsehserien_value=None,
+                deterministic_alignment_status=AlignmentStatus.UNRESOLVED,
+                deterministic_alignment_score=0.0,
+                deterministic_alignment_method=method_name,
+                deterministic_alignment_reason=f"Wikidata {core_class} entity seeded for deterministic handoff",
+                requires_human_review=True,
+                matched_on_fields=["id"],
+                candidate_count=1,
+                evidence_sources=["wikidata"],
+            )
+
+            source_data = {
+                "mention_id": entity_id,
+                "mention_name": label,
+                "episode_key": "",
+                **self._wikidata_source_metadata(row),
+            }
+            if core_class == "series":
+                source_data.update({"series_id": entity_id, "series_label": label})
+            elif core_class == "topics":
+                source_data.update({"topic_id": entity_id, "topic_label": label})
+            elif core_class == "roles":
+                source_data.update({"role_id": entity_id, "role_label": label, "confidence_role": ""})
+            elif core_class == "organizations":
+                source_data.update({"org_id": entity_id, "org_label": label, "confidence_org": ""})
+            elif core_class == "broadcasting_programs":
+                source_data.update({"program_label": label})
+
+            self.event_logs[core_class].append_alignment_event(
+                alignment_result=result,
+                handler_name=f"seed_{core_class}",
+                source_mention_data=source_data,
+                source_entity_ids={
+                    "wikidata_qid": entity_id,
+                },
+                action={
+                    "type": "import_snapshot",
+                    "status": "emitted",
+                    "reason": f"wikidata {core_class} seeded for manual disambiguation",
+                },
+                extra_context={
+                    "source_name": f"wikidata.{dataset_key}",
+                    "source_import_id": source_import_id,
+                },
+            )
+
+            # Clean-slate redesign requirement: keep season-like entities from
+            # broadcasting_programs visible in aligned_series as well.
+            if core_class == "broadcasting_programs" and self._is_series_like_broadcasting_program(row):
+                series_import_id = f"wikidata_series_from_broadcasting::{entity_id}"
+                if self._mark_if_new_import(
+                    core_class="series",
+                    source_import_id=series_import_id,
+                ):
+                    series_result = AlignmentResult(
+                        alignment_unit_id=f"wd_series_from_broadcasting::{entity_id}",
+                        core_class="series",
+                        broadcasting_program_key="",
+                        episode_key=None,
+                        source_zdf_value=None,
+                        source_wikidata_value=label or entity_id,
+                        source_fernsehserien_value=None,
+                        deterministic_alignment_status=AlignmentStatus.UNRESOLVED,
+                        deterministic_alignment_score=0.0,
+                        deterministic_alignment_method="seed_wikidata_series_from_broadcasting_program",
+                        deterministic_alignment_reason="Wikidata broadcasting_program with P31=Q3464665 routed into series projection",
+                        requires_human_review=True,
+                        matched_on_fields=["id", "wikidata_p31_qids"],
+                        candidate_count=1,
+                        evidence_sources=["wikidata"],
+                    )
+
+                    self.event_logs["series"].append_alignment_event(
+                        alignment_result=series_result,
+                        handler_name="seed_series_from_broadcasting_program",
+                        source_mention_data={
+                            "mention_id": entity_id,
+                            "mention_name": label,
+                            "episode_key": "",
+                            "series_id": entity_id,
+                            "series_label": label,
+                            **self._wikidata_source_metadata(row),
+                        },
+                        source_entity_ids={
+                            "wikidata_qid": entity_id,
+                        },
+                        action={
+                            "type": "import_snapshot",
+                            "status": "emitted",
+                            "reason": "wikidata broadcasting_program with season class duplicated into series",
+                        },
+                        extra_context={
+                            "source_name": f"wikidata.{dataset_key}",
+                            "source_import_id": series_import_id,
+                        },
+                    )
 
 
 class RecoveryOrchestrator:

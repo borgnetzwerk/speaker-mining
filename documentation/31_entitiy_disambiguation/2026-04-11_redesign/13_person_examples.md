@@ -7,114 +7,171 @@ pm_29eaeb7e7965,ep_a371a3777018,Georg PIEPER,Traumaexperte,und seine Ehefrau Mon
 pm_68f5f9919a8e,ep_a371a3777018,Jelena WAHLER,"Gründerin Elitekindergarten ""Little Giants""","über die Insolvenzaffäre von ihrem Ehemann Franjo Pooth; weitere Studiogäste sind Jelena WAHLER (Gründerin Elitekindergarten ""Little Giants"")","Verona POOTH (Werbeikone) über die Insolvenzaffäre von ihrem Ehemann Franjo Pooth; weitere Studiogäste sind Jelena WAHLER (Gründerin Elitekindergarten ""Little Giants"") und ihr Ehemann Peter WAHLER, Udo BAUCH (Überlebender vom ICE-Unglück in Eschede) und seine Ehefrau Monika BAUCH und Georg PIEPER (Traumaexperte)",last_name_parenthetical,0.82,description 
 
 ## Wikidata
-### From data/20_candidate_generation/wikidata/projections/instances_core_persons.csv
-id,class_id,class_filename,label_de,label_en,description_de,description_en,alias_de,alias_en,path_to_core_class,subclass_of_core_class,discovered_at_utc,expanded_at_utc
-Q100157363,Q5,,David Gardiner Tyler Jr.,David Gardiner Tyler Jr.,grandson of U.S. president John Tyler,grandson of U.S. president John Tyler,,"David Gardiner Tyler, Jr.",Q5|Q215627,True,2026-04-07T15:20:48Z,
-Q100175,Q5,,Lilli Schweiger,Lilli Schweiger,deutsche Schauspielerin,German actress,Lilli Camille Schweiger,Lilli Camille Schweiger,Q5|Q215627,True,2026-04-07T13:03:53Z,
-Q100252,Q5,,Johann Nepomuk von Ringseis,Johann Nepomuk von Ringseis,deutscher Arzt,German physician (1785-1880),Johann Nepomuk Ringseis|Johann Ringeis,,Q5|Q215627,True,2026-04-07T13:03:53Z,
 
-### From data/20_candidate_generation/wikidata/projections/entities.json
-"Q100175": {
-    "id": "Q100175",
+### From data/20_candidate_generation/wikidata/projections/persons.json
+"Q100224": {
+    "_fetched_literal_languages": [
+      "de",
+      "en"
+    ],
+    "type": "item",
+    "id": "Q100224",
     "labels": {
-    "de": {
+      "de": {
         "language": "de",
-        "value": "Lilli Schweiger"
-    },
-    "en": {
+        "value": "Ralph Morgenstern"
+      },
+      "en": {
         "language": "en",
-        "value": "Lilli Schweiger"
-    },
-    "mul": {
-        "language": "mul",
-        "value": "Lilli Schweiger"
-    }
-    },
-    "descriptions": {
-    "de": {
-        "language": "de",
-        "value": "deutsche Schauspielerin"
-    },
-    "en": {
-        "language": "en",
-        "value": "German actress"
-    },
-    "mul": {
-        "value": "German actress",
+        "value": "Ralph Morgenstern"
+      },
+      "mul": {
+        "value": "Ralph Morgenstern",
         "language": "en",
         "for-language": "mul"
-    }
+      }
+    },
+    "descriptions": {
+      "de": {
+        "language": "de",
+        "value": "deutscher Moderator, Musiker und Schauspieler"
+      },
+      "en": {
+        "language": "en",
+        "value": "German actor and TV host"
+      },
+      "mul": {
+        "value": "German actor and TV host",
+        "language": "en",
+        "for-language": "mul"
+      }
     },
     "aliases": {
-    "en": [
+      "de": [
         {
-        "language": "en",
-        "value": "Lilli Camille Schweiger"
+          "language": "de",
+          "value": "Ralf Morgenstern"
         }
-    ],
-    "de": [
+      ],
+      "en": [
         {
-        "language": "de",
-        "value": "Lilli Camille Schweiger"
+          "language": "en",
+          "value": "Ralph Morgenstern-Nolting"
         }
-    ]
+      ]
     },
     "claims": {
-    "P31": [
+      "P214": [
         {
-        "mainsnak": {
+          "mainsnak": {
             "snaktype": "value",
-            "property": "P31",
-            "hash": "ad7d38a03cdd40cdc373de0dc4e7b7fcbccb31d9",
+            "property": "P214",
+            "hash": "0335eddf9cbfe772c7a9188a517f167bb7d3f109",
             "datavalue": {
-            "value": {
-                "entity-type": "item",
-                "numeric-id": 5,
-                "id": "Q5"
+              "value": "311067190",
+              "type": "string"
             },
-            "type": "wikibase-entityid"
-            },
-            "datatype": "wikibase-item"
-        },
-        "type": "statement",
-        "id": "Q100175$7B7E4F79-FEB8-40E9-A464-1C9031094880",
-        "rank": "normal",
-        "references": [
+            "datatype": "external-id"
+          },
+          "type": "statement",
+          "id": "q100224$A1B9CE9F-DC11-4A7D-AEBD-C055C3834EC6",
+          "rank": "normal",
+          "references": [
             {
-            "hash": "fa278ebfc458360e5aed63d5058cca83c46134f1",
-            "snaks": {
+              "hash": "fa278ebfc458360e5aed63d5058cca83c46134f1",
+              "snaks": {
                 "P143": [
-                {
+                  {
                     "snaktype": "value",
                     "property": "P143",
                     "hash": "e4f6d9441d0600513c4533c672b5ab472dc73694",
                     "datavalue": {
-                    "value": {
+                      "value": {
                         "entity-type": "item",
                         "numeric-id": 328,
                         "id": "Q328"
-                    },
-                    "type": "wikibase-entityid"
+                      },
+                      "type": "wikibase-entityid"
                     },
                     "datatype": "wikibase-item"
-                }
+                  }
                 ]
-            },
-            "snaks-order": [
+              },
+              "snaks-order": [
                 "P143"
-            ]
+              ]
+            },
+            {
+              "hash": "9a24f7c0208b05d6be97077d855671d1dfdbc0dd",
+              "snaks": {
+                "P143": [
+                  {
+                    "snaktype": "value",
+                    "property": "P143",
+                    "hash": "d38375ffe6fe142663ff55cd783aa4df4301d83d",
+                    "datavalue": {
+                      "value": {
+                        "entity-type": "item",
+                        "numeric-id": 48183,
+                        "id": "Q48183"
+                      },
+                      "type": "wikibase-entityid"
+                    },
+                    "datatype": "wikibase-item"
+                  }
+                ]
+              },
+              "snaks-order": [
+                "P143"
+              ]
             }
-        ]
+          ]
         }
-    ],
-    "P279": []
-    },
-    "discovered_at_utc": "2026-04-07T13:03:53Z",
-    "discovered_at_utc_history": [
-    "2026-04-07T13:03:53Z"
-    ],
-    "expanded_at_utc": null
-},
+      ],
+      "P227": [
+        {
+          "mainsnak": {
+            "snaktype": "value",
+            "property": "P227",
+            "hash": "7b98dd4a945fcf850299b2da15f346b2f811245b",
+            "datavalue": {
+              "value": "118080873",
+              "type": "string"
+            },
+            "datatype": "external-id"
+          },
+          "type": "statement",
+          "id": "q100224$166E0FA0-DC72-47D0-AA54-D280B648579B",
+          "rank": "normal",
+          "references": [
+            {
+              "hash": "9a24f7c0208b05d6be97077d855671d1dfdbc0dd",
+              "snaks": {
+                "P143": [
+                  {
+                    "snaktype": "value",
+                    "property": "P143",
+                    "hash": "d38375ffe6fe142663ff55cd783aa4df4301d83d",
+                    "datavalue": {
+                      "value": {
+                        "entity-type": "item",
+                        "numeric-id": 48183,
+                        "id": "Q48183"
+                      },
+                      "type": "wikibase-entityid"
+                    },
+                    "datatype": "wikibase-item"
+                  }
+                ]
+              },
+              "snaks-order": [
+                "P143"
+              ]
+            }
+          ]
+        }
+      ],
+      ...
 
 ## Fernsehserien.de
 fernsehserien_de_id,program_name,episode_url,guest_name,guest_role,guest_description,guest_url,guest_image_url,guest_order,normalized_at_utc,normalizer_rule,source_discovered_sequence,source_event_sequence

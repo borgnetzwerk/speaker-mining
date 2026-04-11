@@ -118,6 +118,15 @@ The following former one-line notes were represented in the tracker and then arc
 - Primary risk: monolithic JSONL append files can become large hot spots during runtime and need corruption handling and rotation/indexing policy to remain operationally safe.
 - Preliminary direction: keep CSV for stable tabular contracts, keep JSON objects/lists for mutable state snapshots, and evaluate JSONL selectively for append-only event flows (starting with `raw_queries` as a candidate) with staged rollout and validation.
 - Dedicated analysis artifact: `documentation/context/jsonl_potential.md`.
+
+## F-012: Upstream Handover Loop for Class Miswiring and Property Coverage
+
+- Observation: downstream diagnostics in Step 311 identified upstream class-wiring and property-projection gaps, most notably season-like Wikidata classes (P31=Q3464665) entering broadcasting_program paths without guaranteed series visibility.
+- Downstream mitigation was implemented and validated in Step 311, but long-term quality requires upstream correction to reduce local rewiring reliance.
+- Recommendation: maintain a recurring downstream-to-upstream handover artifact whenever such findings emerge.
+- Required governance addition: a known-mismatch rewiring catalogue with force-include/force-exclude rules, manual Wikidata correction workflow, subclass expansion policy, and explicit core-class precedence.
+- Scope tracking and ownership registry are maintained in markdown for handoff readability: `data/00_setup/learning_scope_registry.md`.
+- Handover artifact: `documentation/31_entitiy_disambiguation/upstream_handover_2026-04-11.md`.
 - Related tracker item: `TODO-014`.
 
 ## F-012 Countries are Organizations (Resolved)

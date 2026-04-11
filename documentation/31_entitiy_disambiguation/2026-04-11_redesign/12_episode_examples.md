@@ -14,86 +14,145 @@ pb_12f66ecd45ea,ep_a371a3777018,2,04.06.2008,02:35:35,69'52,ZDF,00529/50117,,0,0
 pb_d9e6d9bab453,ep_a371a3777018,3,07.06.2008,17:03:31,66'58,ZDFdokukanal,00742/08091,,0,07.06.2008 17:03:31 66'58 00742/08091 ZDFdokukanal
 
 ## Wikidata
-### From data/20_candidate_generation/wikidata/projections/instances_core_episodes.csv
-Q130625348,Q21191270,,Deutschland in der Krise – was kann Olaf Scholz noch erreichen?,Deutschland in der Krise – was kann Olaf Scholz noch erreichen?,Sendung der Fernsehtalkshow Maybrit Illner von 2024 (S26E7),2024 episode of television talk show Maybrit Illner (S26E7),,,Q21191270|Q1983062,True,2026-04-02T21:14:21Z,2026-04-07T15:22:24Z
-Q130637713,Q21191270,,Markus Lanz (23. Oktober 2024),"Markus Lanz (October 23rd, 2024)",Sendung der Fernsehtalkshow Markus Lanz von 2024 (S17E26),2024 episode of television talk show Markus Lanz (S17E26),,,Q21191270|Q1983062,True,2026-04-02T21:01:47Z,2026-04-07T15:22:24Z
-Q130638552,Q21191270,,Markus Lanz (24. Oktober 2024),"Markus Lanz (October 24th, 2024)",Sendung der Fernsehtalkshow Markus Lanz von 2024 (S17E27),2024 episode of television talk show Markus Lanz (S17E27),,,Q21191270|Q1983062,True,2026-04-02T21:01:48Z,2026-04-07T15:22:25Z
-Q130710696,Q21191270,,Deutschland in der Autokrise: Fährt eine Industrie gegen die Wand?,Deutschland in der Autokrise: Fährt eine Industrie gegen die Wand?,Sendung der Fernsehtalkshow Hart aber fair von 2024 (S25E10),2024 episode of television talk show Hart aber fair (S25E10),,,Q21191270|Q1983062,True,2026-04-02T21:05:56Z,2026-04-07T15:22:25Z
-
-### From data/20_candidate_generation/wikidata/projections/entities.json
-"Q130638552": {
-    "id": "Q130638552",
+### From data/20_candidate_generation/wikidata/projections/episodes.json
+ "Q131784051": {
+    "_fetched_literal_languages": [
+      "de",
+      "en"
+    ],
+    "type": "item",
+    "id": "Q131784051",
     "labels": {
-    "en": {
+      "en": {
         "language": "en",
-        "value": "Markus Lanz (October 24th, 2024)"
-    },
-    "de": {
+        "value": "Markus Lanz (January 16th, 2025)"
+      },
+      "de": {
         "language": "de",
-        "value": "Markus Lanz (24. Oktober 2024)"
-    },
-    "mul": {
-        "value": "Markus Lanz (October 24th, 2024)",
+        "value": "Markus Lanz (16. Januar 2025)"
+      },
+      "mul": {
+        "value": "Markus Lanz (January 16th, 2025)",
         "language": "en",
         "for-language": "mul"
-    }
+      }
     },
     "descriptions": {
-    "en": {
+      "en": {
         "language": "en",
-        "value": "2024 episode of television talk show Markus Lanz (S17E27)"
-    },
-    "de": {
+        "value": "2025 episode of television talk show Markus Lanz (S17E55)"
+      },
+      "de": {
         "language": "de",
-        "value": "Sendung der Fernsehtalkshow Markus Lanz von 2024 (S17E27)"
-    },
-    "mul": {
-        "value": "2024 episode of television talk show Markus Lanz (S17E27)",
+        "value": "Sendung der Fernsehtalkshow Markus Lanz von 2025 (S17E55)"
+      },
+      "mul": {
+        "value": "2025 episode of television talk show Markus Lanz (S17E55)",
         "language": "en",
         "for-language": "mul"
-    }
+      }
     },
     "aliases": {},
     "claims": {
-    "P31": [
+      "P1476": [
         {
-        "mainsnak": {
+          "mainsnak": {
+            "snaktype": "value",
+            "property": "P1476",
+            "hash": "f930db76daeee87fc579bd61522e21e087f1ad8a",
+            "datavalue": {
+              "value": {
+                "text": "Markus Lanz (16. Januar 2025)",
+                "language": "de"
+              },
+              "type": "monolingualtext"
+            },
+            "datatype": "monolingualtext"
+          },
+          "type": "statement",
+          "id": "Q131784051$F271F983-78B1-4BDB-99E9-472C1D88F5C1",
+          "rank": "normal"
+        }
+      ],
+      "P31": [
+        {
+          "mainsnak": {
             "snaktype": "value",
             "property": "P31",
             "hash": "2d3761f68cf1248dc8fbf0b5eaa1f7fff03df987",
             "datavalue": {
-            "value": {
+              "value": {
                 "entity-type": "item",
                 "numeric-id": 21191270,
                 "id": "Q21191270"
-            },
-            "type": "wikibase-entityid"
+              },
+              "type": "wikibase-entityid"
             },
             "datatype": "wikibase-item"
+          },
+          "type": "statement",
+          "id": "Q131784051$4D4F8A05-C674-40CC-BFC0-85527F9638C0",
+          "rank": "normal"
         },
-        "type": "statement",
-        "id": "Q130638552$A3F3726A-DEAB-46FB-8887-6F7C654B5391",
-        "rank": "normal"
+        {
+          "mainsnak": {
+            "snaktype": "value",
+            "property": "P31",
+            "hash": "9f6ff6e7948dc34c75357a8db83706c5ee8733ff",
+            "datavalue": {
+              "value": {
+                "entity-type": "item",
+                "numeric-id": 106942341,
+                "id": "Q106942341"
+              },
+              "type": "wikibase-entityid"
+            },
+            "datatype": "wikibase-item"
+          },
+          "type": "statement",
+          "id": "Q131784051$dd1cb337-433b-93d4-5088-67b3b484b688",
+          "rank": "normal"
         }
-    ],
-    "P279": []
-    },
-    "discovered_at_utc": "2026-04-02T21:01:48Z",
-    "discovered_at_utc_history": [
-    "2026-04-02T21:01:48Z",
-    "2026-04-07T15:22:25Z",
-    "2026-04-07T16:01:38Z"
-    ],
-    "expanded_at_utc": "2026-04-07T15:22:25Z",
-    "type": "item",
-    "_fetched_literal_languages": [
-    "de",
-    "en"
-    ],
-    "expanded_at_utc_history": [
-    "2026-04-07T15:22:25Z"
-    ]
-},
+      ],
+      "P179": [
+        {
+          "mainsnak": {
+            "snaktype": "value",
+            "property": "P179",
+            "hash": "a6bfffaea5630d572b1de0d02a6c6310077c8c5c",
+            "datavalue": {
+              "value": {
+                "entity-type": "item",
+                "numeric-id": 1499182,
+                "id": "Q1499182"
+              },
+              "type": "wikibase-entityid"
+            },
+            "datatype": "wikibase-item"
+          },
+          "type": "statement",
+          "qualifiers": {
+            "P1545": [
+              {
+                "snaktype": "value",
+                "property": "P1545",
+                "hash": "bf8728bcfc2c40f4182594e2fe2ec9d78be3f140",
+                "datavalue": {
+                  "value": "2031",
+                  "type": "string"
+                },
+                "datatype": "string"
+              }
+            ]
+          },
+          "qualifiers-order": [
+            "P1545"
+          ],
+          "id": "Q131784051$2CDC16F1-9362-4DEA-B2F7-FA4E6B8865B6",
+          "rank": "normal"
+        }
+      ],
+      ...
 
 ## Fernsehserien.de
 ### data/20_candidate_generation/fernsehserien_de/projections/episode_metadata_normalized.csv

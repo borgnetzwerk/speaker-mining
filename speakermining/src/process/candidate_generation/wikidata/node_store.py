@@ -108,16 +108,17 @@ def _load_json(path: Path, root_key: str) -> dict:
 
 
 def _entity_minimal(entity_doc: dict) -> dict:
-    claims = entity_doc.get("claims", {})
+    claims_raw = entity_doc.get("claims", {})
+    claims = dict(claims_raw) if isinstance(claims_raw, dict) else {}
+    claims["P31"] = claims.get("P31", []) if isinstance(claims.get("P31", []), list) else []
+    claims["P279"] = claims.get("P279", []) if isinstance(claims.get("P279", []), list) else []
     return {
+        **(dict(entity_doc) if isinstance(entity_doc, dict) else {}),
         "id": entity_doc.get("id", ""),
-        "labels": entity_doc.get("labels", {}),
-        "descriptions": entity_doc.get("descriptions", {}),
-        "aliases": entity_doc.get("aliases", {}),
-        "claims": {
-            "P31": claims.get("P31", []) or [],
-            "P279": claims.get("P279", []) or [],
-        },
+        "labels": entity_doc.get("labels", {}) if isinstance(entity_doc.get("labels", {}), dict) else {},
+        "descriptions": entity_doc.get("descriptions", {}) if isinstance(entity_doc.get("descriptions", {}), dict) else {},
+        "aliases": entity_doc.get("aliases", {}) if isinstance(entity_doc.get("aliases", {}), dict) else {},
+        "claims": claims,
     }
 
 
