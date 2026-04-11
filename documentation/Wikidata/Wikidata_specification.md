@@ -35,7 +35,18 @@ When class detection identifies a class node (entity with at least one `P279`), 
 
 ## 3. Discovered Class Payload Requirements
 
-Every discovered class QID MUST be persisted with basic class payload fields at discovery time:
+Discovered class QIDs are handled in two phases:
+
+1. Structure discovery phase:
+	- Subclass structure is collected to configured depth (incoming `P279`) to build class-resolution artifacts.
+	- Inactive discovered core-subclass classes MUST be catalogued as valid core-subclass entries.
+	- Catalogued inactive entries MUST carry an explicit inactive hydration guard marker.
+	- Class payload hydration is not required for every discovered subclass during this phase.
+2. Activation hydration phase:
+	- Active classes are derived from locally known instance evidence (`P31` triple objects), then intersected with discovered core-subclass classes.
+	- Only active classes MUST be hydrated and persisted as discovered items (cache-first).
+
+For each active class that is hydrated, payload fields MUST include:
 
 - `id`
 - `label_en`, `label_de`
@@ -44,10 +55,35 @@ Every discovered class QID MUST be persisted with basic class payload fields at 
 - `instance_of` (`P31` item targets)
 - `subclass_of` (`P279` item targets)
 
-Operational rule:
+Operational rules:
 
-1. Whenever a discovered entity references class QIDs in `P31` or `P279`, those class QIDs MUST be fetched cache-first and stored immediately.
-2. Class payload hydration MUST happen before class rollups are materialized, so class labels and lineage are available in `classes.csv` and related artifacts.
+1. Activation hydration MUST be cache-first and must not bypass existing cache policy.
+2. Inactive classes MAY remain unhydrated until they become active by evidence.
+3. Class lineage and resolution artifacts MUST remain complete for configured depth, independent of hydration status.
+4. Inactive hydration guards MUST be enforced globally: generic hydration/repair paths MUST skip guarded classes.
+5. Only activation logic may remove inactive hydration guards and hydrate those classes.
+6. Later modules (for example Node Integrity) MUST honor inactive hydration guards and MUST NOT rehydrate guarded classes as part of missing-payload repair.
+
+## 3.1 Instance-Driven Upward Superclass Branch Discovery
+
+Preflight subclass expansion MAY use an additional upward superclass discovery route derived from active instance classes.
+
+Normative behavior:
+
+1. Source classes:
+	- Source set is active class QIDs derived from local `P31` triple objects.
+2. Traversal:
+	- Traverse `P279` parents upward from each source class.
+	- Traversal depth MUST be bounded by configured `superclass_branch_discovery_max_depth`.
+3. Connectivity semantics:
+	- A source class is considered connected when its upward branch reaches a class already present in discovered core-subclass structure.
+	- Connected branch nodes MAY be added to structural path analysis for class-resolution reconciliation.
+4. Query policy:
+	- Traversal MUST be cache-first and follow the same budget and timeout constraints as other preflight network calls.
+	- If budget or timeout limits are reached, traversal MUST stop gracefully and expose stop reason/metrics rather than throwing a hard failure for the preflight run.
+5. Hydration constraints:
+	- Upward branch discovery is structural discovery only.
+	- It MUST NOT hydrate guarded inactive classes unless activation logic explicitly removes the inactive hydration guard.
 
 ## 4. Triple Completeness Requirements
 

@@ -287,7 +287,14 @@ def _chunk_entity_from_index_row(paths, row: dict) -> dict | None:
     return None
 
 
-def upsert_discovered_item(repo_root: Path, qid: str, entity_doc: dict, discovered_at_utc: str) -> None:
+def upsert_discovered_item(
+    repo_root: Path,
+    qid: str,
+    entity_doc: dict,
+    discovered_at_utc: str,
+    *,
+    allow_inactive_guard_override: bool = False,
+) -> None:
     paths = build_artifact_paths(Path(repo_root))
     store = _cached_store(paths.entity_store_jsonl, "entities", _ENTITY_STORE_CACHE)
     qid = canonical_qid(qid)
@@ -295,6 +302,13 @@ def upsert_discovered_item(repo_root: Path, qid: str, entity_doc: dict, discover
         return
 
     current = store["entities"].get(qid, {})
+    if bool(current.get("inactive_hydration_guard", False)) and not bool(allow_inactive_guard_override):
+        current["discovered_at_utc"] = current.get("discovered_at_utc") or discovered_at_utc
+        current["discovered_at_utc_history"] = _append_unique_timestamp(current, "discovered_at_utc_history", discovered_at_utc)
+        store["entities"][qid] = current
+        _mark_store_dirty(paths.entity_store_jsonl, _ENTITY_STORE_DIRTY)
+        return
+
     minimal = _entity_minimal(entity_doc)
     # Refresh core discovery fields while preserving expansion metadata.
     merged = {**current, **minimal}
@@ -307,6 +321,113 @@ def upsert_discovered_item(repo_root: Path, qid: str, entity_doc: dict, discover
         merged["expanded_at_utc_history"] = list(current.get("expanded_at_utc_history", []) or [])
     merged.setdefault("expanded_at_utc", None)
     store["entities"][qid] = merged
+    _mark_store_dirty(paths.entity_store_jsonl, _ENTITY_STORE_DIRTY)
+
+
+def is_inactive_hydration_guarded(repo_root: Path, qid: str) -> bool:
+    """Return True when a class entry is explicitly guarded against generic hydration."""
+    item = get_item(repo_root, qid)
+    if not isinstance(item, dict):
+        return False
+    return bool(item.get("inactive_hydration_guard", False))
+
+
+def mark_inactive_core_subclass(
+    repo_root: Path,
+    qid: str,
+    *,
+    discovered_at_utc: str,
+    resolved_core_class_id: str = "",
+    resolution_depth: int | None = None,
+    max_depth: int | None = None,
+) -> None:
+    """Persist a guarded inactive-class entry that can participate in lineage without hydration."""
+    paths = build_artifact_paths(Path(repo_root))
+    store = _cached_store(paths.entity_store_jsonl, "entities", _ENTITY_STORE_CACHE)
+    qid_norm = canonical_qid(qid)
+    if not qid_norm:
+        return
+
+    current = store["entities"].get(qid_norm, {})
+    already_hydrated = bool(
+        isinstance(current, dict)
+        and (
+            bool((current.get("labels") or {}))
+            or bool((current.get("descriptions") or {}))
+            or bool((current.get("aliases") or {}))
+            or bool((current.get("claims") or {}).get("P279", []))
+            or bool((current.get("claims") or {}).get("P31", []))
+        )
+    )
+    if already_hydrated and not bool(current.get("inactive_hydration_guard", False)):
+        return
+
+    metadata = {
+        "class_catalogue": {
+            "is_valid_core_subclass": True,
+            "resolved_core_class_id": canonical_qid(resolved_core_class_id),
+            "resolution_depth": int(resolution_depth) if resolution_depth is not None else None,
+            "max_depth": int(max_depth) if max_depth is not None else None,
+        }
+    }
+
+    minimal = {
+        "id": qid_norm,
+        "labels": current.get("labels", {}) if isinstance(current.get("labels", {}), dict) else {},
+        "descriptions": current.get("descriptions", {}) if isinstance(current.get("descriptions", {}), dict) else {},
+        "aliases": current.get("aliases", {}) if isinstance(current.get("aliases", {}), dict) else {},
+        "claims": current.get("claims", {}) if isinstance(current.get("claims", {}), dict) else {"P31": [], "P279": []},
+        "inactive_hydration_guard": True,
+        "class_hydration_state": "inactive_guarded",
+        "class_node_hint": True,
+        **metadata,
+    }
+
+    merged = {**current, **minimal}
+    merged["id"] = qid_norm
+    merged["discovered_at_utc"] = current.get("discovered_at_utc") or discovered_at_utc
+    merged["discovered_at_utc_history"] = _append_unique_timestamp(current, "discovered_at_utc_history", discovered_at_utc)
+    store["entities"][qid_norm] = merged
+    _mark_store_dirty(paths.entity_store_jsonl, _ENTITY_STORE_DIRTY)
+
+
+def activate_core_subclass(
+    repo_root: Path,
+    qid: str,
+    entity_doc: dict,
+    discovered_at_utc: str,
+    *,
+    activation_source: str = "",
+) -> None:
+    """Hydrate class payload and remove inactive guard after evidence-based activation."""
+    upsert_discovered_item(
+        repo_root,
+        qid,
+        entity_doc,
+        discovered_at_utc,
+        allow_inactive_guard_override=True,
+    )
+
+    paths = build_artifact_paths(Path(repo_root))
+    store = _cached_store(paths.entity_store_jsonl, "entities", _ENTITY_STORE_CACHE)
+    qid_norm = canonical_qid(qid)
+    if not qid_norm:
+        return
+    current = store["entities"].get(qid_norm, {})
+    if not isinstance(current, dict):
+        return
+
+    current["inactive_hydration_guard"] = False
+    current["class_hydration_state"] = "active"
+    current["class_node_hint"] = True
+    current["activated_at_utc"] = discovered_at_utc
+    if activation_source:
+        current["activation_source"] = str(activation_source)
+    class_catalogue = current.get("class_catalogue", {}) if isinstance(current.get("class_catalogue", {}), dict) else {}
+    class_catalogue["is_valid_core_subclass"] = True
+    current["class_catalogue"] = class_catalogue
+
+    store["entities"][qid_norm] = current
     _mark_store_dirty(paths.entity_store_jsonl, _ENTITY_STORE_DIRTY)
 
 

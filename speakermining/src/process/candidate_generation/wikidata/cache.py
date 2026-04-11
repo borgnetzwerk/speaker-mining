@@ -243,6 +243,13 @@ def end_request_context() -> int:
 	return used
 
 
+def get_request_context_network_queries() -> int:
+	"""Return current network request count for the active request context."""
+	if _REQUEST_CONTEXT is None:
+		return 0
+	return int(_REQUEST_CONTEXT.get("network_queries", 0) or 0)
+
+
 def _now_utc() -> datetime:
 	"""Get current UTC time."""
 	return datetime.now(tz=timezone.utc)
@@ -693,6 +700,7 @@ def _latest_cached_record(root: Path, query_type: str, key: str) -> tuple[dict, 
 		"entity": "entity_fetch",
 		"property": "property_fetch",
 		"inlinks": "inlinks_fetch",
+		"subclass_inlinks": "subclass_inlinks_fetch",
 		"outlinks": "outlinks_build",
 		"label_search": "entity_fetch",
 	}

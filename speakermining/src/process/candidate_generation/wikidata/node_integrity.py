@@ -26,7 +26,13 @@ from .event_log import build_class_membership_resolved_event
 from .event_log import build_eligibility_transition_event
 from .graceful_shutdown import should_terminate
 from .materializer import materialize_final
-from .node_store import flush_node_store, get_item, iter_items, upsert_discovered_item
+from .node_store import (
+    flush_node_store,
+    get_item,
+    is_inactive_hydration_guarded,
+    iter_items,
+    upsert_discovered_item,
+)
 from .phase_contracts import PhaseContract, phase_contract_payload, phase_outcome_payload
 from .triple_store import iter_unique_triples, record_item_edges, seed_neighbor_degrees
 from .triple_store import flush_triple_events
@@ -124,6 +130,8 @@ def _claim_qids(entity_doc: dict, pid: str) -> set[str]:
 
 
 def _is_class_node(entity_doc: dict) -> bool:
+    if bool(entity_doc.get("class_node_hint", False)):
+        return True
     return bool(_claim_qids(entity_doc, "P279"))
 
 
@@ -575,6 +583,10 @@ def run_node_integrity_pass(
             needs_refresh = not _has_minimal_discovery_payload(current)
             entity_doc = current if isinstance(current, dict) else {}
             discovery_latest_action = f"checked {qid}: refresh={'yes' if needs_refresh else 'no'}"
+
+            if needs_refresh and is_inactive_hydration_guarded(repo_root, qid):
+                discovery_latest_action = f"checked {qid}: refresh skipped (inactive hydration guard)"
+                continue
 
             if needs_refresh:
                 batch_size = max(1, int(config.discovery_batch_fetch_size or 1))

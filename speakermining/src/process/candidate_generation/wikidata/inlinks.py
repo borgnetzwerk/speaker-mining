@@ -36,6 +36,21 @@ OFFSET {safe_offset}
 """.strip()
 
 
+def build_subclass_inlinks_query(qid: str, *, limit: int = 200, offset: int = 0) -> str:
+	"""Build a SPARQL query for incoming P279 links (direct subclasses)."""
+	safe_limit = max(1, int(limit))
+	safe_offset = max(0, int(offset))
+	return f"""
+SELECT ?source WHERE {{
+  ?source wdt:P279 wd:{qid} .
+  FILTER(STRSTARTS(STR(?source), STR(wd:)))
+}}
+ORDER BY ?source
+LIMIT {safe_limit}
+OFFSET {safe_offset}
+""".strip()
+
+
 def parse_inlinks_results(payload: dict) -> list[dict[str, str]]:
 	"""Parse SPARQL JSON response containing inlink query results.
 	
@@ -60,3 +75,15 @@ def parse_inlinks_results(payload: dict) -> list[dict[str, str]]:
 			continue
 		rows.append({"source_qid": source_qid, "pid": pid})
 	return rows
+
+
+def parse_subclass_inlinks_results(payload: dict) -> list[str]:
+	"""Parse SPARQL JSON results for direct subclass discovery."""
+	rows: list[str] = []
+	bindings = payload.get("results", {}).get("bindings", [])
+	for item in bindings:
+		source_uri = item.get("source", {}).get("value", "")
+		source_qid = qid_from_uri(source_uri)
+		if source_qid:
+			rows.append(source_qid)
+	return sorted(set(rows))

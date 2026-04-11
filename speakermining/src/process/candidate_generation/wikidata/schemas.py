@@ -17,6 +17,7 @@ STOP_REASONS = {
 SOURCE_STEPS = {
     "entity_fetch",
     "inlinks_fetch",
+    "subclass_inlinks_fetch",
     "outlinks_build",
     "property_fetch",
     "materialization_support",

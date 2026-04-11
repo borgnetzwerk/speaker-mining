@@ -3,15 +3,28 @@ from __future__ import annotations
 import json
 import os
 import hashlib
+from datetime import datetime, timezone
 from collections import deque
 from dataclasses import dataclass
+from urllib.parse import quote
 from pathlib import Path
 from time import perf_counter
 from collections import Counter
 
 import pandas as pd
 
-from .cache import _atomic_write_df, _atomic_write_parquet_df, _atomic_write_text, _entity_from_payload
+from .cache import (
+    WIKIDATA_SPARQL_ENDPOINT,
+    _atomic_write_df,
+    _atomic_write_parquet_df,
+    _atomic_write_text,
+    _entity_from_payload,
+    _http_get_json,
+    _latest_cached_record,
+    begin_request_context,
+    end_request_context,
+    get_request_context_network_queries,
+)
 from .bootstrap import load_core_classes, load_other_interesting_classes, load_root_classes
 from .bootstrap import load_seed_instances
 from .class_resolver import (
@@ -25,13 +38,22 @@ from .class_resolver import (
 )
 from .common import (
     DEFAULT_WIKIDATA_FALLBACK_LANGUAGE,
+    canonical_pid,
     canonical_qid,
     effective_core_class_qids,
     language_projection_suffix,
     projection_languages,
 )
-from .event_log import get_query_event_field, get_query_event_response_data, iter_query_events
-from .node_store import flush_node_store, iter_items, iter_properties
+from .event_log import get_query_event_field, get_query_event_response_data, iter_query_events, write_query_event
+from .node_store import (
+    activate_core_subclass,
+    flush_node_store,
+    iter_items,
+    iter_properties,
+    mark_inactive_core_subclass,
+)
+from .inlinks import build_subclass_inlinks_query, parse_subclass_inlinks_results
+from .entity import get_or_fetch_entities_batch, get_or_fetch_entity
 from .query_inventory import materialize_query_inventory
 from .schemas import build_artifact_paths
 from .schemas import core_instances_json_filename
@@ -1256,6 +1278,596 @@ def _write_summary(paths, run_id: str, stage: str, stats: dict) -> None:
         **stats,
     }
     _atomic_write_text(paths.summary_json, json.dumps(summary, ensure_ascii=False, indent=2))
+
+
+def _subclass_inlinks_cache_key(qid: str, limit: int, offset: int) -> str:
+    return f"{canonical_qid(qid)}_limit{int(limit)}_offset{int(offset)}"
+
+
+def _fetch_subclass_inlinks_page(
+    repo_root: Path,
+    qid: str,
+    *,
+    limit: int,
+    offset: int,
+    timeout_seconds: int,
+) -> tuple[list[str], bool]:
+    qid_norm = canonical_qid(qid)
+    if not qid_norm:
+        return [], True
+
+    cache_key = _subclass_inlinks_cache_key(qid_norm, limit, offset)
+    cached = _latest_cached_record(repo_root, "subclass_inlinks", cache_key)
+    if cached:
+        return parse_subclass_inlinks_results(get_query_event_response_data(cached[0])), True
+
+    query = build_subclass_inlinks_query(qid_norm, limit=limit, offset=offset)
+    url = f"{WIKIDATA_SPARQL_ENDPOINT}?format=json&query={quote(query, safe='')}"
+    payload = _http_get_json(url, accept="application/sparql-results+json", timeout=timeout_seconds)
+    write_query_event(
+        repo_root,
+        endpoint="wikidata_sparql",
+        normalized_query=f"subclass_inlinks:target={qid_norm};page_size={int(limit)};offset={int(offset)};order=source",
+        source_step="subclass_inlinks_fetch",
+        status="success",
+        key=cache_key,
+        payload=payload,
+        http_status=200,
+        error=None,
+    )
+    return parse_subclass_inlinks_results(payload), False
+
+
+def crawl_subclass_expansion(
+    repo_root: Path,
+    *,
+    run_id: str,
+    max_depth: int,
+    query_budget_remaining: int,
+    cache_max_age_days: int,
+    query_timeout_seconds: int,
+    query_delay_seconds: float,
+    progress_every_calls: int,
+    progress_every_seconds: float,
+    http_max_retries: int,
+    http_backoff_base_seconds: float,
+    page_limit: int,
+    superclass_branch_discovery_max_depth: int = 0,
+) -> dict:
+    """Crawl subclass frontiers from every core class using direct incoming P279 links.
+
+    The crawl is breadth-first per core class, cache-first per page of subclass results,
+    and stops as soon as the configured network budget is exhausted.
+    """
+    total_t0 = perf_counter()
+    paths = build_artifact_paths(Path(repo_root))
+    core_rows = load_core_classes(repo_root)
+    core_class_qids = [
+        canonical_qid(str(row.get("wikidata_id", "") or ""))
+        for row in core_rows
+    ]
+    core_class_qids = [qid for qid in core_class_qids if qid]
+    core_precedence = {qid: idx for idx, qid in enumerate(core_class_qids)}
+    core_label_by_qid = {
+        canonical_qid(str(row.get("wikidata_id", "") or "")): str(row.get("filename", "") or "")
+        for row in core_rows
+        if canonical_qid(str(row.get("wikidata_id", "") or ""))
+    }
+    max_depth = max(0, int(max_depth))
+    page_limit = max(1, int(page_limit))
+    progress_every_calls = max(0, int(progress_every_calls))
+    progress_every_seconds = max(0.0, float(progress_every_seconds))
+    next_heartbeat_call = progress_every_calls if progress_every_calls > 0 else 0
+    budget_label = "unlimited" if int(query_budget_remaining) == -1 else str(int(query_budget_remaining))
+
+    print("[materializer] Start subclass crawl", flush=True)
+    print(f"[materializer]   core_classes={len(core_class_qids)} max_depth={max_depth} page_limit={page_limit}", flush=True)
+
+    begin_request_context(
+        budget_remaining=query_budget_remaining,
+        query_delay_seconds=float(query_delay_seconds),
+        progress_every_calls=int(progress_every_calls),
+        progress_every_seconds=float(progress_every_seconds),
+        http_max_retries=int(http_max_retries),
+        http_backoff_base_seconds=float(http_backoff_base_seconds),
+        context_label="subclass_expansion",
+    )
+
+    combined_paths: dict[str, list[dict[str, object]]] = {}
+    depth_histogram: Counter = Counter()
+    cache_hit_pages = 0
+    network_pages = 0
+    subclass_network_calls = 0
+    entity_hydration_network_calls = 0
+    hydrated_entity_qids = 0
+    active_classes_from_triples = 0
+    active_core_subclass_count = 0
+    inactive_core_subclass_count = 0
+    inactive_guarded_qids = 0
+    superclass_branch_network_calls = 0
+    superclass_branch_connected_active_classes = 0
+    superclass_branch_nodes = 0
+    stop_reason = "queue_exhausted"
+    last_heartbeat_ts = perf_counter()
+
+    current_core_index = 0
+    current_core_qid = ""
+    current_core_label = ""
+    current_node_qid = ""
+    current_depth = 0
+    current_queue_size = 0
+    current_core_known = 0
+    current_core_cache_hit_pages = 0
+    current_core_network_pages = 0
+    current_core_subclass_network_calls = 0
+    current_core_hydration_network_calls = 0
+    current_core_hydrated_entities = 0
+
+    def _emit_subclass_heartbeat(*, force: bool = False, reason: str = "progress") -> None:
+        nonlocal last_heartbeat_ts, next_heartbeat_call
+        now = perf_counter()
+        network_calls_used = int(get_request_context_network_queries())
+        by_calls = progress_every_calls > 0 and network_calls_used >= next_heartbeat_call
+        by_time = progress_every_seconds > 0.0 and (now - last_heartbeat_ts) >= progress_every_seconds
+        if not (force or by_calls or by_time):
+            return
+
+        known_for_core = max(0, int(current_core_known))
+        newly_found_for_core = max(0, known_for_core - 1)
+        print(
+            (
+                f"[subclass_expansion][heartbeat] reason={reason} "
+                f"core={current_core_index}/{len(core_class_qids)} "
+                f"core_class={current_core_qid or '-'}({current_core_label or 'n/a'}) "
+                f"node={current_node_qid or '-'} node_depth={current_depth}/{max_depth} "
+                f"discovering_depth={min(max_depth, current_depth + 1)} queue={current_queue_size} "
+                f"known_for_core={known_for_core} newly_found_for_core={newly_found_for_core} "
+                f"pages_core(cache={current_core_cache_hit_pages},network={current_core_network_pages}) "
+                f"pages_total(cache={cache_hit_pages},network={network_pages}) "
+                f"hydrated_entities_core={current_core_hydrated_entities} hydrated_entities_total={hydrated_entity_qids} "
+                f"network_calls_core(subclass={current_core_subclass_network_calls},hydration={current_core_hydration_network_calls}) "
+                f"network_calls_total(subclass={subclass_network_calls},hydration={entity_hydration_network_calls},all={network_calls_used}/{budget_label})"
+            ),
+            flush=True,
+        )
+
+        if progress_every_calls > 0:
+            while next_heartbeat_call > 0 and network_calls_used >= next_heartbeat_call:
+                next_heartbeat_call += progress_every_calls
+        last_heartbeat_ts = now
+
+    try:
+        for core_idx, core_qid in enumerate(core_class_qids, start=1):
+            current_core_index = int(core_idx)
+            current_core_qid = str(core_qid)
+            current_core_label = str(core_label_by_qid.get(core_qid, "") or "")
+            current_node_qid = core_qid
+            current_depth = 0
+            current_queue_size = 1
+            current_core_known = 1
+            current_core_cache_hit_pages = 0
+            current_core_network_pages = 0
+            current_core_subclass_network_calls = 0
+            current_core_hydration_network_calls = 0
+            current_core_hydrated_entities = 0
+
+            print(
+                (
+                    f"[subclass_expansion] core_start {core_idx}/{len(core_class_qids)} "
+                    f"qid={core_qid} label={current_core_label or 'n/a'}"
+                ),
+                flush=True,
+            )
+            queue: deque[tuple[str, int, list[str]]] = deque([(core_qid, 0, [core_qid])])
+            seen_depth: dict[str, int] = {core_qid: 0}
+            core_paths: dict[str, tuple[int, list[str]]] = {core_qid: (0, [core_qid])}
+
+            while queue:
+                node_qid, depth, path = queue.popleft()
+                current_node_qid = str(node_qid)
+                current_depth = int(depth)
+                current_queue_size = int(len(queue))
+                if depth >= max_depth:
+                    _emit_subclass_heartbeat()
+                    continue
+
+                offset = 0
+                while True:
+                    page_calls_before = int(get_request_context_network_queries())
+                    try:
+                        child_qids, came_from_cache = _fetch_subclass_inlinks_page(
+                            repo_root,
+                            node_qid,
+                            limit=page_limit,
+                            offset=offset,
+                            timeout_seconds=query_timeout_seconds,
+                        )
+                    except RuntimeError as exc:
+                        if str(exc) == "Network query budget hit":
+                            stop_reason = "per_seed_budget_exhausted"
+                            queue.clear()
+                            break
+                        raise
+                    except TimeoutError:
+                        stop_reason = "network_timeout"
+                        queue.clear()
+                        break
+
+                    page_calls_after = int(get_request_context_network_queries())
+                    page_network_delta = max(0, page_calls_after - page_calls_before)
+                    subclass_network_calls += page_network_delta
+                    current_core_subclass_network_calls += page_network_delta
+
+                    if came_from_cache:
+                        cache_hit_pages += 1
+                        current_core_cache_hit_pages += 1
+                    else:
+                        network_pages += 1
+                        current_core_network_pages += 1
+
+                    next_depth = depth + 1
+                    if child_qids:
+                        depth_histogram[next_depth] += len(child_qids)
+
+                    for child_qid in child_qids:
+                        if not child_qid:
+                            continue
+                        child_path = path + [child_qid]
+                        previous_depth = seen_depth.get(child_qid)
+                        if previous_depth is None or next_depth < previous_depth:
+                            seen_depth[child_qid] = next_depth
+                            core_paths[child_qid] = (next_depth, child_path)
+                            queue.append((child_qid, next_depth, child_path))
+
+                    current_queue_size = int(len(queue))
+                    current_core_known = int(len(core_paths))
+                    _emit_subclass_heartbeat()
+
+                    if len(child_qids) < page_limit:
+                        break
+                    offset += page_limit
+
+                if stop_reason == "per_seed_budget_exhausted":
+                    break
+                if stop_reason == "network_timeout":
+                    break
+
+            current_core_known = int(len(core_paths))
+            current_queue_size = int(len(queue))
+            _emit_subclass_heartbeat(force=True, reason="core_complete")
+
+            for class_qid, (depth, path) in core_paths.items():
+                combined_paths.setdefault(class_qid, []).append(
+                    {
+                        "core_class_id": core_qid,
+                        "depth": int(depth),
+                        "path": list(reversed(path)),
+                    }
+                )
+
+            if stop_reason == "per_seed_budget_exhausted":
+                break
+            if stop_reason == "network_timeout":
+                break
+
+        # Pass 2: activate only life branches - classes with known instances (P31 objects)
+        # that are already known subclasses of core classes from pass 1.
+        core_subclass_qids = set(combined_paths.keys())
+        triple_active_classes: set[str] = set()
+        for triple in iter_unique_triples(repo_root):
+            predicate = canonical_pid(str(triple.get("predicate", "") or ""))
+            if predicate != "P31":
+                continue
+            object_qid = canonical_qid(str(triple.get("object", "") or ""))
+            if object_qid:
+                triple_active_classes.add(object_qid)
+
+        active_classes_from_triples = int(len(triple_active_classes))
+
+        # Optional reverse route: from active instance classes, climb upward via P279
+        # for a small bounded depth so active classes can connect to core-subclass tree.
+        superclass_branch_discovery_max_depth = max(0, int(superclass_branch_discovery_max_depth or 0))
+        if superclass_branch_discovery_max_depth > 0 and triple_active_classes:
+            parent_cache: dict[str, list[str]] = {}
+
+            def _parents_via_cache_first(class_qid: str) -> list[str]:
+                nonlocal superclass_branch_network_calls
+                qid_norm = canonical_qid(class_qid)
+                if not qid_norm:
+                    return []
+                if qid_norm in parent_cache:
+                    return parent_cache[qid_norm]
+
+                before_calls = int(get_request_context_network_queries())
+                payload = get_or_fetch_entity(
+                    repo_root,
+                    qid_norm,
+                    cache_max_age_days=cache_max_age_days,
+                    timeout=query_timeout_seconds,
+                )
+                after_calls = int(get_request_context_network_queries())
+                superclass_branch_network_calls += max(0, after_calls - before_calls)
+
+                entity_doc = payload.get("entities", {}).get(qid_norm, {}) if isinstance(payload, dict) else {}
+                claims = entity_doc.get("claims", {}) if isinstance(entity_doc, dict) else {}
+                parents: list[str] = []
+                for claim in (claims.get("P279", []) or []):
+                    mainsnak = claim.get("mainsnak", {}) if isinstance(claim, dict) else {}
+                    value = (mainsnak.get("datavalue", {}) or {}).get("value")
+                    if isinstance(value, dict) and value.get("entity-type") == "item":
+                        parent_qid = canonical_qid(str(value.get("id", "") or ""))
+                        if parent_qid:
+                            parents.append(parent_qid)
+                deduped = sorted(set(parents))
+                parent_cache[qid_norm] = deduped
+                return deduped
+
+            for active_class_qid in sorted(triple_active_classes):
+                if not active_class_qid or active_class_qid in core_subclass_qids:
+                    continue
+
+                queue: deque[tuple[str, int, list[str]]] = deque([(active_class_qid, 0, [active_class_qid])])
+                seen_up: set[str] = {active_class_qid}
+                connection_found = False
+                branch_nodes_local: set[str] = {active_class_qid}
+
+                while queue:
+                    node_qid, up_depth, up_path = queue.popleft()
+                    if node_qid in core_subclass_qids:
+                        for candidate in combined_paths.get(node_qid, []):
+                            candidate_path = [canonical_qid(str(x or "")) for x in (candidate.get("path", []) or [])]
+                            candidate_path = [x for x in candidate_path if x]
+                            if not candidate_path:
+                                continue
+                            combined_path = up_path + candidate_path[1:]
+                            for idx, branch_node in enumerate(up_path):
+                                derived_path = combined_path[idx:]
+                                combined_paths.setdefault(branch_node, []).append(
+                                    {
+                                        "core_class_id": str(candidate.get("core_class_id", "") or ""),
+                                        "depth": int(len(derived_path) - 1),
+                                        "path": derived_path,
+                                    }
+                                )
+                        connection_found = True
+                        continue
+
+                    if up_depth >= superclass_branch_discovery_max_depth:
+                        continue
+
+                    try:
+                        parent_candidates = _parents_via_cache_first(node_qid)
+                    except RuntimeError as exc:
+                        if str(exc) == "Network query budget hit":
+                            stop_reason = "per_seed_budget_exhausted"
+                            queue.clear()
+                            break
+                        raise
+                    except TimeoutError:
+                        stop_reason = "network_timeout"
+                        queue.clear()
+                        break
+
+                    for parent_qid in parent_candidates:
+                        if not parent_qid or parent_qid in seen_up:
+                            continue
+                        seen_up.add(parent_qid)
+                        branch_nodes_local.add(parent_qid)
+                        queue.append((parent_qid, up_depth + 1, up_path + [parent_qid]))
+
+                if connection_found:
+                    superclass_branch_connected_active_classes += 1
+                superclass_branch_nodes += len(branch_nodes_local)
+
+                # Heartbeat remains meaningful during long upward branch discovery runs.
+                _emit_subclass_heartbeat()
+
+                if stop_reason in {"per_seed_budget_exhausted", "network_timeout"}:
+                    break
+
+            # Re-evaluate core-subclass universe after branch discovery has potentially
+            # created additional class-to-core candidate paths.
+            core_subclass_qids = set(combined_paths.keys())
+
+        active_core_subclass_qids = sorted(core_subclass_qids & triple_active_classes)
+        active_core_subclass_count = int(len(active_core_subclass_qids))
+        inactive_core_subclass_qids = sorted(core_subclass_qids - set(active_core_subclass_qids))
+        inactive_core_subclass_count = max(0, int(len(core_subclass_qids) - active_core_subclass_count))
+
+        for inactive_qid in inactive_core_subclass_qids:
+            candidate_paths = combined_paths.get(inactive_qid, [])
+            if candidate_paths:
+                best_path = sorted(
+                    candidate_paths,
+                    key=lambda candidate: (
+                        int(candidate.get("depth", 0) or 0),
+                        core_precedence.get(str(candidate.get("core_class_id", "") or ""), 10_000),
+                    ),
+                )[0]
+                resolved_core_for_inactive = str(best_path.get("core_class_id", "") or "")
+                resolution_depth_for_inactive = int(best_path.get("depth", 0) or 0)
+            else:
+                resolved_core_for_inactive = ""
+                resolution_depth_for_inactive = None
+            discovered_at_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            mark_inactive_core_subclass(
+                repo_root,
+                inactive_qid,
+                discovered_at_utc=discovered_at_utc,
+                resolved_core_class_id=resolved_core_for_inactive,
+                resolution_depth=resolution_depth_for_inactive,
+                max_depth=int(max_depth),
+            )
+            inactive_guarded_qids += 1
+
+        print(
+            (
+                f"[subclass_expansion] activation_start active_from_triples={active_classes_from_triples} "
+                f"core_subclasses={len(core_subclass_qids)} active_core_subclasses={active_core_subclass_count} "
+                f"inactive_core_subclasses={inactive_core_subclass_count}"
+            ),
+            flush=True,
+        )
+
+        activation_batch_size = 100
+        activation_processed = 0
+        if stop_reason in {"per_seed_budget_exhausted", "network_timeout"}:
+            print(
+                (
+                    f"[subclass_expansion] activation_skipped reason={stop_reason} "
+                    f"active_core_subclasses={active_core_subclass_count}"
+                ),
+                flush=True,
+            )
+        for start in range(0, active_core_subclass_count, activation_batch_size):
+            if stop_reason in {"per_seed_budget_exhausted", "network_timeout"}:
+                break
+            batch_qids = active_core_subclass_qids[start : start + activation_batch_size]
+            if not batch_qids:
+                continue
+
+            hydration_calls_before = int(get_request_context_network_queries())
+            try:
+                activated_payloads = get_or_fetch_entities_batch(
+                    repo_root,
+                    batch_qids,
+                    cache_max_age_days=cache_max_age_days,
+                    timeout=query_timeout_seconds,
+                )
+            except RuntimeError as exc:
+                if str(exc) == "Network query budget hit":
+                    stop_reason = "per_seed_budget_exhausted"
+                    break
+                raise
+            except TimeoutError:
+                stop_reason = "network_timeout"
+                break
+
+            hydration_calls_after = int(get_request_context_network_queries())
+            hydration_network_delta = max(0, hydration_calls_after - hydration_calls_before)
+            entity_hydration_network_calls += hydration_network_delta
+
+            hydrated_batch = 0
+            for activated_qid, payload in activated_payloads.items():
+                entity_doc = payload.get("entities", {}).get(activated_qid, {}) if isinstance(payload, dict) else {}
+                if isinstance(entity_doc, dict) and entity_doc:
+                    discovered_at_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    activate_core_subclass(
+                        repo_root,
+                        activated_qid,
+                        entity_doc,
+                        discovered_at_utc,
+                        activation_source="subclass_preflight_p31_intersection",
+                    )
+                    hydrated_batch += 1
+
+            hydrated_entity_qids += hydrated_batch
+            activation_processed += len(batch_qids)
+
+            if activation_processed % 500 == 0 or activation_processed >= active_core_subclass_count:
+                print(
+                    (
+                        f"[subclass_expansion] activation_progress processed={activation_processed}/{active_core_subclass_count} "
+                        f"hydrated={hydrated_entity_qids} network_calls_activation={entity_hydration_network_calls}"
+                    ),
+                    flush=True,
+                )
+    finally:
+        _emit_subclass_heartbeat(force=True, reason=stop_reason)
+        network_queries = int(end_request_context())
+
+    rows: list[dict] = []
+    for class_id in sorted(combined_paths):
+        candidates = combined_paths[class_id]
+        if not candidates:
+            continue
+        candidate_core_ids = sorted({str(candidate.get("core_class_id", "") or "") for candidate in candidates if str(candidate.get("core_class_id", "") or "")})
+        candidate_core_ids = [qid for qid in candidate_core_ids if qid]
+        candidates = sorted(
+            candidates,
+            key=lambda candidate: (
+                int(candidate.get("depth", 0) or 0),
+                core_precedence.get(str(candidate.get("core_class_id", "") or ""), 10_000),
+                str(candidate.get("core_class_id", "") or ""),
+                str(candidate.get("path", [])),
+            ),
+        )
+        best = candidates[0]
+        best_core = str(best.get("core_class_id", "") or "")
+        best_depth = int(best.get("depth", 0) or 0)
+        conflict = len(candidate_core_ids) > 1
+        rows.append(
+            {
+                "class_id": class_id,
+                "resolved_core_class_id": best_core,
+                "resolution_depth": best_depth,
+                "resolution_reason": "deterministic_conflict_resolution" if conflict else "unique_candidate",
+                "conflict_flag": bool(conflict),
+                "candidate_core_class_ids": "|".join(candidate_core_ids),
+                "candidate_paths_json": json.dumps(
+                    [
+                        {
+                            "core_class_id": str(candidate.get("core_class_id", "") or ""),
+                            "depth": int(candidate.get("depth", 0) or 0),
+                            "path": list(candidate.get("path", [])),
+                        }
+                        for candidate in candidates
+                    ],
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                "max_depth": int(max_depth),
+            }
+        )
+
+    class_resolution_map_df = pd.DataFrame(
+        rows,
+        columns=[
+            "class_id",
+            "resolved_core_class_id",
+            "resolution_depth",
+            "resolution_reason",
+            "conflict_flag",
+            "candidate_core_class_ids",
+            "candidate_paths_json",
+            "max_depth",
+        ],
+    ).sort_values("class_id").reset_index(drop=True)
+    if not class_resolution_map_df.empty:
+        class_resolution_map_df["resolution_depth"] = pd.to_numeric(class_resolution_map_df["resolution_depth"], errors="coerce").astype("Int64")
+        class_resolution_map_df["max_depth"] = pd.to_numeric(class_resolution_map_df["max_depth"], errors="coerce").astype("Int64")
+
+    _write_tabular_artifact(paths.class_resolution_map_csv, class_resolution_map_df)
+
+    stats = {
+        "run_id": run_id,
+        "stage": "subclass_expansion",
+        "subclass_expansion_max_depth": int(max_depth),
+        "core_class_count": int(len(core_class_qids)),
+        "class_resolution_rows": int(len(class_resolution_map_df)),
+        "class_resolution_conflict_rows": int(class_resolution_map_df["conflict_flag"].sum()) if not class_resolution_map_df.empty else 0,
+        "candidate_frontier_rows": int(sum(len(paths_for_class) for paths_for_class in combined_paths.values())),
+        "depth_histogram": dict(sorted(depth_histogram.items())),
+        "cache_hit_pages": int(cache_hit_pages),
+        "network_pages": int(network_pages),
+        "subclass_network_calls": int(subclass_network_calls),
+        "superclass_branch_discovery_max_depth": int(superclass_branch_discovery_max_depth),
+        "superclass_branch_network_calls": int(superclass_branch_network_calls),
+        "superclass_branch_connected_active_classes": int(superclass_branch_connected_active_classes),
+        "superclass_branch_nodes": int(superclass_branch_nodes),
+        "active_classes_from_triples": int(active_classes_from_triples),
+        "active_core_subclass_count": int(active_core_subclass_count),
+        "inactive_core_subclass_count": int(inactive_core_subclass_count),
+        "inactive_guarded_qids": int(inactive_guarded_qids),
+        "entity_hydration_network_calls": int(entity_hydration_network_calls),
+        "hydrated_entity_qids": int(hydrated_entity_qids),
+        "network_queries": int(network_queries),
+        "stop_reason": stop_reason,
+        "elapsed_seconds": round(perf_counter() - total_t0, 3),
+    }
+    _write_summary(paths, run_id, "subclass_expansion", stats)
+    print(f"[materializer] Completed subclass crawl in {stats['elapsed_seconds']:.2f}s", flush=True)
+    return stats
 
 
 def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | None) -> dict:
