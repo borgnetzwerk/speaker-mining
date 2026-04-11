@@ -250,6 +250,27 @@ def get_request_context_network_queries() -> int:
 	return int(_REQUEST_CONTEXT.get("network_queries", 0) or 0)
 
 
+def get_request_context_query_delay_seconds() -> float:
+	"""Return active request-context delay, or 0.0 when no context exists."""
+	if _REQUEST_CONTEXT is None:
+		return 0.0
+	return float(_REQUEST_CONTEXT.get("query_delay_seconds", 0.0) or 0.0)
+
+
+def set_request_context_query_delay_seconds(query_delay_seconds: float) -> float:
+	"""Update active request-context delay and return the effective value.
+
+	Raises:
+		RuntimeError: When no request context is active.
+	"""
+	global _REQUEST_CONTEXT
+	if _REQUEST_CONTEXT is None:
+		raise RuntimeError("No active request context")
+	delay = max(0.0, float(query_delay_seconds or 0.0))
+	_REQUEST_CONTEXT["query_delay_seconds"] = delay
+	return delay
+
+
 def _now_utc() -> datetime:
 	"""Get current UTC time."""
 	return datetime.now(tz=timezone.utc)

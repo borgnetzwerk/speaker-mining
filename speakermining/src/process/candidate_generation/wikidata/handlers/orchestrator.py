@@ -10,6 +10,7 @@ from time import perf_counter
 from process.io_guardrails import atomic_write_text
 from process.candidate_generation.wikidata.event_log import iter_all_events
 from process.candidate_generation.wikidata.handler_registry import HandlerRegistry
+from process.candidate_generation.wikidata.handlers.backoff_learning_handler import BackoffLearningHandler
 from process.candidate_generation.wikidata.handlers.candidates_handler import CandidatesHandler
 from process.candidate_generation.wikidata.handlers.classes_handler import ClassesHandler
 from process.candidate_generation.wikidata.handlers.instances_handler import InstancesHandler
@@ -81,6 +82,7 @@ def run_handlers(
         TripleHandler(repo_root, handler_registry=registry),
         QueryInventoryHandler(repo_root, handler_registry=registry),
         CandidatesHandler(repo_root, handler_registry=registry),
+        BackoffLearningHandler(repo_root, handler_registry=registry),
     ]
     managed_handler_names = {handler.name() for handler in handlers}
     removed_handlers = registry.prune_to_managed_handlers(managed_handler_names)
@@ -91,6 +93,7 @@ def run_handlers(
         "TripleHandler": paths.triples_csv,
         "QueryInventoryHandler": paths.query_inventory_csv,
         "CandidatesHandler": paths.fallback_stage_candidates_csv,
+        "BackoffLearningHandler": paths.projections_dir / "backoff_pattern_windows.csv",
     }
 
     all_events = list(iter_all_events(repo_root) or [])

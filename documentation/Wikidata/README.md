@@ -38,6 +38,10 @@ This snapshot maps key current implementation behavior to documentation anchors.
 5. Cache-first query handling and progress budgets:
 	- Code: `speakermining/src/process/candidate_generation/wikidata/cache.py`.
 	- Docs: `Wikidata.md`.
+6. Event-sourced backoff pattern learning:
+	- Code: `speakermining/src/process/candidate_generation/wikidata/handlers/backoff_learning_handler.py` (`BackoffLearningHandler`).
+	- Projection: `data/20_candidate_generation/wikidata/projections/backoff_pattern_windows.csv`.
+	- Cursor/progress: tracked in `data/20_candidate_generation/wikidata/eventhandler.csv`.
 
 ## Branch/Archive Documentation
 
