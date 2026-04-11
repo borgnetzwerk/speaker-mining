@@ -8,14 +8,14 @@ se_aefb2a93a519,"Markus Lanz, Staffel 3",13.01.2010,15.12.2010,96
 
 ## Wikidata
 Mainly, series are listed here:
-`data/20_candidate_generation/wikidata/projections/series.json`
+`data/20_candidate_generation/wikidata/projections/instances_core_series.json`
 
 Note that some may also listed as broadcasting_prgrams, for example every "P31" of "Q3464665" (since "television series season" is also a broadcasting program)
-`data/20_candidate_generation/wikidata/projections/broadcasting_programs.json`
+`data/20_candidate_generation/wikidata/projections/instances_core_broadcasting_programs.json`
 
 We can always search in data\20_candidate_generation\wikidata\projections\triples.csv for any subject that has ",P31,Q3464665", meaning `predicate` `P31` and `object` `Q3464665`.
 
-### From data/20_candidate_generation/wikidata/projections/broadcasting_programs.json
+### From data/20_candidate_generation/wikidata/projections/instances_core_broadcasting_programs.json
   "Q130559283": {
     "_fetched_literal_languages": [
       "de",

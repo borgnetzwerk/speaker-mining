@@ -52,13 +52,13 @@ Required upstream sources:
    - data/10_mention_detection/seasons.csv
    - data/10_mention_detection/topics.csv
 3. Wikidata projections (graph-first/fallback outputs):
-   - data/20_candidate_generation/wikidata/projections/broadcasting_programs.json
-   - data/20_candidate_generation/wikidata/projections/series.json
-   - data/20_candidate_generation/wikidata/projections/episodes.json
-   - data/20_candidate_generation/wikidata/projections/persons.json
-   - data/20_candidate_generation/wikidata/projections/topics.json
-   - data/20_candidate_generation/wikidata/projections/roles.json
-   - data/20_candidate_generation/wikidata/projections/organizations.json
+   - data/20_candidate_generation/wikidata/projections/instances_core_broadcasting_programs.json
+   - data/20_candidate_generation/wikidata/projections/instances_core_series.json
+   - data/20_candidate_generation/wikidata/projections/instances_core_episodes.json
+   - data/20_candidate_generation/wikidata/projections/instances_core_persons.json
+   - data/20_candidate_generation/wikidata/projections/instances_core_topics.json
+   - data/20_candidate_generation/wikidata/projections/instances_core_roles.json
+   - data/20_candidate_generation/wikidata/projections/instances_core_organizations.json
 4. Fernsehserien.de projections:
    - data/20_candidate_generation/fernsehserien_de/projections/episode_guests_normalized.csv
    - data/20_candidate_generation/fernsehserien_de/projections/episode_metadata_normalized.csv

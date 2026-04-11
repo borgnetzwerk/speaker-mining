@@ -11,7 +11,6 @@ from .schemas import (
     build_artifact_paths,
     canonical_class_filename,
     core_instances_json_filename,
-    core_instances_projection_filename,
 )
 
 _QID_RE = re.compile(r"^Q[1-9][0-9]*$")
@@ -134,6 +133,19 @@ def ensure_output_bootstrap(repo_root: Path) -> None:
         ],
     )
     _empty_csv(
+        paths.class_resolution_map_csv,
+        [
+            "class_id",
+            "resolved_core_class_id",
+            "resolution_depth",
+            "resolution_reason",
+            "conflict_flag",
+            "candidate_core_class_ids",
+            "candidate_paths_json",
+            "max_depth",
+        ],
+    )
+    _empty_csv(
         paths.instances_csv,
         [
             "id",
@@ -142,6 +154,18 @@ def ensure_output_bootstrap(repo_root: Path) -> None:
             *label_columns,
             *description_columns,
             *alias_columns,
+            "wikidata_claim_properties",
+            "wikidata_claim_property_count",
+            "wikidata_claim_statement_count",
+            "wikidata_property_counts_json",
+            "wikidata_p31_qids",
+            "wikidata_p279_qids",
+            "wikidata_p179_qids",
+            "wikidata_p106_qids",
+            "wikidata_p39_qids",
+            "wikidata_p921_qids",
+            "wikidata_p527_qids",
+            "wikidata_p361_qids",
             "path_to_core_class",
             "discovered_at_utc",
             "expanded_at_utc",
@@ -156,6 +180,18 @@ def ensure_output_bootstrap(repo_root: Path) -> None:
             *label_columns,
             *description_columns,
             *alias_columns,
+            "wikidata_claim_properties",
+            "wikidata_claim_property_count",
+            "wikidata_claim_statement_count",
+            "wikidata_property_counts_json",
+            "wikidata_p31_qids",
+            "wikidata_p279_qids",
+            "wikidata_p179_qids",
+            "wikidata_p106_qids",
+            "wikidata_p39_qids",
+            "wikidata_p921_qids",
+            "wikidata_p527_qids",
+            "wikidata_p361_qids",
             "path_to_core_class",
             "subclass_of_core_class",
             "discovered_at_utc",
@@ -163,50 +199,22 @@ def ensure_output_bootstrap(repo_root: Path) -> None:
         ],
     )
     core_rows = load_core_classes(repo_root)
-    active_core_projection_files: set[str] = set()
     active_core_json_files: set[str] = set()
     for row in core_rows:
         class_filename = str(row.get("filename", "") or "")
         if not class_filename:
             continue
-        projection_name = core_instances_projection_filename(class_filename)
         json_name = core_instances_json_filename(class_filename)
-        active_core_projection_files.add(projection_name)
         active_core_json_files.add(json_name)
-        _empty_csv(
-            paths.projections_dir / projection_name,
-            [
-                "id",
-                "class_id",
-                "class_filename",
-                *label_columns,
-                *description_columns,
-                *alias_columns,
-                "path_to_core_class",
-                "subclass_of_core_class",
-                "discovered_at_utc",
-                "expanded_at_utc",
-            ],
-        )
         _empty_json_object(paths.projections_dir / json_name)
-    stale_core_json_names: set[str] = set()
-    for core_projection_path in paths.projections_dir.glob("instances_core_*.csv"):
-        name = core_projection_path.name
-        if name.startswith("instances_core_") and name.endswith(".csv"):
-            class_filename = name[len("instances_core_") : -len(".csv")]
-            stale_core_json_names.add(core_instances_json_filename(class_filename))
-    for core_projection_path in paths.projections_dir.glob("instances_core_*.csv"):
-        if core_projection_path.name not in active_core_projection_files and core_projection_path.is_file():
-            core_projection_path.unlink()
-        core_projection_parquet = core_projection_path.with_suffix(".parquet")
-        if core_projection_path.name not in active_core_projection_files and core_projection_parquet.is_file():
-            core_projection_parquet.unlink()
-    for stale_json_name in sorted(stale_core_json_names):
-        if stale_json_name in active_core_json_files:
-            continue
-        stale_json_path = paths.projections_dir / stale_json_name
-        if stale_json_path.is_file():
-            stale_json_path.unlink()
+    for legacy_core_csv_path in paths.projections_dir.glob("instances_core_*.csv"):
+        if legacy_core_csv_path.is_file():
+            legacy_core_csv_path.unlink()
+        legacy_core_parquet_path = legacy_core_csv_path.with_suffix(".parquet")
+        legacy_core_parquet_path.unlink(missing_ok=True)
+    for core_json_path in paths.projections_dir.glob("instances_core_*.json"):
+        if core_json_path.name not in active_core_json_files and core_json_path.is_file():
+            core_json_path.unlink()
     _empty_csv(paths.properties_csv, ["id", *label_columns, *description_columns, *alias_columns])
     active_alias_files: set[str] = set()
     for suffix in language_suffixes:

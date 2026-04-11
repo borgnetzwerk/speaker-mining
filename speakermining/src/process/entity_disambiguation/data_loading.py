@@ -168,7 +168,7 @@ def load_wikidata_entities_df(json_path: Path) -> pd.DataFrame:
     Extracts labels, descriptions, aliases, relationships, and metadata for deterministic matching.
     
     Args:
-        json_path: Path to Wikidata JSON projection file (e.g., episodes.json, persons.json)
+        json_path: Path to Wikidata JSON projection file (e.g., instances_core_episodes.json, instances_core_persons.json)
     
     Returns:
         DataFrame with columns:
@@ -184,7 +184,7 @@ def load_wikidata_entities_df(json_path: Path) -> pd.DataFrame:
         - fs_urls: Pipe-separated Wikidata P1343+P2699 URLs (Fernsehserien links)
     
     Examples:
-        >>> df = load_wikidata_entities_df(Path("episodes.json"))
+        >>> df = load_wikidata_entities_df(Path("instances_core_episodes.json"))
         >>> len(df) # Number of episodes in projection
         1500
         >>> df[["id", "label", "broadcast_date"]].head()

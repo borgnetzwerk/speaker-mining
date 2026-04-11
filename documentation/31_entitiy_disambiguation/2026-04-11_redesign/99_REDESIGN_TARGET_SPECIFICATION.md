@@ -34,7 +34,7 @@ This specification provides a complete redesign blueprint following the 4-layer 
 | `event_handlers.py` | Unknown | Likely incomplete; projection building unclear |
 | `checkpoints.py` | Unknown | Likely incomplete |
 | Notebook `31_entity_disambiguation.ipynb` | Functional shell | Contains orchestrator calls but no real data processing; recovery logic placeholder |
-| `config.py` | Partial | Defines paths but many input paths use outdated file patterns (e.g., `instances_core_*.csv` which may not exist) |
+| `config.py` | Implemented | Defines current Phase 20 input paths using `instances_core_*.json` naming |
 
 ### 2.2 Root Causes of Non-Functionality
 
@@ -1083,8 +1083,8 @@ Based on Markus Lanz as representative show:
 
 ## Appendix B: Open Questions for Resolution
 
-1. **Exact file format/schema for Wikidata projections**: Are they `instances_core_episodes.csv` or `episodes.json`? Need to verify actual file names in Phase 20 output.
-   * **Answer:** `episodes.json`. All `instances_core_*.csv` can be ignored, they are inferior to the .json files.
+1. **Exact file format/schema for Wikidata projections**: Are they `instances_core_episodes.csv` or `instances_core_episodes.json`? Need to verify actual file names in Phase 20 output.
+  * **Answer:** `instances_core_episodes.json`. All `instances_core_*.csv` are deprecated and must not be produced.
 2. **Fernsehserien projection structure**: Do the CSV files exist as named, or different structure?
    * **Answer:** Those are the three files that are relevant:
      * data/20_candidate_generation/fernsehserien_de/projections/episode_broadcasts_normalized.csv

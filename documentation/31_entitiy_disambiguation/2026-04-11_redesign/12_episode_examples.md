@@ -14,7 +14,7 @@ pb_12f66ecd45ea,ep_a371a3777018,2,04.06.2008,02:35:35,69'52,ZDF,00529/50117,,0,0
 pb_d9e6d9bab453,ep_a371a3777018,3,07.06.2008,17:03:31,66'58,ZDFdokukanal,00742/08091,,0,07.06.2008 17:03:31 66'58 00742/08091 ZDFdokukanal
 
 ## Wikidata
-### From data/20_candidate_generation/wikidata/projections/episodes.json
+### From data/20_candidate_generation/wikidata/projections/instances_core_episodes.json
  "Q131784051": {
     "_fetched_literal_languages": [
       "de",

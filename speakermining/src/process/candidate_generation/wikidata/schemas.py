@@ -39,6 +39,7 @@ class ArtifactPaths:
     aliases_de_csv: Path
     triples_csv: Path
     class_hierarchy_csv: Path
+    class_resolution_map_csv: Path
     entity_store_jsonl: Path
     property_store_jsonl: Path
     query_inventory_csv: Path
@@ -69,12 +70,8 @@ class ArtifactPaths:
         return self.projections_dir / "triple_events.json"
 
 
-def core_instances_projection_filename(class_filename: str) -> str:
-    return f"instances_core_{canonical_class_filename(class_filename)}.csv"
-
-
 def core_instances_json_filename(class_filename: str) -> str:
-    return f"{canonical_class_filename(class_filename)}.json"
+    return f"instances_core_{canonical_class_filename(class_filename)}.json"
 
 
 def canonical_class_filename(name: str) -> str:
@@ -104,6 +101,7 @@ def build_artifact_paths(repo_root: Path) -> ArtifactPaths:
         aliases_de_csv=projections_dir / "aliases_de.csv",
         triples_csv=projections_dir / "triples.csv",
         class_hierarchy_csv=projections_dir / "class_hierarchy.csv",
+        class_resolution_map_csv=projections_dir / "class_resolution_map.csv",
         entity_store_jsonl=projections_dir / "entity_store.jsonl",
         property_store_jsonl=projections_dir / "property_store.jsonl",
         query_inventory_csv=projections_dir / "query_inventory.csv",

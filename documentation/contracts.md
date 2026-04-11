@@ -159,7 +159,7 @@ Projection artifacts (`projections/`):
 14. `aliases_en.csv`
 15. `aliases_de.csv`
 16. `instances_leftovers.csv`
-17. `instances_core_<core_filename>.csv` (one file per configured core class; e.g. `instances_core_persons.csv`)
+17. `instances_core_<core_filename>.json` (one file per configured core class; e.g. `instances_core_persons.json`)
 18. `summary.json`
 
 Legacy note:
@@ -193,9 +193,8 @@ Legacy note:
 
 Per-core handoff note:
 
-1. `instances_core_<core_filename>.json` is the primary handoff for future phases. It is a QID-keyed object whose values are the full entity payloads we have for that core class.
-	- CSV compatibility sidecar: `instances_core_<core_filename>.csv`
-	- Parquet compatibility sidecar: `instances_core_<core_filename>.parquet`
+1. `instances_core_<core_filename>.json` is the handoff for future phases. It is a QID-keyed object whose values are the full entity payloads we have for that core class.
+2. `instances_core_<core_filename>.csv` and `instances_core_<core_filename>.parquet` are deprecated legacy artifacts and must not be produced by Phase 20 materialization.
 
 Lazy sidecar note:
 

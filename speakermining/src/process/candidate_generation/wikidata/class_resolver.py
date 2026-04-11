@@ -16,6 +16,13 @@ class RecoveredLineageEvidence:
     diagnostics: dict[str, int]
 
 
+@dataclass(frozen=True)
+class RewiringCatalogue:
+    add_edges: dict[tuple[str, str], tuple[str, ...]]
+    remove_edges: dict[tuple[str, str], tuple[str, ...]]
+    diagnostics: dict[str, int]
+
+
 _RESOLUTION_POLICY_RUNTIME_ONLY = "runtime_only"
 _RESOLUTION_POLICY_RUNTIME_THEN_RECOVERED = "runtime_then_recovered"
 _RESOLUTION_POLICY_RUNTIME_THEN_RECOVERED_THEN_NETWORK = "runtime_then_recovered_then_network"
@@ -63,6 +70,67 @@ def _parse_qid_list(raw_values: object) -> tuple[tuple[str, ...], bool]:
         seen.add(qid)
         out.append(qid)
     return tuple(out), bool(text and not out)
+
+
+def load_rewiring_catalogue(path: Path | str) -> RewiringCatalogue:
+    csv_path = Path(path)
+    diagnostics = {
+        "total_rows": 0,
+        "loaded_rows": 0,
+        "skipped_invalid": 0,
+        "file_missing": 0,
+    }
+    add_edges: dict[tuple[str, str], set[str]] = {}
+    remove_edges: dict[tuple[str, str], set[str]] = {}
+
+    if not csv_path.exists():
+        diagnostics["file_missing"] = 1
+        return RewiringCatalogue(add_edges={}, remove_edges={}, diagnostics=diagnostics)
+
+    with csv_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            diagnostics["total_rows"] += 1
+            subject = canonical_qid(row.get("subject", ""))
+            predicate = str(row.get("predicate", "") or "").strip()
+            obj = canonical_qid(row.get("object", ""))
+            rule = str(row.get("rule", "") or "").strip().lower()
+
+            if not subject or not predicate or not obj or rule not in {"add", "remove"}:
+                diagnostics["skipped_invalid"] += 1
+                continue
+
+            key = (subject, predicate)
+            if rule == "add":
+                add_edges.setdefault(key, set()).add(obj)
+            else:
+                remove_edges.setdefault(key, set()).add(obj)
+            diagnostics["loaded_rows"] += 1
+
+    return RewiringCatalogue(
+        add_edges={k: tuple(sorted(v)) for k, v in add_edges.items()},
+        remove_edges={k: tuple(sorted(v)) for k, v in remove_edges.items()},
+        diagnostics=diagnostics,
+    )
+
+
+def apply_rewiring_to_claim_qids(
+    *,
+    subject_qid: str,
+    predicate: str,
+    base_qids: list[str],
+    rewiring_catalogue: RewiringCatalogue | None,
+) -> list[str]:
+    qid = canonical_qid(subject_qid)
+    if not qid or not predicate or rewiring_catalogue is None:
+        return sorted(set(base_qids))
+
+    key = (qid, str(predicate))
+    merged: set[str] = {canonical_qid(x) for x in base_qids if canonical_qid(x)}
+    merged.update(rewiring_catalogue.add_edges.get(key, tuple()))
+    for banned in rewiring_catalogue.remove_edges.get(key, tuple()):
+        merged.discard(banned)
+    return sorted(merged)
 
 
 def load_recovered_class_hierarchy(path: Path | str) -> RecoveredLineageEvidence:
@@ -165,7 +233,11 @@ def _resolve_via_recovered_lineage(
     return []
 
 
-def _claim_item_qids(entity_doc: dict, pid: str) -> list[str]:
+def _claim_item_qids(
+    entity_doc: dict,
+    pid: str,
+    rewiring_catalogue: RewiringCatalogue | None = None,
+) -> list[str]:
     out: list[str] = []
     claims = entity_doc.get("claims", {}) if isinstance(entity_doc.get("claims"), dict) else {}
     for claim in claims.get(pid, []) or []:
@@ -175,7 +247,13 @@ def _claim_item_qids(entity_doc: dict, pid: str) -> list[str]:
             qid = canonical_qid(value.get("id", ""))
             if qid:
                 out.append(qid)
-    return sorted(set(out))
+    subject_qid = canonical_qid(entity_doc.get("id", ""))
+    return apply_rewiring_to_claim_qids(
+        subject_qid=subject_qid,
+        predicate=pid,
+        base_qids=out,
+        rewiring_catalogue=rewiring_catalogue,
+    )
 
 
 def resolve_class_path(
@@ -186,6 +264,7 @@ def resolve_class_path(
     *,
     recovered_lineage: RecoveredLineageEvidence | None = None,
     resolution_policy: str = _RESOLUTION_POLICY_RUNTIME_THEN_RECOVERED_THEN_NETWORK,
+    rewiring_catalogue: RewiringCatalogue | None = None,
 ) -> dict:
     def _emit(result: dict, reason: str) -> dict:
         if callable(on_resolved):
@@ -203,8 +282,8 @@ def resolve_class_path(
             "is_class_node": False,
         }, "invalid_entity")
 
-    p31 = _claim_item_qids(entity_doc, "P31")
-    p279 = _claim_item_qids(entity_doc, "P279")
+    p31 = _claim_item_qids(entity_doc, "P31", rewiring_catalogue)
+    p279 = _claim_item_qids(entity_doc, "P279", rewiring_catalogue)
     is_class_node = bool(p279)
 
     if not core:
@@ -257,7 +336,7 @@ def resolve_class_path(
         if policy != _RESOLUTION_POLICY_RUNTIME_THEN_RECOVERED_THEN_NETWORK:
             continue
         node_doc = get_entity_fn(node_qid) or {}
-        for parent in _claim_item_qids(node_doc, "P279"):
+        for parent in _claim_item_qids(node_doc, "P279", rewiring_catalogue):
             if parent in seen:
                 continue
             seen.add(parent)

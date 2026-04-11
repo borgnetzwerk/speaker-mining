@@ -259,4 +259,46 @@ Whenever a new downstream issue is identified:
 ## Current Status
 
 - Downstream mitigation in place and validated for both major findings.
-- Upstream changes still recommended to eliminate long-term reliance on downstream rewiring.
+- Phase 20 upstream execution for this handover is complete (P20-WD-001 through P20-WD-004 implemented and validated).
+- Remaining long-term recommendation: reduce reliance on local rewiring by correcting source semantics directly in Wikidata where applicable.
+
+## Phase 20 Task Progress (Implementation Started)
+
+Status snapshot:
+- P20-WD-001 (Season class dual-routing): implemented and validated.
+- P20-WD-002 (Property profile contract): implemented at projection schema level and validated.
+- P20-WD-003 (Rewiring catalogue integration): implemented with global setup source `data/00_setup/rewiring_catalogue.csv`.
+- P20-WD-004 (Subclass expansion service): implemented and validated.
+
+Validation evidence after Phase 20 materialization run:
+- `instances_core_series.json` contains 66 entities with `class_id=Q3464665`.
+- `instances_core_broadcasting_programs.json` also contains the same 66 entities (dual-routing behavior preserved).
+- New property-profile columns are present in both projections, including:
+   - `wikidata_claim_properties`
+   - `wikidata_claim_property_count`
+   - `wikidata_property_counts_json`
+   - `wikidata_p31_qids`
+   - `wikidata_p279_qids`
+
+Implementation notes:
+- Rewiring assertions are now consumed during class-path resolution and projection writing.
+- The minimal rewiring tuple `Q3464665,P279,Q7725310,add` is active and contributes to series routing.
+- Subclass expansion max depth is now configurable via `WIKIDATA_SUBCLASS_EXPANSION_MAX_DEPTH` (default: `2`).
+- `class_resolution_map.csv` is now emitted with deterministic conflict resolution output and provenance paths.
+- Legacy `instances_core_*.csv` and `instances_core_*.parquet` outputs are deprecated and no longer produced.
+- Core-class handoff is now JSON-only via `instances_core_*.json`.
+
+Additional validation evidence for P20-WD-004:
+- Materialization completed successfully with class-resolution artifact emission.
+- `subclass_expansion_max_depth`: `2`
+- `class_resolution_rows`: `2092`
+- `class_resolution_conflict_rows`: `16`
+- `class_resolution_map.csv` columns:
+   - `class_id`
+   - `resolved_core_class_id`
+   - `resolution_depth`
+   - `resolution_reason`
+   - `conflict_flag`
+   - `candidate_core_class_ids`
+   - `candidate_paths_json`
+   - `max_depth`

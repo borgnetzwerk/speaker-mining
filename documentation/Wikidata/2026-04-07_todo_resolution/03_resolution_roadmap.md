@@ -148,9 +148,9 @@ Implementation focus:
    - Runtime validation ensures disjoint definition and fails fast on configuration errors
    - Stores `config["core_class_qids"]` and `config["root_class_qids"]` for downstream use
 2. ✅ **WDT-012 COMPLETE**: Added projections per core class and leftovers projection
-   - One deterministic projection per core class: `instances_core_<core_filename>.csv`
+   - One deterministic handoff per core class: `instances_core_<core_filename>.json`
    - One deterministic leftovers projection: `instances_leftovers.csv` (non-class/non-core-mapped instances)
-   - Snapshot/restore support includes dynamic projection files so these outputs are replay-safe
+   - Snapshot/restore support includes dynamic JSON handoff files so these outputs are replay-safe
 
 Testing:
 - Validate projection membership against class hierarchy and core class set.

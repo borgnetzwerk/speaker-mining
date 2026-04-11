@@ -8,7 +8,7 @@ pm_68f5f9919a8e,ep_a371a3777018,Jelena WAHLER,"Gründerin Elitekindergarten ""Li
 
 ## Wikidata
 
-### From data/20_candidate_generation/wikidata/projections/persons.json
+### From data/20_candidate_generation/wikidata/projections/instances_core_persons.json
 "Q100224": {
     "_fetched_literal_languages": [
       "de",

@@ -112,13 +112,13 @@ Output: aligned_*.csv files (all 7 core classes)
 ```
 Phase 10: Mention Detection (CSVs)        Phase 20: Candidate Generation
   ├── episodes.csv                          ├── Wikidata/
-  ├── persons.csv                           │   ├── episodes.json
-  ├── publications.csv                      │   ├── persons.json
-  ├── seasons.csv                           │   ├── series.json
-  ├── topics.csv                            │   ├── broadcasting_programs.json
-  └── broadcasting_programs.csv             │   ├── topics.json
-                                            │   ├── roles.json
-                                            │   └── organizations.json
+    ├── persons.csv                           │   ├── instances_core_episodes.json
+    ├── publications.csv                      │   ├── instances_core_persons.json
+    ├── seasons.csv                           │   ├── instances_core_series.json
+    ├── topics.csv                            │   ├── instances_core_broadcasting_programs.json
+    └── broadcasting_programs.csv             │   ├── instances_core_topics.json
+                                                                                        │   ├── instances_core_roles.json
+                                                                                        │   └── instances_core_organizations.json
                                             └── Fernsehserien/
                                                 ├── episode_metadata_normalized.csv
                                                 ├── episode_broadcasts_normalized.csv
@@ -209,13 +209,13 @@ publikation_id, episode_id, date, time, duration, program, ...
 Must exist:
 ```
 data/20_candidate_generation/wikidata/projections/
-├── episodes.json                 ✓ Required
-├── persons.json                  ✓ Required
-├── series.json                   ✓ Required
-├── broadcasting_programs.json    ✓ Required
-├── topics.json                   ✓ Optional (produces aligned_topics.csv even if empty)
-├── roles.json                    ✓ Optional
-└── organizations.json            ✓ Optional
+├── instances_core_episodes.json                 ✓ Required
+├── instances_core_persons.json                  ✓ Required
+├── instances_core_series.json                   ✓ Required
+├── instances_core_broadcasting_programs.json    ✓ Required
+├── instances_core_topics.json                   ✓ Optional (produces aligned_topics.csv even if empty)
+├── instances_core_roles.json                    ✓ Optional
+└── instances_core_organizations.json            ✓ Optional
 ```
 
 ```
@@ -246,8 +246,8 @@ required = [
     Path("data/10_mention_detection/persons.csv"),
     Path("data/10_mention_detection/publications.csv"),
     Path("data/10_mention_detection/seasons.csv"),
-    Path("data/20_candidate_generation/wikidata/projections/episodes.json"),
-    Path("data/20_candidate_generation/wikidata/projections/persons.json"),
+    Path("data/20_candidate_generation/wikidata/projections/instances_core_episodes.json"),
+    Path("data/20_candidate_generation/wikidata/projections/instances_core_persons.json"),
     Path("data/20_candidate_generation/fernsehserien_de/projections/episode_metadata_normalized.csv"),
 ]
 
@@ -476,7 +476,7 @@ PERSONS_CSV                 # data/10_mention_detection/persons.csv
 # ... etc
 
 # Wikidata JSON paths (now JSON-first)
-WD_EPISODES                 # data/20_candidate_generation/wikidata/projections/episodes.json
+WD_EPISODES                 # data/20_candidate_generation/wikidata/projections/instances_core_episodes.json
 WD_PERSONS
 WD_SERIES
 WD_BROADCASTING_PROGRAMS
@@ -544,7 +544,7 @@ python -c "
 from pathlib import Path
 required = [
     Path('data/10_mention_detection/episodes.csv'),
-    Path('data/20_candidate_generation/wikidata/projections/episodes.json'),
+    Path('data/20_candidate_generation/wikidata/projections/instances_core_episodes.json'),
     # ... add all required paths
 ]
 missing = [f for f in required if not f.exists()]

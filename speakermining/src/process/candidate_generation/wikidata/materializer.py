@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import hashlib
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -14,8 +15,11 @@ from .cache import _atomic_write_df, _atomic_write_parquet_df, _atomic_write_tex
 from .bootstrap import load_core_classes, load_other_interesting_classes, load_root_classes
 from .bootstrap import load_seed_instances
 from .class_resolver import (
+    RewiringCatalogue,
+    apply_rewiring_to_claim_qids,
     RecoveredLineageEvidence,
     compute_class_rollups,
+    load_rewiring_catalogue,
     load_recovered_class_hierarchy,
     resolve_class_path,
 )
@@ -31,7 +35,6 @@ from .node_store import flush_node_store, iter_items, iter_properties
 from .query_inventory import materialize_query_inventory
 from .schemas import build_artifact_paths
 from .schemas import core_instances_json_filename
-from .schemas import core_instances_projection_filename
 from .triple_store import flush_triple_events, iter_unique_triples
 
 
@@ -64,6 +67,7 @@ _PARITY_CSV_ARTIFACTS = (
     "properties_csv",
     "triples_csv",
     "class_hierarchy_csv",
+    "class_resolution_map_csv",
     "query_inventory_csv",
     "entity_lookup_index_csv",
     "instances_leftovers_csv",
@@ -71,6 +75,15 @@ _PARITY_CSV_ARTIFACTS = (
     "fallback_stage_eligible_for_expansion_csv",
     "fallback_stage_ineligible_csv",
 )
+
+
+def _subclass_expansion_max_depth() -> int:
+    raw = str(os.getenv("WIKIDATA_SUBCLASS_EXPANSION_MAX_DEPTH", "2") or "2").strip()
+    try:
+        value = int(raw)
+    except Exception:
+        value = 2
+    return max(0, value)
 
 
 def _artifact_signature_for_csv(path: Path) -> tuple[int, str]:
@@ -212,6 +225,35 @@ def _extract_claim_qids(claims: dict, pid: str) -> list[str]:
     return sorted(set(out))
 
 
+def _claim_property_profile(claims: dict) -> dict[str, str]:
+    if not isinstance(claims, dict):
+        claims = {}
+
+    property_counts: dict[str, int] = {}
+    total_statements = 0
+    for pid, statements in claims.items():
+        if not isinstance(statements, list):
+            continue
+        property_counts[str(pid)] = len(statements)
+        total_statements += len(statements)
+
+    property_ids = sorted(property_counts.keys())
+    return {
+        "wikidata_claim_properties": "|".join(property_ids),
+        "wikidata_claim_property_count": str(len(property_ids)),
+        "wikidata_claim_statement_count": str(total_statements),
+        "wikidata_property_counts_json": json.dumps(property_counts, ensure_ascii=False, sort_keys=True),
+        "wikidata_p31_qids": "|".join(_extract_claim_qids(claims, "P31")),
+        "wikidata_p279_qids": "|".join(_extract_claim_qids(claims, "P279")),
+        "wikidata_p179_qids": "|".join(_extract_claim_qids(claims, "P179")),
+        "wikidata_p106_qids": "|".join(_extract_claim_qids(claims, "P106")),
+        "wikidata_p39_qids": "|".join(_extract_claim_qids(claims, "P39")),
+        "wikidata_p921_qids": "|".join(_extract_claim_qids(claims, "P921")),
+        "wikidata_p527_qids": "|".join(_extract_claim_qids(claims, "P527")),
+        "wikidata_p361_qids": "|".join(_extract_claim_qids(claims, "P361")),
+    }
+
+
 def _class_filename_lookup(repo_root: Path) -> dict[str, str]:
     lookup: dict[str, str] = {}
     setup_rows = load_core_classes(repo_root) + load_root_classes(repo_root) + load_other_interesting_classes(repo_root)
@@ -221,6 +263,28 @@ def _class_filename_lookup(repo_root: Path) -> dict[str, str]:
         if qid and filename:
             lookup[qid] = filename
     return lookup
+
+
+def _core_precedence_lookup(repo_root: Path) -> dict[str, int]:
+    lookup: dict[str, int] = {}
+    for idx, row in enumerate(load_core_classes(repo_root)):
+        qid = canonical_qid(str(row.get("wikidata_id", "") or ""))
+        if qid and qid not in lookup:
+            lookup[qid] = idx
+    return lookup
+
+
+def _load_rewiring_catalogue(repo_root: Path) -> RewiringCatalogue | None:
+    rewiring_path = (
+        Path(repo_root)
+        / "data"
+        / "00_setup"
+        / "rewiring_catalogue.csv"
+    )
+    catalogue = load_rewiring_catalogue(rewiring_path)
+    if int(catalogue.diagnostics.get("loaded_rows", 0)) <= 0:
+        return None
+    return catalogue
 
 
 def _core_class_qids(repo_root: Path) -> set[str]:
@@ -275,6 +339,7 @@ def _build_instances_df(
     recovered_lineage: RecoveredLineageEvidence | None,
     resolution_policy: str,
     resolution_reasons: Counter,
+    rewiring_catalogue: RewiringCatalogue | None,
 ) -> pd.DataFrame:
     rows = []
     label_columns, description_columns, alias_columns = _projection_language_columns()
@@ -317,6 +382,7 @@ def _build_instances_df(
             ),
             recovered_lineage=recovered_lineage,
             resolution_policy=resolution_policy,
+            rewiring_catalogue=rewiring_catalogue,
         )
         class_id = str(resolution.get("class_id", "") or "")
         row = {
@@ -327,6 +393,7 @@ def _build_instances_df(
             "subclass_of_core_class": bool(resolution.get("subclass_of_core_class", False)),
             "discovered_at_utc": item.get("discovered_at_utc", ""),
             "expanded_at_utc": item.get("expanded_at_utc") or "",
+            **_claim_property_profile(claims),
         }
         for lang in languages:
             row[f"label_{lang}"] = _pick_lang_text(item.get("labels", {}), lang)
@@ -338,6 +405,18 @@ def _build_instances_df(
         *label_columns,
         *description_columns,
         *alias_columns,
+        "wikidata_claim_properties",
+        "wikidata_claim_property_count",
+        "wikidata_claim_statement_count",
+        "wikidata_property_counts_json",
+        "wikidata_p31_qids",
+        "wikidata_p279_qids",
+        "wikidata_p179_qids",
+        "wikidata_p106_qids",
+        "wikidata_p39_qids",
+        "wikidata_p921_qids",
+        "wikidata_p527_qids",
+        "wikidata_p361_qids",
         "path_to_core_class", "subclass_of_core_class", "discovered_at_utc", "expanded_at_utc",
     ]
     if not rows:
@@ -437,6 +516,7 @@ def _build_class_hierarchy_df(
     recovered_lineage: RecoveredLineageEvidence | None,
     resolution_policy: str,
     resolution_reasons: Counter,
+    rewiring_catalogue: RewiringCatalogue | None,
 ) -> pd.DataFrame:
     columns = [
         "class_id",
@@ -476,7 +556,12 @@ def _build_class_hierarchy_df(
             continue
         claims = item.get("claims", {}) if isinstance(item.get("claims"), dict) else {}
         p31 = _extract_claim_qids(claims, "P31")
-        p279 = _extract_claim_qids(claims, "P279")
+        p279 = apply_rewiring_to_claim_qids(
+            subject_qid=qid,
+            predicate="P279",
+            base_qids=_extract_claim_qids(claims, "P279"),
+            rewiring_catalogue=rewiring_catalogue,
+        )
         if p279:
             candidate_class_qids.add(qid)
         candidate_class_qids.update(p31)
@@ -497,6 +582,7 @@ def _build_class_hierarchy_df(
                 ),
                 recovered_lineage=recovered_lineage,
                 resolution_policy=resolution_policy,
+                rewiring_catalogue=rewiring_catalogue,
             )
             if class_doc
             else {
@@ -535,19 +621,139 @@ def _resolve_row_core_class_id(row: pd.Series, core_class_qids: set[str]) -> str
     return ""
 
 
-def _remove_stale_core_instance_projections(paths, active_projection_files: set[str]) -> None:
-    for projection_path in paths.projections_dir.glob("instances_core_*.csv"):
-        is_active = projection_path.name in active_projection_files
-        if not is_active and projection_path.is_file():
-            projection_path.unlink()
-        projection_parquet = projection_path.with_suffix(".parquet")
-        if not is_active and projection_parquet.is_file():
-            projection_parquet.unlink()
-        if projection_path.name.startswith("instances_core_") and projection_path.name.endswith(".csv"):
-            class_filename = projection_path.name[len("instances_core_") : -len(".csv")]
-            legacy_json_path = paths.projections_dir / core_instances_json_filename(class_filename)
-            if not is_active and legacy_json_path.is_file():
-                legacy_json_path.unlink()
+def _build_class_resolution_map_df(
+    repo_root: Path,
+    class_hierarchy_df: pd.DataFrame,
+    core_class_qids: set[str],
+    rewiring_catalogue: RewiringCatalogue | None,
+    max_depth: int,
+) -> pd.DataFrame:
+    columns = [
+        "class_id",
+        "resolved_core_class_id",
+        "resolution_depth",
+        "resolution_reason",
+        "conflict_flag",
+        "candidate_core_class_ids",
+        "candidate_paths_json",
+        "max_depth",
+    ]
+    if class_hierarchy_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    core_precedence = _core_precedence_lookup(repo_root)
+    item_by_qid = {
+        canonical_qid(str(item.get("id", "") or "")): item
+        for item in iter_items(repo_root)
+        if canonical_qid(str(item.get("id", "") or ""))
+    }
+
+    def _parents_for(qid: str) -> list[str]:
+        item = item_by_qid.get(qid, {})
+        claims = item.get("claims", {}) if isinstance(item, dict) else {}
+        base = _extract_claim_qids(claims, "P279")
+        return apply_rewiring_to_claim_qids(
+            subject_qid=qid,
+            predicate="P279",
+            base_qids=base,
+            rewiring_catalogue=rewiring_catalogue,
+        )
+
+    rows: list[dict] = []
+    class_ids = [canonical_qid(x) for x in class_hierarchy_df.get("class_id", pd.Series(dtype=str)).tolist()]
+    class_ids = [x for x in class_ids if x]
+
+    for class_id in sorted(set(class_ids)):
+        queue: deque[tuple[str, int, list[str]]] = deque([(class_id, 0, [class_id])])
+        seen_depth: dict[str, int] = {class_id: 0}
+        candidates: list[tuple[str, int, list[str]]] = []
+
+        while queue:
+            node, depth, path = queue.popleft()
+            if node in core_class_qids:
+                candidates.append((node, depth, path))
+                continue
+            if depth >= max_depth:
+                continue
+            for parent in _parents_for(node):
+                next_depth = depth + 1
+                prev = seen_depth.get(parent)
+                if prev is not None and prev <= next_depth:
+                    continue
+                seen_depth[parent] = next_depth
+                queue.append((parent, next_depth, path + [parent]))
+
+        candidates = sorted(
+            candidates,
+            key=lambda c: (
+                c[1],
+                core_precedence.get(c[0], 10_000),
+                c[0],
+            ),
+        )
+
+        if candidates:
+            best_core, best_depth, _best_path = candidates[0]
+            conflict = len({c[0] for c in candidates}) > 1
+            candidate_paths_json = json.dumps(
+                [
+                    {
+                        "core_class_id": core,
+                        "depth": depth,
+                        "path": path,
+                    }
+                    for core, depth, path in candidates
+                ],
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            rows.append(
+                {
+                    "class_id": class_id,
+                    "resolved_core_class_id": best_core,
+                    "resolution_depth": int(best_depth),
+                    "resolution_reason": (
+                        "deterministic_conflict_resolution" if conflict else "unique_candidate"
+                    ),
+                    "conflict_flag": bool(conflict),
+                    "candidate_core_class_ids": "|".join(sorted({c[0] for c in candidates})),
+                    "candidate_paths_json": candidate_paths_json,
+                    "max_depth": int(max_depth),
+                }
+            )
+        else:
+            rows.append(
+                {
+                    "class_id": class_id,
+                    "resolved_core_class_id": "",
+                    "resolution_depth": pd.NA,
+                    "resolution_reason": "no_core_match_within_max_depth",
+                    "conflict_flag": False,
+                    "candidate_core_class_ids": "",
+                    "candidate_paths_json": "[]",
+                    "max_depth": int(max_depth),
+                }
+            )
+
+    df = pd.DataFrame(rows, columns=columns).sort_values("class_id").reset_index(drop=True)
+    # Keep numeric columns in deterministic nullable integer dtypes for CSV and parquet parity.
+    if not df.empty:
+        df["resolution_depth"] = pd.to_numeric(df["resolution_depth"], errors="coerce").astype("Int64")
+        df["max_depth"] = pd.to_numeric(df["max_depth"], errors="coerce").astype("Int64")
+    return df
+
+
+def _remove_stale_core_instance_projections(paths, active_json_files: set[str]) -> None:
+    # Remove legacy tabular sidecars for deprecated core-instance projections.
+    for legacy_csv_path in paths.projections_dir.glob("instances_core_*.csv"):
+        if legacy_csv_path.is_file():
+            legacy_csv_path.unlink()
+        legacy_parquet_path = legacy_csv_path.with_suffix(".parquet")
+        legacy_parquet_path.unlink(missing_ok=True)
+
+    for json_path in paths.projections_dir.glob("instances_core_*.json"):
+        if json_path.name not in active_json_files and json_path.is_file():
+            json_path.unlink()
 
 
 def _write_tabular_artifact(csv_path: Path, df: pd.DataFrame) -> None:
@@ -666,6 +872,7 @@ def _build_entity_lookup_rows(
     recovered_lineage: RecoveredLineageEvidence | None,
     resolution_policy: str,
     resolution_reasons: Counter,
+    rewiring_catalogue: RewiringCatalogue | None,
 ) -> tuple[list[dict], list[dict]]:
     items = list(iter_items(repo_root))
     item_by_id = {
@@ -701,6 +908,7 @@ def _build_entity_lookup_rows(
             ),
             recovered_lineage=recovered_lineage,
             resolution_policy=resolution_policy,
+            rewiring_catalogue=rewiring_catalogue,
         )
         direct_p31 = _extract_claim_qids(claims, "P31")
         direct_p279 = _extract_claim_qids(claims, "P279")
@@ -779,6 +987,7 @@ def _write_entity_lookup_artifacts(
     recovered_lineage: RecoveredLineageEvidence | None,
     resolution_policy: str,
     resolution_reasons: Counter,
+    rewiring_catalogue: RewiringCatalogue | None,
 ) -> int:
     _, chunk_records = _build_entity_lookup_rows(
         repo_root,
@@ -787,6 +996,7 @@ def _write_entity_lookup_artifacts(
         recovered_lineage=recovered_lineage,
         resolution_policy=resolution_policy,
         resolution_reasons=resolution_reasons,
+        rewiring_catalogue=rewiring_catalogue,
     )
     max_bytes = _resolve_chunk_max_bytes()
     paths.entity_chunks_dir.mkdir(parents=True, exist_ok=True)
@@ -866,7 +1076,15 @@ def _write_entity_lookup_artifacts(
     return int(len(index_df))
 
 
-def _write_core_instance_projections(paths, instances_df: pd.DataFrame, class_hierarchy_df: pd.DataFrame, repo_root: Path, core_class_qids: set[str]) -> dict[str, int]:
+def _write_core_instance_projections(
+    paths,
+    instances_df: pd.DataFrame,
+    class_hierarchy_df: pd.DataFrame,
+    repo_root: Path,
+    core_class_qids: set[str],
+    rewiring_catalogue: RewiringCatalogue | None,
+    class_resolution_map_df: pd.DataFrame | None,
+) -> dict[str, int]:
     projection_row_counts: dict[str, int] = {}
     if instances_df.empty:
         _write_tabular_artifact(paths.instances_leftovers_csv, instances_df)
@@ -893,9 +1111,27 @@ def _write_core_instance_projections(paths, instances_df: pd.DataFrame, class_hi
         _remove_stale_core_instance_projections(paths, set())
         return projection_row_counts
 
-    non_class_instances_df["resolved_core_class_id"] = non_class_instances_df.apply(
-        lambda row: _resolve_row_core_class_id(row, core_class_qids), axis=1
-    )
+    resolution_lookup: dict[str, str] = {}
+    if class_resolution_map_df is not None and not class_resolution_map_df.empty:
+        for _, r in class_resolution_map_df.iterrows():
+            class_id = canonical_qid(str(r.get("class_id", "") or ""))
+            core_id = canonical_qid(str(r.get("resolved_core_class_id", "") or ""))
+            if class_id and core_id:
+                resolution_lookup[class_id] = core_id
+
+    if resolution_lookup:
+        non_class_instances_df["resolved_core_class_id"] = non_class_instances_df["class_id"].map(
+            lambda q: resolution_lookup.get(canonical_qid(str(q or "")), "")
+        )
+        fallback_mask = non_class_instances_df["resolved_core_class_id"] == ""
+        if bool(fallback_mask.any()):
+            non_class_instances_df.loc[fallback_mask, "resolved_core_class_id"] = non_class_instances_df.loc[
+                fallback_mask
+            ].apply(lambda row: _resolve_row_core_class_id(row, core_class_qids), axis=1)
+    else:
+        non_class_instances_df["resolved_core_class_id"] = non_class_instances_df.apply(
+            lambda row: _resolve_row_core_class_id(row, core_class_qids), axis=1
+        )
 
     entity_by_qid = {
         canonical_qid(str(item.get("id", "") or "")): item
@@ -919,28 +1155,46 @@ def _write_core_instance_projections(paths, instances_df: pd.DataFrame, class_hi
             entity_by_qid[qid] = latest_doc
 
     core_rows = load_core_classes(repo_root)
-    active_projection_files: set[str] = set()
+    include_map: dict[str, set[str]] = {}
+    exclude_map: dict[str, set[str]] = {}
+    if rewiring_catalogue is not None:
+        for (subject, predicate), objects in rewiring_catalogue.add_edges.items():
+            if predicate != "P279":
+                continue
+            for obj in objects:
+                include_map.setdefault(obj, set()).add(subject)
+        for (subject, predicate), objects in rewiring_catalogue.remove_edges.items():
+            if predicate != "P279":
+                continue
+            for obj in objects:
+                exclude_map.setdefault(obj, set()).add(subject)
+
+    active_json_files: set[str] = set()
     for row in core_rows:
         class_filename = str(row.get("filename", "") or "")
         core_qid = canonical_qid(str(row.get("wikidata_id", "") or ""))
         if not class_filename or not core_qid:
             continue
-        projection_name = core_instances_projection_filename(class_filename)
-        projection_path = paths.projections_dir / projection_name
         json_path = paths.projections_dir / core_instances_json_filename(class_filename)
-        active_projection_files.add(projection_name)
-        core_projection_df = non_class_instances_df[non_class_instances_df["resolved_core_class_id"] == core_qid].copy()
+        active_json_files.add(json_path.name)
+        include_class_ids = include_map.get(core_qid, set())
+        exclude_class_ids = exclude_map.get(core_qid, set())
+
+        mask_resolved = non_class_instances_df["resolved_core_class_id"] == core_qid
+        mask_rewired = non_class_instances_df["class_id"].isin(include_class_ids)
+        core_projection_df = non_class_instances_df[mask_resolved | mask_rewired].copy()
+        if exclude_class_ids:
+            core_projection_df = core_projection_df[~core_projection_df["class_id"].isin(exclude_class_ids)].copy()
         if "resolved_core_class_id" in core_projection_df.columns:
             core_projection_df = core_projection_df.drop(columns=["resolved_core_class_id"])
         core_projection_df = core_projection_df.sort_values("id").reset_index(drop=True)
-        _write_tabular_artifact(projection_path, core_projection_df)
         core_json_payload = {
             qid: entity_by_qid[qid]
             for qid in core_projection_df["id"].tolist()
             if qid in entity_by_qid
         }
         _write_json_object_artifact(json_path, core_json_payload)
-        projection_row_counts[projection_name] = int(len(core_projection_df))
+        projection_row_counts[json_path.name] = int(len(core_projection_df))
 
     leftovers_df = non_class_instances_df[non_class_instances_df["resolved_core_class_id"] == ""].copy()
     if "resolved_core_class_id" in leftovers_df.columns:
@@ -949,7 +1203,7 @@ def _write_core_instance_projections(paths, instances_df: pd.DataFrame, class_hi
     _write_tabular_artifact(paths.instances_leftovers_csv, leftovers_df)
     projection_row_counts[paths.instances_leftovers_csv.name] = int(len(leftovers_df))
 
-    _remove_stale_core_instance_projections(paths, active_projection_files)
+    _remove_stale_core_instance_projections(paths, active_json_files)
     return projection_row_counts
 
 
@@ -1013,6 +1267,8 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
     core_class_qids = _core_class_qids(repo_root)
     root_class_qids = _root_class_qids(repo_root)
     recovered_lineage, recovered_lineage_source = _load_recovered_lineage_evidence(repo_root, paths)
+    rewiring_catalogue = _load_rewiring_catalogue(repo_root)
+    subclass_max_depth = _subclass_expansion_max_depth()
     resolution_policy = _lineage_resolution_policy()
     resolution_reasons: Counter = Counter()
 
@@ -1023,6 +1279,7 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
         recovered_lineage=recovered_lineage,
         resolution_policy=resolution_policy,
         resolution_reasons=resolution_reasons,
+        rewiring_catalogue=rewiring_catalogue,
     )
     print(f"[materializer] build instances done in {perf_counter() - t0:.2f}s", flush=True)
     t0 = perf_counter()
@@ -1047,8 +1304,18 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
         recovered_lineage=recovered_lineage,
         resolution_policy=resolution_policy,
         resolution_reasons=resolution_reasons,
+        rewiring_catalogue=rewiring_catalogue,
     )
     print(f"[materializer] build class_hierarchy done in {perf_counter() - t0:.2f}s", flush=True)
+    t0 = perf_counter()
+    class_resolution_map_df = _build_class_resolution_map_df(
+        repo_root,
+        class_hierarchy_df,
+        core_class_qids,
+        rewiring_catalogue,
+        subclass_max_depth,
+    )
+    print(f"[materializer] build class_resolution_map done in {perf_counter() - t0:.2f}s", flush=True)
     t0 = perf_counter()
     query_inventory_df = materialize_query_inventory(repo_root)
     print(f"[materializer] build query_inventory done in {perf_counter() - t0:.2f}s", flush=True)
@@ -1064,6 +1331,7 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
     _remove_stale_alias_projections(paths, active_alias_files)
     _write_tabular_artifact(paths.triples_csv, triples_df)
     _write_tabular_artifact(paths.class_hierarchy_csv, class_hierarchy_df)
+    _write_tabular_artifact(paths.class_resolution_map_csv, class_resolution_map_df)
     _write_tabular_artifact(paths.query_inventory_csv, query_inventory_df)
     _write_tabular_artifact(paths.instances_csv, instances_df)
     _write_tabular_artifact(paths.classes_csv, classes_df)
@@ -1076,6 +1344,7 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
         recovered_lineage=recovered_lineage,
         resolution_policy=resolution_policy,
         resolution_reasons=resolution_reasons,
+        rewiring_catalogue=rewiring_catalogue,
     )
     core_projection_counts = _write_core_instance_projections(
         paths,
@@ -1083,6 +1352,8 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
         class_hierarchy_df,
         repo_root,
         core_class_qids,
+        rewiring_catalogue,
+        class_resolution_map_df,
     )
     print(f"[materializer] write tabular artifacts done in {perf_counter() - t0:.2f}s", flush=True)
 
@@ -1099,6 +1370,11 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
         "lineage_resolution_policy": resolution_policy,
         "lineage_recovered_source": recovered_lineage_source,
         "lineage_resolution_reason_counts": dict(sorted(resolution_reasons.items())),
+        "subclass_expansion_max_depth": int(subclass_max_depth),
+        "class_resolution_rows": int(len(class_resolution_map_df)),
+        "class_resolution_conflict_rows": int(
+            int(class_resolution_map_df["conflict_flag"].sum()) if not class_resolution_map_df.empty else 0
+        ),
     }
     _write_summary(paths, run_id, stage, stats)
     elapsed = perf_counter() - total_t0

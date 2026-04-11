@@ -262,16 +262,17 @@ Status: **completed**
 
 Implemented in this slice:
 1. Added per-core-class instance projections in materializer:
-   - `instances_core_<core_filename>.csv` is generated for each configured core class.
-   - Rows include non-class entities resolved to that core class via class-path resolution.
+   - `instances_core_<core_filename>.json` is generated for each configured core class.
+   - JSON payload includes non-class entities resolved to that core class via class-path resolution.
 2. Added leftovers projection:
    - `instances_leftovers.csv` contains non-class entities that do not resolve to any configured core class.
 3. Added deterministic projection hygiene:
-   - stale `instances_core_*.csv` files are removed when core configuration changes.
+   - stale `instances_core_*.json` files are removed when core configuration changes.
+   - legacy `instances_core_*.csv` and `instances_core_*.parquet` files are removed as deprecated baggage.
 4. Added bootstrap coverage:
    - bootstrap now creates empty deterministic files for per-core and leftovers projections.
 5. Added checkpoint durability support:
-   - snapshot now includes dynamic projection files (`instances_core_*.csv`).
+   - snapshot now includes dynamic projection files (`instances_core_*.json`).
    - restore now rebuilds projection files directly from snapshot payload (including dynamic projections).
 
 Validation:

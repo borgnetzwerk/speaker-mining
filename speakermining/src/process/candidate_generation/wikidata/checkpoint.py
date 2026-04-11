@@ -65,7 +65,6 @@ def _runtime_state_files(repo_root: Path) -> list[Path]:
         paths.fallback_stage_ineligible_csv,
     ]
     runtime_files.extend(sorted(paths.projections_dir.glob("aliases_*.csv")))
-    runtime_files.extend(sorted(paths.projections_dir.glob("instances_core_*.csv")))
     runtime_files.extend(sorted(paths.projections_dir.glob("*.json")))
     runtime_files.extend(sorted(paths.entity_chunks_dir.glob("*.jsonl")))
     runtime_files.extend(sorted(paths.projections_dir.glob("*.parquet")))
