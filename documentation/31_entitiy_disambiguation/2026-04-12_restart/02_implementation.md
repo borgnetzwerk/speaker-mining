@@ -24,6 +24,12 @@ Canonical matching unit for person alignment:
 4. The pipeline must be idempotent and safe to rerun on updated upstream projections.
 5. No manual reconciliation is executed inside this phase step.
 6. Layer 4 signals may only enrich confidence and evidence; they must not override stronger Layer 1/2 constraints.
+7. For every core class, aligned rows are built from the union of all applicable source instances, not from a single-source backbone.
+8. Any unmatched instance from any applicable source must be emitted as an unresolved carry-forward row in the aligned table.
+9. Per-class reporting must list all configured sources explicitly; structurally inapplicable sources must appear as `n.a.` rows.
+10. Grouped claim buckets in one cell (for example `claim_properties = P31|P136|...`) are forbidden as a replacement for structural flattening.
+11. JSON-origin claims must be flattened into explicit property columns (and deterministic multi-value slots when repeated) before schema harmonization.
+12. Flattened properties must be propagated into layered alignment outputs; information present upstream must remain available downstream.
 
 ## Target Runtime Layout
 
@@ -73,6 +79,7 @@ Row shape rule:
 2. All source evidence for that unit must be expressed inside that single row.
 3. Repeated properties are expanded into deterministic column families rather than separate output rows.
 4. The schema must be wide enough to preserve all known source context without row splitting.
+5. The set of aligned rows must represent the class-specific union of source instances after deterministic matching and unresolved carry-forward.
 
 ### Shared metadata fields (all aligned core tables)
 1. `alignment_unit_id`
@@ -165,48 +172,54 @@ Any hard contradiction forces unresolved status even if score is high.
 1. Normalize dates/times/durations.
 2. Normalize names/titles (case, whitespace, punctuation, locale variants).
 3. Preserve raw value columns with `_raw` suffix.
-4. Write normalized per-source artifacts into `normalized/`.
+4. Transform JSON projection inputs into tabular per-source normalized artifacts with shared envelope columns (for example entity_id, label, description, aliases) plus explicit flattened claim columns.
+5. Write normalized per-source artifacts into `normalized/` so downstream schema harmonization always receives a tabular source format.
+6. For repeated claim values, emit deterministic indexed slots (for example `<property>_1`, `<property>_2`, ...).
+7. Prefer Wikidata property-label-based column names with PID traceability, falling back to PID where label mapping is unavailable.
 
 ### Step 311.3: Schema harmonization
 1. Extract source property inventories.
 2. Build canonical field mappings by core class.
 3. Persist mapping to `source_schema_mapping.csv`.
 4. Define derivation rules for critical missing context fields (for example `broadcasting_program_key`) and include lineage metadata fields.
+5. Include all listed input files in source inventory/harmonization via the normalized tabular artifacts, including sources that originated as JSON projections.
 
 ### Step 311.4: Layer 1 backbone build
-1. Materialize broadcasting-program backbone from setup baseline.
-2. Attach normalized source keys for downstream constraints.
-3. Provide context backfill lookup tables to downstream layers so blank source fields do not block alignment.
+1. Materialize broadcasting-program aligned table from setup and Wikidata union.
+2. Resolve deterministic matches across sources and preserve all unmatched rows as unresolved.
+3. Attach normalized source keys for downstream constraints.
+4. Provide context backfill lookup tables to downstream layers so blank source fields do not block alignment.
 
 ### Step 311.5: Layer 2 episode alignment
 1. Build episode candidate pairs constrained by broadcasting program and season hints.
 2. Score candidates with publication date/time/title features.
 3. Apply contradiction checks.
 4. Resolve one-to-one episode matches by descending score with conflict prevention.
-5. Write `aligned_episodes.csv` with both matched and unresolved rows; unresolved rows remain in-table and are marked via `match_tier` with rationale in unresolved columns.
+5. Write `aligned_episodes.csv` from source union with both matched and unresolved rows; unresolved rows remain in-table and are marked via `match_tier` with rationale in unresolved columns.
 
 ### Step 311.6: Layer 3 person alignment
 1. Build person candidate pairs primarily via aligned episode context.
 2. Add secondary name/property-only candidates when no episode match exists.
 3. Score, threshold, and resolve with one-to-one safeguards.
-4. Write `aligned_persons.csv` with both matched and unresolved rows; unresolved rows remain in-table and are marked via `match_tier` with rationale in unresolved columns.
+4. Write `aligned_persons.csv` from source union with both matched and unresolved rows; unresolved rows remain in-table and are marked via `match_tier` with rationale in unresolved columns.
 
 ### Step 311.7: Topic alignment
 1. Align topics by episode context and normalized label similarity.
 2. Keep ambiguous topic links unresolved unless confidence is high.
-3. Write `aligned_topics.csv` with both matched and unresolved rows; unresolved rows remain in-table.
+3. Write `aligned_topics.csv` from source union with both matched and unresolved rows; unresolved rows remain in-table.
 
 ### Step 311.8: Layer 4 role/organization best-effort
 1. Extract structured role/organization hints from Wikidata claims.
 2. Match against text-derived hints from ZDF/fernsehserien metadata.
 3. Only promote high-confidence matches; default unresolved otherwise.
-4. Write `aligned_roles.csv` and `aligned_organizations.csv` with unresolved rows in-table.
+4. Write `aligned_roles.csv` and `aligned_organizations.csv` from source union with unresolved rows in-table.
 
 ### Step 311.9: Evidence and QA artifacts
 1. Emit one evidence row per accepted/rejected candidate decision in `match_evidence.csv`.
 2. Emit run-level summary metrics and unresolved distributions in `run_summary.json`.
 3. Emit one-record inspectable examples for every written artifact in stages 1 to 4.
 4. Emit handoff-ready summary sections that highlight unresolved counts for manual analysts.
+5. Emit per-class source inventory sections that display all class sources and explicit `n.a.` rows for non-applicable sources.
 
 ## Notebook Orchestration Specification
 

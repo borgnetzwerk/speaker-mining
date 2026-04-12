@@ -64,6 +64,18 @@ The authoritative matching order from `00_immutable_input.md` is fixed:
 
 ## Method
 
+### Source-Symmetric Alignment Contract
+For every core class, aligned table construction is source-symmetric and source-complete:
+1. Build the aligned table from the union of instances from all available sources for that class.
+2. Perform deterministic matching across sources where evidence is sufficient.
+3. Keep every unmatched source instance as an unresolved carry-forward row in the same aligned table.
+4. Never use one source as a hard row-count backbone that suppresses unmatched instances from other sources.
+5. For sources that are structurally not applicable to a class, reporting must still include explicit `n.a.` source rows for symmetry and auditability.
+
+Cardinality implication:
+1. Aligned row count for a class is not bounded by any single source count.
+2. Aligned row count is bounded by the class-specific union and matching outcome across all sources.
+
 ### 1. Raw import snapshot
 Copy all required inputs into `data/31_entity_disambiguation/raw_import/` as run-stable snapshots to decouple Phase 31 from moving upstream files.
 
@@ -86,6 +98,10 @@ Build a per-class canonical schema and map source-specific columns/claims to it.
 5. Add inferred canonical properties when a source omits critical context fields but the context is derivable from other source columns or joins.
 6. Represent source evidence in flattened, source-suffixed column families, not single scalar placeholder fields per source.
 7. Expand repeated source properties into deterministic wide-column families so one aligned row can hold all available evidence for that entity.
+8. Inputs that originate as JSON projections must be transformed into the same tabular normalized format as CSV sources before harmonization.
+9. Grouped claim buckets in one cell (for example `claim_properties = P31|P136|...`) are not allowed as a substitute for structural flattening.
+10. For Wikidata claims, create explicit flattened columns per property ID, with deterministic multi-value slots where needed.
+11. Prefer readable Wikidata property-label-based column names with PID traceability (for example `Kinobox_film_ID_(P12096)`), falling back to PID when no stable label is available.
 
 Wikidata property IDs and labels are the primary alignment anchor where available.
 
@@ -100,17 +116,21 @@ Evidence modeling policy:
 ### 4. Layered alignment execution
 
 #### Layer 1: Broadcasting Program
-No disambiguation. Use as stable backbone key for lower layers.
+Build a source-symmetric program table from setup baseline and Wikidata projections.
+Unmatched instances from either source must be preserved as unresolved carry-forward rows.
 
 #### Layer 2: Episode (and season support)
 Primary alignment objective. Match using weighted publication/date/time/title signals constrained by broadcasting program.
+Episode and season tables must preserve unmatched instances from every applicable source as unresolved rows.
 
 #### Layer 3: Person
 Primary strategy: align persons through already aligned episodes.
 Secondary strategy: name plus contextual/property similarity only when episode evidence is absent.
+Unmatched person instances from every applicable source are preserved as unresolved rows.
 
 #### Layer 4: Role and Organization
 Best-effort only. Use structured Wikidata claims and weak textual hints in source descriptions. Keep unresolved by default when evidence is insufficient.
+Unmatched role and organization instances from all available sources are preserved as unresolved rows.
 
 Layer interaction rule:
 1. Layer 4 may increase confidence when consistent with Layers 1-3 evidence.
