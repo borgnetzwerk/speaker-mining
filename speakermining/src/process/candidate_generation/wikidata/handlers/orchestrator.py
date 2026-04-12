@@ -47,8 +47,6 @@ def _write_handler_run_summary(paths, summary_payload: dict) -> Path:
 
 
 def _try_bootstrap_handler_from_projection(handler, output_path: Path) -> tuple[bool, str]:
-    if getattr(handler, "name", lambda: "")() == "ClassesHandler":
-        return False, "unsupported"
     bootstrap_fn = getattr(handler, "bootstrap_from_projection", None)
     if not callable(bootstrap_fn):
         return False, "unsupported"
@@ -114,10 +112,18 @@ def run_handlers(
             for event in all_events
             if isinstance(event.get("sequence_num"), int) and int(event.get("sequence_num", 0)) >= start_seq
         ]
+        materialize_without_pending = bool(
+            getattr(handler, "requires_materialize_without_pending", lambda: False)()
+        )
 
         # Incremental default: when there are no new events and a projection already
         # exists, skip replay+rewrite to avoid full rebuild cost on no-op reruns.
-        if normalized_mode == _MATERIALIZATION_MODE_INCREMENTAL and not pending and has_existing_artifact:
+        if (
+            normalized_mode == _MATERIALIZATION_MODE_INCREMENTAL
+            and not pending
+            and has_existing_artifact
+            and not materialize_without_pending
+        ):
             summary[name] = before_seq
             handler_stats.append(
                 {

@@ -40,12 +40,10 @@ def test_empty_target_bootstraps_required_tree(tmp_path: Path) -> None:
     assert paths.fallback_stage_ineligible_csv.exists()
     assert paths.instances_leftovers_csv.exists()
     assert paths.instances_leftovers_csv.with_suffix(".parquet").exists()
-    assert (paths.projections_dir / "instances_core_persons.csv").exists()
-    assert (paths.projections_dir / "instances_core_episodes.csv").exists()
-    assert (paths.projections_dir / "instances_core_persons.parquet").exists()
-    assert (paths.projections_dir / "instances_core_episodes.parquet").exists()
-    assert json.loads((paths.projections_dir / "persons.json").read_text(encoding="utf-8")) == {}
-    assert json.loads((paths.projections_dir / "episodes.json").read_text(encoding="utf-8")) == {}
+    assert json.loads((paths.projections_dir / "instances_core_persons.json").read_text(encoding="utf-8")) == {}
+    assert json.loads((paths.projections_dir / "instances_core_episodes.json").read_text(encoding="utf-8")) == {}
+    assert not (paths.projections_dir / "persons.json").exists()
+    assert not (paths.projections_dir / "episodes.json").exists()
     assert not paths.entities_json.exists()
     assert not paths.properties_json.exists()
     assert not paths.triples_events_json.exists()
@@ -85,11 +83,9 @@ def test_bootstrap_projection_columns_follow_configured_languages(tmp_path: Path
         assert "label_en" not in instances_columns
         assert "label_de" not in instances_columns
 
-        assert "label_it" in classes_columns
-        assert "description_it" in classes_columns
-        assert "alias_it" in classes_columns
-        assert "label_en" not in classes_columns
-        assert "label_de" not in classes_columns
+        assert "class_filename" in classes_columns
+        assert "label_en" in classes_columns
+        assert "label_de" in classes_columns
 
         assert "label_it" in properties_columns
         assert "description_it" in properties_columns
@@ -102,3 +98,14 @@ def test_bootstrap_projection_columns_follow_configured_languages(tmp_path: Path
         assert not (paths.projections_dir / "aliases_de.csv").exists()
     finally:
         set_active_wikidata_languages(previous)
+
+
+def test_bootstrap_can_disable_parquet_sidecars(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("WIKIDATA_WRITE_PARQUET", "0")
+    ensure_output_bootstrap(tmp_path)
+    paths = build_artifact_paths(tmp_path)
+
+    assert paths.query_inventory_csv.exists()
+    assert not paths.query_inventory_csv.with_suffix(".parquet").exists()
+    assert paths.entity_lookup_index_csv.exists()
+    assert not paths.entity_lookup_index_csv.with_suffix(".parquet").exists()

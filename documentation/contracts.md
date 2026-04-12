@@ -161,6 +161,7 @@ Projection artifacts (`projections/`):
 16. `instances_leftovers.csv`
 17. `instances_core_<core_filename>.json` (one file per configured core class; e.g. `instances_core_persons.json`)
 18. `summary.json`
+19. `summary_profiles/<run_profile>/summary_latest.json` (profile-isolated latest summary)
 
 Legacy note:
 
@@ -168,9 +169,23 @@ Legacy note:
 
 ### Core schemas
 
-1. `classes.csv`: `id`, `label_de`, `label_en`, `description_de`, `description_en`, `alias_de`, `alias_en`, `path_to_core_class`, `subclass_of_core_class`, `discovered_count`, `expanded_count`
+Parquet sidecar policy note:
+
+1. CSV is the canonical required tabular persistence format for runtime projections.
+2. Parquet files are optional sidecars controlled by `WIKIDATA_WRITE_PARQUET`.
+3. `WIKIDATA_WRITE_PARQUET=0|false|no|off` disables parquet sidecars and checkpoint parquet inclusion.
+4. Any other value (or unset) keeps parquet sidecars enabled.
+
+Summary profile isolation note:
+
+1. `summary.json` is the operational baseline summary artifact.
+2. Materialization always writes profile-isolated summaries under `projections/summary_profiles/<run_profile>/`.
+3. `WIKIDATA_RUN_PROFILE` controls run profile classification (`operational`, `smoke`, `cache_only`; default `operational`).
+4. Non-operational runs do not overwrite `summary.json` unless `WIKIDATA_ALLOW_NON_OPERATIONAL_SUMMARY_OVERWRITE=1` is explicitly set.
+
+1. `classes.csv`: `id`, `class_filename`, `label_en`, `label_de`, `description_en`, `description_de`, `alias_en`, `alias_de`, `path_to_core_class`, `subclass_of_core_class`, `discovered_count`, `expanded_count`
 2. `core_classes.csv`: same columns as `classes.csv`
-3. `instances.csv`: `id`, `class_id`, `class_filename`, `label_de`, `label_en`, `description_de`, `description_en`, `alias_de`, `alias_en`, `path_to_core_class`, `subclass_of_core_class`, `discovered_at_utc`, `expanded_at_utc`
+3. `instances.csv`: `id`, `class_id`, `class_filename`, `label_de`, `label_en`, `description_de`, `description_en`, `alias_de`, `alias_en`, `wikidata_claim_properties`, `wikidata_claim_property_count`, `wikidata_claim_statement_count`, `wikidata_property_counts_json`, `wikidata_p31_qids`, `wikidata_p279_qids`, `wikidata_p179_qids`, `wikidata_p106_qids`, `wikidata_p39_qids`, `wikidata_p921_qids`, `wikidata_p527_qids`, `wikidata_p361_qids`, `path_to_core_class`, `subclass_of_core_class`, `discovered_at_utc`, `expanded_at_utc`
 	- Parquet sidecar: `instances.parquet`
 4. `entities.json`: object keyed by QID with full entity payloads
 5. `properties.csv`: `id`, `label_de`, `label_en`, `description_de`, `description_en`, `alias_de`, `alias_en`
@@ -181,7 +196,7 @@ Legacy note:
 	- Parquet sidecar: `aliases_de.parquet`
 8. `triples.csv`: `subject`, `predicate`, `object`, `discovered_at_utc`, `source_query_file`
 	- Parquet sidecar: `triples.parquet`
-9. `query_inventory.csv`: `endpoint`, `query_hash`, `normalized_query`, `key`, `status`, `timestamp_utc`, `source_step`
+9. `query_inventory.csv`: `query_hash`, `endpoint`, `normalized_query`, `status`, `first_seen`, `last_seen`, `count`
 	- Parquet sidecar: `query_inventory.parquet`
 10. `fallback_stage_candidates.csv`: `mention_id`, `mention_type`, `mention_label`, `candidate_id`, `candidate_label`, `source`, `context`
 11. `fallback_stage_eligible_for_expansion.csv`: `candidate_id`
@@ -191,10 +206,17 @@ Legacy note:
 15. `instances_leftovers.csv`: same columns as `instances.csv`; contains non-class rows with no resolved core-class mapping
 	- Parquet sidecar: `instances_leftovers.parquet`
 
+Projection ownership note:
+
+1. `query_inventory.csv` is handler-owned and materialized by `QueryInventoryHandler`.
+2. `fallback_stage_candidates.csv` is handler-owned and materialized from `candidate_matched` events.
+3. Runtime/materializer code must not dual-write projections that have a handler owner.
+
 Per-core handoff note:
 
 1. `instances_core_<core_filename>.json` is the handoff for future phases. It is a QID-keyed object whose values are the full entity payloads we have for that core class.
 2. `instances_core_<core_filename>.csv` and `instances_core_<core_filename>.parquet` are deprecated legacy artifacts and must not be produced by Phase 20 materialization.
+3. Duplicate top-level class JSON outputs (for example `persons.json`, `episodes.json`, `organizations.json`, `series.json`, `topics.json`, `broadcasting_programs.json`) are deprecated and must not be produced by Phase 20 materialization.
 
 Lazy sidecar note:
 

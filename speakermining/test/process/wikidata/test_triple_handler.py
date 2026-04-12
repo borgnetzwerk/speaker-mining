@@ -71,3 +71,32 @@ def test_triple_handler_sequence_tracking(tmp_path: Path) -> None:
     assert handler.last_processed_sequence() == 0
     handler.process_batch([_entity_event(42, "Q1", {"id": "Q1", "claims": {}})])
     assert handler.last_processed_sequence() == 42
+
+
+def test_triple_handler_reads_entity_payload_from_non_query_events(tmp_path: Path) -> None:
+    doc = {
+        "id": "Q500",
+        "claims": {
+            "P31": [{"mainsnak": {"datavalue": {"value": {"entity-type": "item", "id": "Q5"}}}}],
+        },
+    }
+    event = {
+        "sequence_num": 7,
+        "event_type": "entity_discovered",
+        "timestamp_utc": "2026-04-02T10:10:00Z",
+        "payload": {
+            "entities": {
+                "Q500": doc,
+            }
+        },
+    }
+
+    handler = TripleHandler(tmp_path)
+    handler.process_batch([event])
+
+    out = tmp_path / "triples.csv"
+    handler.materialize(out)
+    df = pd.read_csv(out)
+    triples = {(r.subject, r.predicate, r.object) for r in df.itertuples(index=False)}
+    assert ("Q500", "P31", "Q5") in triples
+    assert handler.last_processed_sequence() == 7

@@ -14,6 +14,7 @@ def _seed_events(root: Path) -> None:
     store.append_event(
         {
             "event_type": "query_response",
+            "timestamp_utc": "2026-04-01T10:00:00Z",
             "endpoint": "wikidata_api",
             "normalized_query": "entity:Q100",
             "query_hash": "h1",
@@ -41,6 +42,7 @@ def _seed_events(root: Path) -> None:
     store.append_event(
         {
             "event_type": "query_response",
+            "timestamp_utc": "2026-04-01T10:00:01Z",
             "endpoint": "wikidata_api",
             "normalized_query": "entity:Q5",
             "query_hash": "h2",

@@ -1,4 +1,4 @@
-"""TripleHandler: builds triples projection from entity query_response events."""
+"""TripleHandler: builds triples projection from events carrying entity claim payloads."""
 
 from __future__ import annotations
 
@@ -35,8 +35,48 @@ def _extract_item_triples(subject_qid: str, claims: dict) -> list[tuple[str, str
     return triples
 
 
+def _iter_entities_from_event(event: dict) -> list[tuple[str, dict]]:
+    """Return entity docs found in common event payload shapes.
+
+    This allows replay from historical logs that predate specialized triple events.
+    """
+    if not isinstance(event, dict):
+        return []
+
+    containers: list[dict] = []
+
+    response_payload = get_query_event_response_data(event)
+    if isinstance(response_payload, dict):
+        containers.append(response_payload)
+
+    payload = event.get("payload")
+    if isinstance(payload, dict):
+        containers.append(payload)
+        nested = payload.get("response_data")
+        if isinstance(nested, dict):
+            containers.append(nested)
+
+    entities: list[tuple[str, dict]] = []
+    seen_keys: set[str] = set()
+    for container in containers:
+        raw_entities = container.get("entities")
+        if not isinstance(raw_entities, dict):
+            continue
+        for qid, doc in raw_entities.items():
+            qid_norm = canonical_qid(qid)
+            if not qid_norm or not isinstance(doc, dict):
+                continue
+            dedupe_key = f"{qid_norm}:{id(doc)}"
+            if dedupe_key in seen_keys:
+                continue
+            seen_keys.add(dedupe_key)
+            entities.append((qid_norm, doc))
+
+    return entities
+
+
 class TripleHandler(EventHandler):
-    """Maintains deduplicated `triples.csv` from query_response events."""
+    """Maintains deduplicated `triples.csv` from any event carrying entity claims."""
 
     def __init__(self, repo_root: Path, handler_registry: Optional[HandlerRegistry] = None):
         self.repo_root = Path(repo_root)
@@ -85,22 +125,9 @@ class TripleHandler(EventHandler):
 
     def process_batch(self, events: list[dict]) -> None:
         for event in events:
-            if event.get("event_type") != "query_response":
-                continue
-            if get_query_event_field(event, "source_step", "") != "entity_fetch":
-                continue
-            if get_query_event_field(event, "status", "") != "success":
-                continue
-            payload = get_query_event_response_data(event)
-            if not isinstance(payload, dict):
-                continue
-            entities = payload.get("entities", {})
-            if not isinstance(entities, dict):
-                continue
-
             discovered_at = str(event.get("timestamp_utc", "") or "")
             source_query_file = str(get_query_event_field(event, "query_hash", "") or "")
-            for qid, doc in entities.items():
+            for qid, doc in _iter_entities_from_event(event):
                 claims = doc.get("claims", {}) if isinstance(doc, dict) else {}
                 for subj, pred, obj in _extract_item_triples(qid, claims):
                     key = (subj, pred, obj)

@@ -16,6 +16,8 @@ Read these first for current behavior:
 	- Node-integrity pass purpose, bottlenecks, and implementation notes.
 5. `wikidata_todo_tracker.md`
 	- Active follow-up ideas and unresolved operational TODOs.
+6. `class_graph_persistence_design.md`
+	- Pre-implementation architecture proposal for persistent class graph, queue pruning, and bounded-memory subclass preflight.
 
 ## Implementation Alignment Snapshot (2026-04-11)
 

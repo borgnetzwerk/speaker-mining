@@ -5,6 +5,43 @@ import os
 from .phase_contracts import phase_outcome_payload
 
 
+_ALLOWED_RUN_PROFILES = {"operational", "smoke", "cache_only"}
+
+
+def _parse_bool_flag(value: object) -> bool:
+    token = str(value or "").strip().lower()
+    return token in {"1", "true", "yes", "y", "on"}
+
+
+def resolve_run_profile(config: dict | None = None) -> str:
+    cfg = config or {}
+    from_config = str(cfg.get("run_profile", "") or "").strip().lower()
+    if from_config in _ALLOWED_RUN_PROFILES:
+        return from_config
+    from_env = str(os.getenv("WIKIDATA_RUN_PROFILE", "") or "").strip().lower()
+    if from_env in _ALLOWED_RUN_PROFILES:
+        return from_env
+    return "operational"
+
+
+def resolve_allow_non_operational_summary_overwrite(config: dict | None = None) -> bool:
+    cfg = config or {}
+    if "allow_non_operational_summary_overwrite" in cfg:
+        return bool(cfg.get("allow_non_operational_summary_overwrite", False))
+    return _parse_bool_flag(os.getenv("WIKIDATA_ALLOW_NON_OPERATIONAL_SUMMARY_OVERWRITE", "0"))
+
+
+def apply_run_profile_environment(config: dict) -> dict:
+    run_profile = resolve_run_profile(config)
+    allow_overwrite = resolve_allow_non_operational_summary_overwrite(config)
+    os.environ["WIKIDATA_RUN_PROFILE"] = run_profile
+    os.environ["WIKIDATA_ALLOW_NON_OPERATIONAL_SUMMARY_OVERWRITE"] = "1" if allow_overwrite else "0"
+    return {
+        "run_profile": run_profile,
+        "allow_non_operational_summary_overwrite": bool(allow_overwrite),
+    }
+
+
 def build_heartbeat_settings(config: dict) -> dict:
     return {
         "interval_seconds": int(config.get("heartbeat_interval_seconds", 60) or 60),
@@ -118,9 +155,13 @@ def build_benchmark_run_context(
     seed_count: int,
     unresolved_targets_count: int,
 ) -> dict:
+    run_profile = resolve_run_profile(config)
+    allow_non_operational_summary_overwrite = resolve_allow_non_operational_summary_overwrite(config)
     return {
         "max_queries_per_run": int(config.get("max_queries_per_run", 0) or 0),
         "cache_max_age_days": int(config.get("cache_max_age_days", 0) or 0),
+        "run_profile": run_profile,
+        "allow_non_operational_summary_overwrite": bool(allow_non_operational_summary_overwrite),
         "fallback_prefer_class_scoped_search": bool(config.get("fallback_prefer_class_scoped_search", False)),
         "fallback_allow_generic_search_after_class_scoped": bool(config.get("fallback_allow_generic_search_after_class_scoped", True)),
         "lineage_resolution_policy": str(
@@ -146,10 +187,14 @@ def build_runtime_evidence_payload_parts(
     fallback_class_scoped_hits: int,
     fallback_generic_hits: int,
 ) -> tuple[dict, dict]:
+    run_profile = resolve_run_profile(config)
+    allow_non_operational_summary_overwrite = resolve_allow_non_operational_summary_overwrite(config)
     run_context = {
         "resume_mode": str(resume_mode or ""),
         "cache_max_age_days": int(config.get("cache_max_age_days", 0) or 0),
         "max_queries_per_run": int(config.get("max_queries_per_run", 0) or 0),
+        "run_profile": run_profile,
+        "allow_non_operational_summary_overwrite": bool(allow_non_operational_summary_overwrite),
         "fallback_enabled_mention_types_resolved": list(config.get("fallback_enabled_mention_types_resolved", []) or []),
         "fallback_prefer_class_scoped_search": bool(config.get("fallback_prefer_class_scoped_search", False)),
         "fallback_allow_generic_search_after_class_scoped": bool(config.get("fallback_allow_generic_search_after_class_scoped", True)),

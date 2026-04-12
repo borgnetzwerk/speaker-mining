@@ -118,13 +118,17 @@ Execution sequence:
 6. Append runtime events to `chunks/*.jsonl` and maintain checkpoint state.
 8. Materialize deterministic projection artifacts under `projections/` through handler replay.
 	- CSV files remain the compatibility contract during the storage transition.
-	- Where tabular runtime artifacts are materialized, matching Parquet sidecars are emitted alongside the CSV files.
+	- Parquet sidecars are optional and controlled by `WIKIDATA_WRITE_PARQUET`.
+	- Materialization summaries are profile-isolated under `projections/summary_profiles/<run_profile>/`.
 
 Policy guardrails:
 
 1. `chunks/` is the canonical append-only event log; boundary continuity is represented by `eventstore_opened` and `eventstore_closed` events.
 2. Legacy `raw_queries/` artifacts are migration/archive inputs and are not the canonical runtime event stream.
 3. Legacy/pre-v3 compatibility logic is out of scope for runtime code.
+4. Projection ownership is single-writer: each persisted projection has one canonical owner (handler or materializer), not both.
+5. Handler-owned projections (including `query_inventory.csv` and `fallback_stage_candidates.csv`) are event-derived and must not be directly dual-written by stage runtime code.
+6. `summary.json` is the operational baseline summary; non-operational profiles must not overwrite it unless explicitly enabled.
 
 ## Matching Policy
 

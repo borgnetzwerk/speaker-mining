@@ -190,6 +190,7 @@ def test_graph_stage_hydrates_class_chain_and_persists_class_triples(tmp_path: P
     paths = build_artifact_paths(tmp_path)
     instances_df = pd.read_csv(paths.instances_csv)
     classes_df = pd.read_csv(paths.classes_csv)
+    class_hierarchy_df = pd.read_csv(paths.class_hierarchy_csv)
     triples_df = pd.read_csv(paths.triples_csv)
 
     person_row = instances_df.loc[instances_df["id"] == "Q200"].iloc[0]
@@ -199,6 +200,10 @@ def test_graph_stage_hydrates_class_chain_and_persists_class_triples(tmp_path: P
     q5_row = classes_df.loc[classes_df["id"] == "Q5"].iloc[0]
     assert q5_row["label_en"] == "human"
     assert bool(q5_row["subclass_of_core_class"]) is True
+
+    hierarchy_q5_row = class_hierarchy_df.loc[class_hierarchy_df["class_id"] == "Q5"].iloc[0]
+    assert int(hierarchy_q5_row["distance_to_core_min"]) == 1
+    assert int(hierarchy_q5_row["superclass_explored_depth_max"]) >= 1
 
     triples = {(row.subject, row.predicate, row.object) for row in triples_df.itertuples(index=False)}
     assert ("Q200", "P31", "Q5") in triples
@@ -321,31 +326,23 @@ def test_materializer_writes_per_core_and_leftovers_projections(tmp_path: Path) 
     materialize_final(tmp_path, run_id="run-wdt-012")
     paths = build_artifact_paths(tmp_path)
 
-    persons_core_projection = paths.projections_dir / "instances_core_persons.csv"
-    episodes_core_projection = paths.projections_dir / "instances_core_episodes.csv"
-    persons_core_json = paths.projections_dir / "persons.json"
-    episodes_core_json = paths.projections_dir / "episodes.json"
+    persons_core_json = paths.projections_dir / "instances_core_persons.json"
+    episodes_core_json = paths.projections_dir / "instances_core_episodes.json"
     leftovers_projection = paths.instances_leftovers_csv
 
-    assert persons_core_projection.exists()
-    assert episodes_core_projection.exists()
     assert persons_core_json.exists()
     assert episodes_core_json.exists()
     assert leftovers_projection.exists()
 
-    persons_df = pd.read_csv(persons_core_projection)
-    episodes_df = pd.read_csv(episodes_core_projection)
     leftovers_df = pd.read_csv(leftovers_projection)
     persons_json = json.loads(persons_core_json.read_text(encoding="utf-8"))
     episodes_json = json.loads(episodes_core_json.read_text(encoding="utf-8"))
 
-    assert set(persons_df["id"].tolist()) == {"Q100"}
-    assert episodes_df.empty
-    assert set(leftovers_df["id"].tolist()) == {"Q300"}
     assert set(persons_json.keys()) == {"Q100"}
+    assert episodes_json == {}
+    assert set(leftovers_df["id"].tolist()) == {"Q300"}
     assert persons_json["Q100"]["id"] == "Q100"
     assert persons_json["Q100"]["claims"]["P31"][0]["mainsnak"]["datavalue"]["value"]["id"] == "Q5"
-    assert episodes_json == {}
 
 
 def test_materializer_core_projections_enforce_two_hop_boundary(tmp_path: Path) -> None:
@@ -436,10 +433,10 @@ def test_materializer_core_projections_enforce_two_hop_boundary(tmp_path: Path) 
 
     materialize_final(tmp_path, run_id="run-two-hop-boundary")
     paths = build_artifact_paths(tmp_path)
-    persons_projection = paths.projections_dir / "instances_core_persons.csv"
-    persons_df = pd.read_csv(persons_projection)
+    persons_projection = paths.projections_dir / "instances_core_persons.json"
+    persons_json = json.loads(persons_projection.read_text(encoding="utf-8"))
 
-    assert set(persons_df["id"].tolist()) == {"Q200", "Q300"}
+    assert set(persons_json.keys()) == {"Q200", "Q300"}
 
 
 def test_compare_materialization_snapshots_detects_matching_and_mismatching_snapshots(tmp_path: Path) -> None:

@@ -13,6 +13,7 @@ from collections import Counter
 
 import pandas as pd
 
+from process.notebook_event_log import NOTEBOOK_21_ID, get_or_create_notebook_logger
 from .cache import (
     WIKIDATA_SPARQL_ENDPOINT,
     _atomic_write_df,
@@ -42,6 +43,7 @@ from .common import (
     canonical_qid,
     effective_core_class_qids,
     language_projection_suffix,
+    parquet_sidecars_enabled,
     projection_languages,
 )
 from .event_log import get_query_event_field, get_query_event_response_data, iter_query_events, write_query_event
@@ -54,10 +56,10 @@ from .node_store import (
 )
 from .inlinks import build_subclass_inlinks_query, parse_subclass_inlinks_results
 from .entity import get_or_fetch_entities_batch, get_or_fetch_entity
-from .query_inventory import materialize_query_inventory
 from .schemas import build_artifact_paths
 from .schemas import core_instances_json_filename
 from .triple_store import flush_triple_events, iter_unique_triples
+from .graceful_shutdown import should_terminate
 
 
 @dataclass(frozen=True)
@@ -106,6 +108,10 @@ def _subclass_expansion_max_depth() -> int:
     except Exception:
         value = 2
     return max(0, value)
+
+
+def _shutdown_path(repo_root: Path) -> Path:
+    return Path(repo_root) / "data" / "20_candidate_generation" / "wikidata" / ".shutdown"
 
 
 def _artifact_signature_for_csv(path: Path) -> tuple[int, str]:
@@ -544,6 +550,8 @@ def _build_class_hierarchy_df(
         "class_id",
         "class_filename",
         "path_to_core_class",
+        "distance_to_core_min",
+        "superclass_explored_depth_max",
         "subclass_of_core_class",
         "is_core_class",
         "is_root_class",
@@ -612,11 +620,21 @@ def _build_class_hierarchy_df(
             "subclass_of_core_class": False,
             }
         )
+        path_to_core_class = str(resolution.get("path_to_core_class", "") or "")
+        path_tokens = [canonical_qid(token) for token in path_to_core_class.split("|") if canonical_qid(token)]
+        base_distance = int(len(path_tokens) - 1) if path_tokens else pd.NA
+        if path_tokens and path_tokens[0] != class_qid:
+            base_distance = int(base_distance) + 1
+        distance_to_core_min = base_distance
+        superclass_explored_depth_max = int(base_distance) if not pd.isna(base_distance) else 0
+
         rows.append(
             {
                 "class_id": class_qid,
                 "class_filename": class_filename_lookup.get(class_qid, ""),
-                "path_to_core_class": str(resolution.get("path_to_core_class", "") or ""),
+                "path_to_core_class": path_to_core_class,
+                "distance_to_core_min": distance_to_core_min,
+                "superclass_explored_depth_max": superclass_explored_depth_max,
                 "subclass_of_core_class": bool(resolution.get("subclass_of_core_class", False)),
                 "is_core_class": bool(class_qid in core_class_qids),
                 "is_root_class": bool(class_qid in root_class_qids),
@@ -627,7 +645,12 @@ def _build_class_hierarchy_df(
 
     if not rows:
         return pd.DataFrame(columns=columns)
-    return pd.DataFrame(rows)[columns].sort_values(["is_core_class", "subclass_of_core_class", "class_id"], ascending=[False, False, True]).reset_index(drop=True)
+    df = pd.DataFrame(rows)[columns]
+    df["distance_to_core_min"] = pd.to_numeric(df["distance_to_core_min"], errors="coerce").astype("Int64")
+    df["superclass_explored_depth_max"] = pd.to_numeric(
+        df["superclass_explored_depth_max"], errors="coerce"
+    ).fillna(0).astype("Int64")
+    return df.sort_values(["is_core_class", "subclass_of_core_class", "class_id"], ascending=[False, False, True]).reset_index(drop=True)
 
 
 def _resolve_row_core_class_id(row: pd.Series, core_class_qids: set[str]) -> str:
@@ -777,10 +800,24 @@ def _remove_stale_core_instance_projections(paths, active_json_files: set[str]) 
         if json_path.name not in active_json_files and json_path.is_file():
             json_path.unlink()
 
+    # Remove deprecated duplicate top-level class JSON outputs
+    # (e.g. persons.json, episodes.json) in favor of instances_core_*.json.
+    for active_name in active_json_files:
+        if not active_name.startswith("instances_core_") or not active_name.endswith(".json"):
+            continue
+        class_filename = active_name[len("instances_core_") : -len(".json")]
+        legacy_core_json_path = paths.projections_dir / f"{class_filename}.json"
+        if legacy_core_json_path.is_file():
+            legacy_core_json_path.unlink()
+
 
 def _write_tabular_artifact(csv_path: Path, df: pd.DataFrame) -> None:
     _atomic_write_df(csv_path, df)
-    _atomic_write_parquet_df(csv_path.with_suffix(".parquet"), df)
+    parquet_path = csv_path.with_suffix(".parquet")
+    if parquet_sidecars_enabled():
+        _atomic_write_parquet_df(parquet_path, df)
+    else:
+        parquet_path.unlink(missing_ok=True)
 
 
 _WIKIDATA_ENTITY_KEY_ORDER = (
@@ -1272,12 +1309,39 @@ def _apply_core_output_boundary_filter(repo_root: Path, instances_df: pd.DataFra
 
 
 def _write_summary(paths, run_id: str, stage: str, stats: dict) -> None:
+    def _run_profile() -> str:
+        raw = str(os.getenv("WIKIDATA_RUN_PROFILE", "operational") or "operational").strip().lower()
+        allowed = {"operational", "smoke", "cache_only"}
+        return raw if raw in allowed else "operational"
+
+    def _allow_non_operational_overwrite() -> bool:
+        raw = str(os.getenv("WIKIDATA_ALLOW_NON_OPERATIONAL_SUMMARY_OVERWRITE", "0") or "0").strip().lower()
+        return raw in {"1", "true", "yes", "y", "on"}
+
+    run_profile = _run_profile()
+    write_primary_baseline = run_profile == "operational" or _allow_non_operational_overwrite()
     summary = {
         "run_id": run_id,
         "stage": stage,
+        "run_profile": run_profile,
+        "summary_primary_updated": bool(write_primary_baseline),
         **stats,
     }
-    _atomic_write_text(paths.summary_json, json.dumps(summary, ensure_ascii=False, indent=2))
+
+    summary_profiles_dir = paths.projections_dir / "summary_profiles" / run_profile
+    summary_profiles_dir.mkdir(parents=True, exist_ok=True)
+    ts_token = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    _atomic_write_text(
+        summary_profiles_dir / f"summary_{ts_token}.json",
+        json.dumps(summary, ensure_ascii=False, indent=2),
+    )
+    _atomic_write_text(
+        summary_profiles_dir / "summary_latest.json",
+        json.dumps(summary, ensure_ascii=False, indent=2),
+    )
+
+    if write_primary_baseline:
+        _atomic_write_text(paths.summary_json, json.dumps(summary, ensure_ascii=False, indent=2))
 
 
 def _subclass_inlinks_cache_key(qid: str, limit: int, offset: int) -> str:
@@ -1363,6 +1427,19 @@ def crawl_subclass_expansion(
     print("[materializer] Start subclass crawl", flush=True)
     print(f"[materializer]   core_classes={len(core_class_qids)} max_depth={max_depth} page_limit={page_limit}", flush=True)
 
+    notebook_logger = get_or_create_notebook_logger(Path(repo_root), NOTEBOOK_21_ID)
+    notebook_logger.append_event(
+        event_type="subclass_expansion_started",
+        phase="subclass_expansion_preflight",
+        message="subclass expansion preflight started",
+        extra={
+            "run_id": str(run_id),
+            "max_depth": int(max_depth),
+            "page_limit": int(page_limit),
+            "superclass_branch_discovery_max_depth": int(superclass_branch_discovery_max_depth),
+        },
+    )
+
     begin_request_context(
         budget_remaining=query_budget_remaining,
         query_delay_seconds=float(query_delay_seconds),
@@ -1387,8 +1464,10 @@ def crawl_subclass_expansion(
     superclass_branch_network_calls = 0
     superclass_branch_connected_active_classes = 0
     superclass_branch_nodes = 0
+    pruned_by_known_distance = 0
     stop_reason = "queue_exhausted"
     last_heartbeat_ts = perf_counter()
+    last_phase_progress_ts = perf_counter()
 
     current_core_index = 0
     current_core_qid = ""
@@ -1403,10 +1482,34 @@ def crawl_subclass_expansion(
     current_core_hydration_network_calls = 0
     current_core_hydrated_entities = 0
 
+    known_distance_to_core: dict[str, int] = {}
+    if paths.class_hierarchy_csv.exists() and paths.class_hierarchy_csv.stat().st_size > 0:
+        try:
+            known_distance_df = pd.read_csv(
+                paths.class_hierarchy_csv,
+                usecols=["class_id", "distance_to_core_min"],
+                dtype={"class_id": str},
+            )
+            for row in known_distance_df.to_dict(orient="records"):
+                qid = canonical_qid(str(row.get("class_id", "") or ""))
+                raw_distance = row.get("distance_to_core_min", pd.NA)
+                if not qid or pd.isna(raw_distance):
+                    continue
+                try:
+                    known_distance_to_core[qid] = int(raw_distance)
+                except Exception:
+                    continue
+        except Exception:
+            known_distance_to_core = {}
+
     def _emit_subclass_heartbeat(*, force: bool = False, reason: str = "progress") -> None:
         nonlocal last_heartbeat_ts, next_heartbeat_call
         now = perf_counter()
         network_calls_used = int(get_request_context_network_queries())
+        other_network_calls = max(
+            0,
+            network_calls_used - int(subclass_network_calls) - int(entity_hydration_network_calls) - int(superclass_branch_network_calls),
+        )
         by_calls = progress_every_calls > 0 and network_calls_used >= next_heartbeat_call
         by_time = progress_every_seconds > 0.0 and (now - last_heartbeat_ts) >= progress_every_seconds
         if not (force or by_calls or by_time):
@@ -1422,11 +1525,13 @@ def crawl_subclass_expansion(
                 f"node={current_node_qid or '-'} node_depth={current_depth}/{max_depth} "
                 f"discovering_depth={min(max_depth, current_depth + 1)} queue={current_queue_size} "
                 f"known_for_core={known_for_core} newly_found_for_core={newly_found_for_core} "
+                f"pruned_by_known_distance={int(pruned_by_known_distance)} "
                 f"pages_core(cache={current_core_cache_hit_pages},network={current_core_network_pages}) "
                 f"pages_total(cache={cache_hit_pages},network={network_pages}) "
                 f"hydrated_entities_core={current_core_hydrated_entities} hydrated_entities_total={hydrated_entity_qids} "
                 f"network_calls_core(subclass={current_core_subclass_network_calls},hydration={current_core_hydration_network_calls}) "
-                f"network_calls_total(subclass={subclass_network_calls},hydration={entity_hydration_network_calls},all={network_calls_used}/{budget_label})"
+                f"network_calls_total(subclass={subclass_network_calls},superclass_branch={superclass_branch_network_calls},"
+                f"hydration={entity_hydration_network_calls},other={other_network_calls},all={network_calls_used}/{budget_label})"
             ),
             flush=True,
         )
@@ -1435,6 +1540,26 @@ def crawl_subclass_expansion(
             while next_heartbeat_call > 0 and network_calls_used >= next_heartbeat_call:
                 next_heartbeat_call += progress_every_calls
         last_heartbeat_ts = now
+
+    def _emit_phase_progress(
+        *,
+        event_type: str,
+        message: str,
+        extra: dict | None = None,
+        force: bool = False,
+    ) -> None:
+        nonlocal last_phase_progress_ts
+        now = perf_counter()
+        if not force and (now - last_phase_progress_ts) < max(5.0, progress_every_seconds):
+            return
+        print(f"[subclass_expansion][phase] {message}", flush=True)
+        notebook_logger.append_event(
+            event_type=event_type,
+            phase="subclass_expansion_preflight",
+            message=message,
+            extra=extra or {},
+        )
+        last_phase_progress_ts = now
 
     try:
         for core_idx, core_qid in enumerate(core_class_qids, start=1):
@@ -1467,6 +1592,12 @@ def crawl_subclass_expansion(
                 current_node_qid = str(node_qid)
                 current_depth = int(depth)
                 current_queue_size = int(len(queue))
+                remaining_depth_budget = max(0, int(max_depth - depth))
+                known_distance = known_distance_to_core.get(str(node_qid))
+                if known_distance is not None and int(known_distance) > remaining_depth_budget:
+                    pruned_by_known_distance += 1
+                    _emit_subclass_heartbeat()
+                    continue
                 if depth >= max_depth:
                     _emit_subclass_heartbeat()
                     continue
@@ -1550,25 +1681,147 @@ def crawl_subclass_expansion(
             if stop_reason == "network_timeout":
                 break
 
-        # Pass 2: activate only life branches - classes with known instances (P31 objects)
-        # that are already known subclasses of core classes from pass 1.
-        core_subclass_qids = set(combined_paths.keys())
+        # Pass 2: load compact projections and intersect active instance classes
+        # with the discovered core-subclass set. This keeps the memory footprint
+        # bounded by the projection columns we actually need.
+        core_subclass_qids: set[str] = set()
+        classes_projection_path = paths.classes_csv
+        classes_projection_rows = 0
+        if classes_projection_path.exists() and classes_projection_path.stat().st_size > 0:
+            try:
+                classes_df = pd.read_csv(
+                    classes_projection_path,
+                    usecols=["id", "subclass_of_core_class"],
+                    dtype={"id": str},
+                    keep_default_na=False,
+                    na_filter=False,
+                )
+                classes_projection_rows = int(len(classes_df))
+                subclass_mask = classes_df["subclass_of_core_class"].astype(str).str.strip().str.lower().isin({"1", "true", "yes", "y"})
+                core_subclass_qids = {
+                    canonical_qid(str(qid))
+                    for qid in classes_df.loc[subclass_mask, "id"].astype(str).tolist()
+                    if canonical_qid(str(qid))
+                }
+            except Exception:
+                core_subclass_qids = set(combined_paths.keys())
+        if not core_subclass_qids:
+            core_subclass_qids = set(combined_paths.keys())
+
+        notebook_logger.append_event(
+            event_type="subclass_expansion_pass2_started",
+            phase="subclass_expansion_preflight",
+            message="pass 2 active-class scan started",
+            extra={
+                "core_subclass_count": int(len(core_subclass_qids)),
+                "core_classes_projection_rows": int(classes_projection_rows),
+                "core_classes_projection_path": str(classes_projection_path),
+            },
+        )
+        _emit_phase_progress(
+            event_type="subclass_expansion_pass2_progress",
+            message=(
+                "pass 2 class projection scan prepared "
+                f"core_subclass_count={int(len(core_subclass_qids))} classes_rows={int(classes_projection_rows)}"
+            ),
+            force=True,
+        )
+
         triple_active_classes: set[str] = set()
-        for triple in iter_unique_triples(repo_root):
-            predicate = canonical_pid(str(triple.get("predicate", "") or ""))
-            if predicate != "P31":
-                continue
-            object_qid = canonical_qid(str(triple.get("object", "") or ""))
-            if object_qid:
-                triple_active_classes.add(object_qid)
+        triples_projection_path = paths.triples_csv
+        triple_projection_rows = 0
+        if triples_projection_path.exists() and triples_projection_path.stat().st_size > 0:
+            try:
+                triples_df = pd.read_csv(
+                    triples_projection_path,
+                    usecols=["predicate", "object"],
+                    dtype={"predicate": str, "object": str},
+                    keep_default_na=False,
+                    na_filter=False,
+                )
+                triple_projection_rows = int(len(triples_df))
+                p31_mask = triples_df["predicate"].astype(str).map(canonical_pid) == "P31"
+                triple_active_classes = {
+                    canonical_qid(str(qid))
+                    for qid in triples_df.loc[p31_mask, "object"].astype(str).tolist()
+                    if canonical_qid(str(qid))
+                }
+            except Exception:
+                triple_active_classes = set()
+
+        if not triple_active_classes:
+            # Fallback: derive the set from the already-discovered active-class evidence
+            # that lives in the current pass. This should be rare and is only used when
+            # the projection files are unavailable or unreadable.
+            triple_active_classes = set()
+            fallback_triple_scan_count = 0
+            for triple in iter_unique_triples(repo_root):
+                fallback_triple_scan_count += 1
+                if should_terminate(_shutdown_path(Path(repo_root))):
+                    stop_reason = "user_interrupted"
+                    _emit_phase_progress(
+                        event_type="subclass_expansion_interrupted",
+                        message=(
+                            "pass 2 fallback triple scan interrupted "
+                            f"scanned_rows={int(fallback_triple_scan_count)}"
+                        ),
+                        extra={"fallback_triple_scan_count": int(fallback_triple_scan_count)},
+                        force=True,
+                    )
+                    break
+                predicate = canonical_pid(str(triple.get("predicate", "") or ""))
+                if predicate == "P31":
+                    object_qid = canonical_qid(str(triple.get("object", "") or ""))
+                    if object_qid:
+                        triple_active_classes.add(object_qid)
+                if fallback_triple_scan_count % 250000 == 0:
+                    _emit_phase_progress(
+                        event_type="subclass_expansion_pass2_progress",
+                        message=(
+                            "pass 2 fallback triple scan progress "
+                            f"scanned_rows={int(fallback_triple_scan_count)} active_classes={int(len(triple_active_classes))}"
+                        ),
+                    )
 
         active_classes_from_triples = int(len(triple_active_classes))
+        notebook_logger.append_event(
+            event_type="subclass_expansion_pass2_completed",
+            phase="subclass_expansion_preflight",
+            message="pass 2 active-class scan completed",
+            extra={
+                "triple_projection_rows": int(triple_projection_rows),
+                "active_classes_from_triples": int(active_classes_from_triples),
+                "core_subclass_count": int(len(core_subclass_qids)),
+            },
+        )
+        _emit_phase_progress(
+            event_type="subclass_expansion_pass2_progress",
+            message=(
+                "pass 2 active-class scan completed "
+                f"triple_rows={int(triple_projection_rows)} active_classes={int(active_classes_from_triples)}"
+            ),
+            force=True,
+        )
 
         # Optional reverse route: from active instance classes, climb upward via P279
         # for a small bounded depth so active classes can connect to core-subclass tree.
         superclass_branch_discovery_max_depth = max(0, int(superclass_branch_discovery_max_depth or 0))
         if superclass_branch_discovery_max_depth > 0 and triple_active_classes:
             parent_cache: dict[str, list[str]] = {}
+            branch_progress_last_emit = perf_counter()
+            branch_progress_every_seconds = 60.0
+            branch_nodes_processed = 0
+            active_classes_total = int(len(triple_active_classes))
+            active_classes_processed = 0
+
+            _emit_phase_progress(
+                event_type="subclass_expansion_pass2_branch_started",
+                message=(
+                    "pass 2 upward branch discovery started "
+                    f"active_classes={active_classes_total} depth={int(superclass_branch_discovery_max_depth)}"
+                ),
+                force=True,
+            )
 
             def _parents_via_cache_first(class_qid: str) -> list[str]:
                 nonlocal superclass_branch_network_calls
@@ -1603,6 +1856,20 @@ def crawl_subclass_expansion(
                 return deduped
 
             for active_class_qid in sorted(triple_active_classes):
+                active_classes_processed += 1
+                if should_terminate(_shutdown_path(Path(repo_root))):
+                    stop_reason = "user_interrupted"
+                    print("[subclass_expansion] pass2_branch interrupted; stopping upward branch discovery", flush=True)
+                    notebook_logger.append_event(
+                        event_type="subclass_expansion_interrupted",
+                        phase="subclass_expansion_preflight",
+                        message="pass 2 upward branch discovery interrupted",
+                        extra={
+                            "superclass_branch_nodes": int(superclass_branch_nodes),
+                            "superclass_branch_connected_active_classes": int(superclass_branch_connected_active_classes),
+                        },
+                    )
+                    break
                 if not active_class_qid or active_class_qid in core_subclass_qids:
                     continue
 
@@ -1612,7 +1879,24 @@ def crawl_subclass_expansion(
                 branch_nodes_local: set[str] = {active_class_qid}
 
                 while queue:
+                    if should_terminate(_shutdown_path(Path(repo_root))):
+                        stop_reason = "user_interrupted"
+                        queue.clear()
+                        break
                     node_qid, up_depth, up_path = queue.popleft()
+                    branch_nodes_processed += 1
+
+                    if branch_nodes_processed % 1000 == 0:
+                        _emit_phase_progress(
+                            event_type="subclass_expansion_pass2_branch_progress",
+                            message=(
+                                "pass 2 branch traversal progress "
+                                f"active_classes_processed={int(active_classes_processed)}/{int(active_classes_total)} "
+                                f"branch_nodes_processed={int(branch_nodes_processed)} "
+                                f"connected_active_classes={int(superclass_branch_connected_active_classes)}"
+                            ),
+                        )
+
                     if node_qid in core_subclass_qids:
                         for candidate in combined_paths.get(node_qid, []):
                             candidate_path = [canonical_qid(str(x or "")) for x in (candidate.get("path", []) or [])]
@@ -1620,15 +1904,15 @@ def crawl_subclass_expansion(
                             if not candidate_path:
                                 continue
                             combined_path = up_path + candidate_path[1:]
-                            for idx, branch_node in enumerate(up_path):
-                                derived_path = combined_path[idx:]
-                                combined_paths.setdefault(branch_node, []).append(
-                                    {
-                                        "core_class_id": str(candidate.get("core_class_id", "") or ""),
-                                        "depth": int(len(derived_path) - 1),
-                                        "path": derived_path,
-                                    }
-                                )
+                            # Keep branch memory bounded: only record resolution for
+                            # the originating active class, not every intermediate node.
+                            combined_paths.setdefault(active_class_qid, []).append(
+                                {
+                                    "core_class_id": str(candidate.get("core_class_id", "") or ""),
+                                    "depth": int(len(combined_path) - 1),
+                                    "path": combined_path,
+                                }
+                            )
                         connection_found = True
                         continue
 
@@ -1661,9 +1945,43 @@ def crawl_subclass_expansion(
 
                 # Heartbeat remains meaningful during long upward branch discovery runs.
                 _emit_subclass_heartbeat()
+                if (perf_counter() - branch_progress_last_emit) >= branch_progress_every_seconds:
+                    branch_network_calls = int(superclass_branch_network_calls)
+                    total_network_calls = int(get_request_context_network_queries())
+                    print(
+                        (
+                            f"[subclass_expansion] pass2_branch progress active_classes={len(triple_active_classes)} "
+                            f"connected={superclass_branch_connected_active_classes} branch_nodes={superclass_branch_nodes} "
+                            f"network_calls_branch={branch_network_calls} "
+                            f"network_calls_total={total_network_calls}/{budget_label}"
+                        ),
+                        flush=True,
+                    )
+                    notebook_logger.append_event(
+                        event_type="subclass_expansion_pass2_branch_progress",
+                        phase="subclass_expansion_preflight",
+                        message="pass 2 upward branch discovery progress",
+                        extra={
+                            "active_classes_from_triples": int(active_classes_from_triples),
+                            "connected_active_classes": int(superclass_branch_connected_active_classes),
+                            "branch_nodes": int(superclass_branch_nodes),
+                        },
+                    )
+                    branch_progress_last_emit = perf_counter()
 
-                if stop_reason in {"per_seed_budget_exhausted", "network_timeout"}:
+                if stop_reason in {"per_seed_budget_exhausted", "network_timeout", "user_interrupted"}:
                     break
+
+            _emit_phase_progress(
+                event_type="subclass_expansion_pass2_branch_completed",
+                message=(
+                    "pass 2 upward branch discovery completed "
+                    f"active_classes_processed={int(active_classes_processed)}/{int(active_classes_total)} "
+                    f"branch_nodes_processed={int(branch_nodes_processed)} "
+                    f"connected_active_classes={int(superclass_branch_connected_active_classes)}"
+                ),
+                force=True,
+            )
 
             # Re-evaluate core-subclass universe after branch discovery has potentially
             # created additional class-to-core candidate paths.
@@ -1675,6 +1993,21 @@ def crawl_subclass_expansion(
         inactive_core_subclass_count = max(0, int(len(core_subclass_qids) - active_core_subclass_count))
 
         for inactive_qid in inactive_core_subclass_qids:
+            if should_terminate(_shutdown_path(Path(repo_root))):
+                stop_reason = "user_interrupted"
+                _emit_phase_progress(
+                    event_type="subclass_expansion_interrupted",
+                    message=(
+                        "inactive subclass guard interrupted "
+                        f"processed={int(inactive_guarded_qids)}/{int(inactive_core_subclass_count)}"
+                    ),
+                    extra={
+                        "inactive_guarded_qids": int(inactive_guarded_qids),
+                        "inactive_core_subclass_count": int(inactive_core_subclass_count),
+                    },
+                    force=True,
+                )
+                break
             candidate_paths = combined_paths.get(inactive_qid, [])
             if candidate_paths:
                 best_path = sorted(
@@ -1699,6 +2032,14 @@ def crawl_subclass_expansion(
                 max_depth=int(max_depth),
             )
             inactive_guarded_qids += 1
+            if inactive_guarded_qids % 1000 == 0:
+                _emit_phase_progress(
+                    event_type="subclass_expansion_inactive_guard_progress",
+                    message=(
+                        "inactive subclass guard progress "
+                        f"processed={int(inactive_guarded_qids)}/{int(inactive_core_subclass_count)}"
+                    ),
+                )
 
         print(
             (
@@ -1707,6 +2048,15 @@ def crawl_subclass_expansion(
                 f"inactive_core_subclasses={inactive_core_subclass_count}"
             ),
             flush=True,
+        )
+        notebook_logger.append_event(
+            event_type="subclass_expansion_activation_started",
+            phase="subclass_expansion_preflight",
+            message="activation hydration started",
+            extra={
+                "active_core_subclasses": int(active_core_subclass_count),
+                "inactive_core_subclasses": int(inactive_core_subclass_count),
+            },
         )
 
         activation_batch_size = 100
@@ -1720,6 +2070,19 @@ def crawl_subclass_expansion(
                 flush=True,
             )
         for start in range(0, active_core_subclass_count, activation_batch_size):
+            if should_terminate(_shutdown_path(Path(repo_root))):
+                stop_reason = "user_interrupted"
+                print("[subclass_expansion] activation interrupted; stopping batch hydration", flush=True)
+                notebook_logger.append_event(
+                    event_type="subclass_expansion_interrupted",
+                    phase="subclass_expansion_preflight",
+                    message="activation hydration interrupted",
+                    extra={
+                        "activation_processed": int(activation_processed),
+                        "hydrated_entity_qids": int(hydrated_entity_qids),
+                    },
+                )
+                break
             if stop_reason in {"per_seed_budget_exhausted", "network_timeout"}:
                 break
             batch_qids = active_core_subclass_qids[start : start + activation_batch_size]
@@ -1772,12 +2135,39 @@ def crawl_subclass_expansion(
                     ),
                     flush=True,
                 )
+                notebook_logger.append_event(
+                    event_type="subclass_expansion_activation_progress",
+                    phase="subclass_expansion_preflight",
+                    message="activation hydration progress",
+                    extra={
+                        "activation_processed": int(activation_processed),
+                        "active_core_subclasses": int(active_core_subclass_count),
+                        "hydrated_entity_qids": int(hydrated_entity_qids),
+                        "network_calls_activation": int(entity_hydration_network_calls),
+                    },
+                )
     finally:
         _emit_subclass_heartbeat(force=True, reason=stop_reason)
         network_queries = int(end_request_context())
 
     rows: list[dict] = []
-    for class_id in sorted(combined_paths):
+    total_class_rows = int(len(combined_paths))
+    for row_index, class_id in enumerate(sorted(combined_paths), start=1):
+        if should_terminate(_shutdown_path(Path(repo_root))):
+            stop_reason = "user_interrupted"
+            _emit_phase_progress(
+                event_type="subclass_expansion_interrupted",
+                message=(
+                    "class resolution map assembly interrupted "
+                    f"processed={int(row_index - 1)}/{int(total_class_rows)}"
+                ),
+                extra={
+                    "rows_processed": int(row_index - 1),
+                    "rows_total": int(total_class_rows),
+                },
+                force=True,
+            )
+            break
         candidates = combined_paths[class_id]
         if not candidates:
             continue
@@ -1819,6 +2209,11 @@ def crawl_subclass_expansion(
                 "max_depth": int(max_depth),
             }
         )
+        if row_index % 1000 == 0:
+            _emit_phase_progress(
+                event_type="subclass_expansion_map_assembly_progress",
+                message=f"class resolution map assembly progress processed={int(row_index)}/{int(total_class_rows)}",
+            )
 
     class_resolution_map_df = pd.DataFrame(
         rows,
@@ -1851,6 +2246,7 @@ def crawl_subclass_expansion(
         "cache_hit_pages": int(cache_hit_pages),
         "network_pages": int(network_pages),
         "subclass_network_calls": int(subclass_network_calls),
+        "pruned_by_known_distance": int(pruned_by_known_distance),
         "superclass_branch_discovery_max_depth": int(superclass_branch_discovery_max_depth),
         "superclass_branch_network_calls": int(superclass_branch_network_calls),
         "superclass_branch_connected_active_classes": int(superclass_branch_connected_active_classes),
@@ -1895,9 +2291,6 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
     )
     print(f"[materializer] build instances done in {perf_counter() - t0:.2f}s", flush=True)
     t0 = perf_counter()
-    classes_df = _build_classes_df(repo_root, instances_df)
-    print(f"[materializer] build classes done in {perf_counter() - t0:.2f}s", flush=True)
-    t0 = perf_counter()
     properties_df = _build_properties_df(repo_root)
     print(f"[materializer] build properties done in {perf_counter() - t0:.2f}s", flush=True)
     t0 = perf_counter()
@@ -1929,10 +2322,6 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
     )
     print(f"[materializer] build class_resolution_map done in {perf_counter() - t0:.2f}s", flush=True)
     t0 = perf_counter()
-    query_inventory_df = materialize_query_inventory(repo_root)
-    print(f"[materializer] build query_inventory done in {perf_counter() - t0:.2f}s", flush=True)
-
-    t0 = perf_counter()
     active_alias_files: set[str] = set()
     for lang, alias_df in alias_dfs.items():
         suffix = language_projection_suffix(lang)
@@ -1944,10 +2333,15 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
     _write_tabular_artifact(paths.triples_csv, triples_df)
     _write_tabular_artifact(paths.class_hierarchy_csv, class_hierarchy_df)
     _write_tabular_artifact(paths.class_resolution_map_csv, class_resolution_map_df)
-    _write_tabular_artifact(paths.query_inventory_csv, query_inventory_df)
     _write_tabular_artifact(paths.instances_csv, instances_df)
-    _write_tabular_artifact(paths.classes_csv, classes_df)
     _write_tabular_artifact(paths.properties_csv, properties_df)
+    from .handlers.orchestrator import run_handlers
+
+    handler_summary = run_handlers(repo_root, materialization_mode="incremental")
+    if paths.query_inventory_csv.exists() and paths.query_inventory_csv.stat().st_size > 0:
+        query_inventory_rows = int(pd.read_csv(paths.query_inventory_csv).shape[0])
+    else:
+        query_inventory_rows = 0
     entity_lookup_rows = _write_entity_lookup_artifacts(
         repo_root,
         paths,
@@ -1972,10 +2366,10 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
     stats = {
         "seed_id": seed_id,
         "instances_rows": int(len(instances_df)),
-        "classes_rows": int(len(classes_df)),
+        "classes_rows": int(pd.read_csv(paths.classes_csv).shape[0]) if paths.classes_csv.exists() else 0,
         "properties_rows": int(len(properties_df)),
         "triples_rows": int(len(triples_df)),
-        "query_inventory_rows": int(len(query_inventory_df)),
+        "query_inventory_rows": int(query_inventory_rows),
         "entity_lookup_rows": int(entity_lookup_rows),
         "core_instance_projection_files": int(len(core_projection_counts)),
         "instances_leftovers_rows": int(core_projection_counts.get(paths.instances_leftovers_csv.name, 0)),
@@ -1987,6 +2381,7 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
         "class_resolution_conflict_rows": int(
             int(class_resolution_map_df["conflict_flag"].sum()) if not class_resolution_map_df.empty else 0
         ),
+        "handler_projection_summary_rows": int(len(handler_summary)),
     }
     _write_summary(paths, run_id, stage, stats)
     elapsed = perf_counter() - total_t0

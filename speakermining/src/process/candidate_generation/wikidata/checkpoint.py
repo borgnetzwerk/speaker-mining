@@ -10,6 +10,7 @@ import zipfile
 
 from .cache import _atomic_write_text
 from process.io_guardrails import safe_rmtree, safe_unlink
+from .common import parquet_sidecars_enabled
 from .schemas import STOP_REASONS, build_artifact_paths
 
 
@@ -65,9 +66,11 @@ def _runtime_state_files(repo_root: Path) -> list[Path]:
         paths.fallback_stage_ineligible_csv,
     ]
     runtime_files.extend(sorted(paths.projections_dir.glob("aliases_*.csv")))
+    runtime_files.extend(sorted(paths.projections_dir.glob("instances_core_*.csv")))
     runtime_files.extend(sorted(paths.projections_dir.glob("*.json")))
     runtime_files.extend(sorted(paths.entity_chunks_dir.glob("*.jsonl")))
-    runtime_files.extend(sorted(paths.projections_dir.glob("*.parquet")))
+    if parquet_sidecars_enabled():
+        runtime_files.extend(sorted(paths.projections_dir.glob("*.parquet")))
     deduped: list[Path] = []
     seen: set[Path] = set()
     for runtime_file in runtime_files:
@@ -227,13 +230,13 @@ def write_checkpoint_snapshot(repo_root: Path, checkpoint_path: Path) -> Path:
     event_store_paths = _event_store_paths(repo_root)
     from .event_writer import reset_event_store_cache
     from .node_store import flush_node_store
-    from .query_inventory import materialize_query_inventory
+    from .handlers.orchestrator import run_handlers
     from .triple_store import flush_triple_events
 
     reset_event_store_cache(repo_root)
     flush_node_store(repo_root)
     flush_triple_events(repo_root)
-    materialize_query_inventory(repo_root)
+    run_handlers(repo_root, materialization_mode="incremental")
     snapshot_dir = _snapshot_dir_for_checkpoint(repo_root, checkpoint_path)
     manifest_name = Path(checkpoint_path).name
     preserved_manifest_text: str | None = None

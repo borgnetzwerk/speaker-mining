@@ -1,4 +1,4 @@
-"""ClassesHandler: derives class projection from entity query_response events."""
+"""ClassesHandler: derives class projection from class-resolution events."""
 
 from __future__ import annotations
 
@@ -75,9 +75,18 @@ class ClassesHandler(EventHandler):
         self.handler_registry = handler_registry
         self._last_seq = 0
         self._entity_docs: dict[str, dict] = {}
+        self._rollups: dict[str, dict] = {}
 
     def name(self) -> str:
         return "ClassesHandler"
+
+    def requires_materialize_without_pending(self) -> bool:
+        """Keep classes projection in sync with node-store-derived lineage state.
+
+        `classes.csv` can change due to local node-store hydration even when no
+        new domain events are pending for this handler in the current run.
+        """
+        return True
 
     def last_processed_sequence(self) -> int:
         if self.handler_registry:
@@ -85,12 +94,36 @@ class ClassesHandler(EventHandler):
         return self._last_seq
 
     def bootstrap_from_projection(self, _output_path: Path) -> bool:
-        """Hydrate entity documents from node store for incremental replay.
+        """Hydrate rollups from the existing projection and refresh metadata from node store."""
+        output_path = Path(_output_path)
 
-        `classes.csv` does not include enough raw claim payload to reconstruct
-        `_entity_docs`. The node store is a better replay-safe source for this
-        handler's in-memory model.
-        """
+        hydrated_rollups: dict[str, dict] = {}
+        if output_path.exists() and output_path.stat().st_size > 0:
+            try:
+                df = pd.read_csv(output_path)
+            except Exception:
+                return False
+            if not df.empty:
+                df = df.fillna("")
+                for row in df.to_dict(orient="records"):
+                    class_id = canonical_qid(str(row.get("id", "") or ""))
+                    if not class_id:
+                        continue
+                    hydrated_rollups[class_id] = {
+                        "id": class_id,
+                        "label_en": str(row.get("label_en", "") or ""),
+                        "label_de": str(row.get("label_de", "") or ""),
+                        "description_en": str(row.get("description_en", "") or ""),
+                        "description_de": str(row.get("description_de", "") or ""),
+                        "alias_en": str(row.get("alias_en", "") or ""),
+                        "alias_de": str(row.get("alias_de", "") or ""),
+                        "path_to_core_class": str(row.get("path_to_core_class", "") or ""),
+                        "subclass_of_core_class": bool(row.get("subclass_of_core_class", False)),
+                        "discovered_count": int(row.get("discovered_count", 0) or 0),
+                        "expanded_count": int(row.get("expanded_count", 0) or 0),
+                        "class_filename": str(row.get("class_filename", "") or ""),
+                    }
+
         hydrated: dict[str, dict] = {}
         for item in iter_items(self.repo_root):
             qid = canonical_qid(str(item.get("id", "") or ""))
@@ -98,34 +131,105 @@ class ClassesHandler(EventHandler):
                 continue
             hydrated[qid] = item
         self._entity_docs = hydrated
-        return True
+        self._rollups = hydrated_rollups
+        return bool(hydrated_rollups)
+
+    def _row_for_class_id(self, class_id: str) -> dict:
+        class_id = canonical_qid(class_id)
+        if not class_id:
+            return {}
+
+        class_filename = _class_filename_lookup(self.repo_root)
+        row = self._rollups.get(class_id)
+        if row is None:
+            row = {
+                "id": class_id,
+                "label_en": "",
+                "label_de": "",
+                "description_en": "",
+                "description_de": "",
+                "alias_en": "",
+                "alias_de": "",
+                "path_to_core_class": "",
+                "subclass_of_core_class": False,
+                "discovered_count": 0,
+                "expanded_count": 0,
+                "class_filename": class_filename.get(class_id, ""),
+            }
+            self._rollups[class_id] = row
+        elif not row.get("class_filename"):
+            row["class_filename"] = class_filename.get(class_id, "")
+        return row
+
+    def _refresh_row_metadata(self, row: dict, class_id: str) -> None:
+        meta = self._entity_docs.get(class_id, {})
+        if not isinstance(meta, dict):
+            meta = {}
+        if not row.get("label_en"):
+            row["label_en"] = _pick_lang_text(meta.get("labels", {}), "en")
+        if not row.get("label_de"):
+            row["label_de"] = _pick_lang_text(meta.get("labels", {}), "de")
+        if not row.get("description_en"):
+            row["description_en"] = _pick_lang_text(meta.get("descriptions", {}), "en")
+        if not row.get("description_de"):
+            row["description_de"] = _pick_lang_text(meta.get("descriptions", {}), "de")
+        if not row.get("alias_en"):
+            row["alias_en"] = _alias_pipe(meta.get("aliases", {}), "en")
+        if not row.get("alias_de"):
+            row["alias_de"] = _alias_pipe(meta.get("aliases", {}), "de")
 
     def process_batch(self, events: list[dict]) -> None:
         for event in events:
-            if event.get("event_type") != "query_response":
-                continue
-            if get_query_event_field(event, "source_step", "") != "entity_fetch":
-                continue
-            if get_query_event_field(event, "status", "") != "success":
-                continue
-            payload = get_query_event_response_data(event)
-            if not isinstance(payload, dict):
-                continue
-            entities = payload.get("entities", {})
-            if not isinstance(entities, dict):
-                continue
-            for qid, doc in entities.items():
-                qid_norm = canonical_qid(qid)
-                if qid_norm and isinstance(doc, dict):
-                    self._entity_docs[qid_norm] = doc
             seq = event.get("sequence_num")
             if isinstance(seq, int):
                 self._last_seq = max(self._last_seq, seq)
+            if event.get("event_type") == "query_response":
+                if get_query_event_field(event, "source_step", "") != "entity_fetch":
+                    continue
+                if get_query_event_field(event, "status", "") != "success":
+                    continue
+                response_data = get_query_event_response_data(event)
+                if not isinstance(response_data, dict):
+                    continue
+                entities = response_data.get("entities", {})
+                if not isinstance(entities, dict):
+                    continue
+                for qid, doc in entities.items():
+                    qid_norm = canonical_qid(qid)
+                    if qid_norm and isinstance(doc, dict):
+                        self._entity_docs[qid_norm] = doc
+                continue
+            if event.get("event_type") != "class_membership_resolved":
+                continue
+
+            payload = event.get("payload", {}) if isinstance(event.get("payload"), dict) else {}
+            class_id = canonical_qid(str(payload.get("class_id", "") or ""))
+            if not class_id:
+                continue
+
+            row = self._row_for_class_id(class_id)
+            if not row:
+                continue
+
+            row["discovered_count"] = int(row.get("discovered_count", 0) or 0) + 1
+            if bool(payload.get("subclass_of_core_class", False)):
+                row["subclass_of_core_class"] = True
+            path = str(payload.get("path_to_core_class", "") or "")
+            if path and not row.get("path_to_core_class"):
+                row["path_to_core_class"] = path
+
+            if str(payload.get("is_class_node", "") or ""):
+                row["expanded_count"] = int(row.get("expanded_count", 0) or 0) + 1
 
     def materialize(self, output_path: Path) -> None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         class_filename = _class_filename_lookup(self.repo_root)
         core_qids = effective_core_class_qids(set(class_filename.keys()))
+        rollups: dict[str, dict] = {qid: dict(row) for qid, row in self._rollups.items()}
+
+        for qid, row in rollups.items():
+            row["class_filename"] = row.get("class_filename") or class_filename.get(qid, "")
+            self._refresh_row_metadata(row, qid)
 
         def _get_entity(qid: str) -> dict | None:
             qid_norm = canonical_qid(qid)
@@ -133,44 +237,31 @@ class ClassesHandler(EventHandler):
                 return None
             return self._entity_docs.get(qid_norm)
 
-        rollups: dict[str, dict] = {}
         for qid in sorted(self._entity_docs):
+            if qid in core_qids:
+                continue
             doc = self._entity_docs[qid]
             resolution = resolve_class_path(doc, core_qids, _get_entity)
-            class_id = str(resolution.get("class_id", "") or "")
+            class_id = canonical_qid(str(resolution.get("class_id", "") or ""))
             if not class_id:
                 continue
             row = rollups.get(class_id)
             if row is None:
-                meta = self._entity_docs.get(class_id, {})
-                row = {
-                    "id": class_id,
-                    "label_en": _pick_lang_text(meta.get("labels", {}), "en"),
-                    "label_de": _pick_lang_text(meta.get("labels", {}), "de"),
-                    "description_en": _pick_lang_text(meta.get("descriptions", {}), "en"),
-                    "description_de": _pick_lang_text(meta.get("descriptions", {}), "de"),
-                    "alias_en": _alias_pipe(meta.get("aliases", {}), "en"),
-                    "alias_de": _alias_pipe(meta.get("aliases", {}), "de"),
-                    "path_to_core_class": str(resolution.get("path_to_core_class", "") or ""),
-                    "subclass_of_core_class": bool(resolution.get("subclass_of_core_class", False)),
-                    "discovered_count": 0,
-                    "expanded_count": 0,
-                    "class_filename": class_filename.get(class_id, ""),
-                }
-                rollups[class_id] = row
-            row["discovered_count"] += 1
+                row = self._row_for_class_id(class_id)
+                row = rollups.setdefault(class_id, dict(row))
+            if not row.get("path_to_core_class"):
+                row["path_to_core_class"] = str(resolution.get("path_to_core_class", "") or "")
             if bool(resolution.get("subclass_of_core_class", False)):
                 row["subclass_of_core_class"] = True
-            path = str(resolution.get("path_to_core_class", "") or "")
-            if path and not row.get("path_to_core_class"):
-                row["path_to_core_class"] = path
+            if row.get("class_filename", "") == "":
+                row["class_filename"] = class_filename.get(class_id, "")
+            self._refresh_row_metadata(row, class_id)
 
         columns = [
             "id", "class_filename", "label_en", "label_de", "description_en", "description_de",
             "alias_en", "alias_de", "path_to_core_class", "subclass_of_core_class", "discovered_count", "expanded_count",
         ]
         
-        # Write classes.csv (all classes) via atomic write
         if not rollups:
             df = pd.DataFrame(columns=columns)
         else:
@@ -178,8 +269,7 @@ class ClassesHandler(EventHandler):
             df = pd.DataFrame(rows)[columns]
         
         _atomic_write_df(output_path, df)
-        
-        # Write core_classes.csv (filtered to only core QIDs) via atomic write
+
         if rollups:
             core_rows = [rollups[qid] for qid in sorted(rollups) if qid in core_qids]
         else:

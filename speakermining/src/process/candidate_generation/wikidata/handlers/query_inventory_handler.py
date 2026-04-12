@@ -102,17 +102,27 @@ class QueryInventoryHandler(EventHandler):
             query_hash = str(row.get("query_hash", "") or "").strip()
             if not query_hash:
                 continue
+            legacy_timestamp = str(row.get("timestamp_utc", "") or "")
+            first_seen = str(row.get("first_seen", "") or "") or legacy_timestamp
+            last_seen = str(row.get("last_seen", "") or "") or first_seen
+            raw_count = row.get("count", 0)
+            try:
+                count = int(raw_count or 0)
+            except Exception:
+                count = 0
+            if count <= 0:
+                count = 1 if first_seen else 0
             record = QueryRecord(
                 query_hash=query_hash,
                 endpoint=str(row.get("endpoint", "") or ""),
                 normalized_query=str(row.get("normalized_query", "") or ""),
                 status=str(row.get("status", "") or ""),
-                first_seen=str(row.get("first_seen", "") or ""),
+                first_seen=first_seen,
                 source_step="",
                 key="",
-                count=int(row.get("count", 0) or 0),
+                count=count,
             )
-            record.last_seen = str(row.get("last_seen", "") or "")
+            record.last_seen = last_seen
             hydrated[query_hash] = record
         self.queries = hydrated
         return True

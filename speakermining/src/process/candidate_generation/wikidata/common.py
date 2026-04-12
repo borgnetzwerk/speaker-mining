@@ -6,6 +6,7 @@ Provides functions to normalize text for matching and extract/validate Wikidata 
 """
 from __future__ import annotations
 
+import os
 import re
 from typing import Iterable
 
@@ -18,6 +19,17 @@ ENTITY_ROOT_QID = "Q35120"
 DEFAULT_WIKIDATA_FALLBACK_LANGUAGE = "mul"
 _DEFAULT_ACTIVE_WIKIDATA_LANGUAGES: tuple[str, ...] = ("de", "en")
 _ACTIVE_WIKIDATA_LANGUAGES: tuple[str, ...] = _DEFAULT_ACTIVE_WIKIDATA_LANGUAGES
+
+
+def parquet_sidecars_enabled() -> bool:
+    """Return whether tabular parquet sidecars should be written.
+
+    Environment toggle:
+    - `WIKIDATA_WRITE_PARQUET=0|false|no|off` disables parquet sidecars.
+    - Any other value (or unset) keeps sidecars enabled.
+    """
+    raw = str(os.getenv("WIKIDATA_WRITE_PARQUET", "1") or "1").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
 
 
 def _normalize_language_code(value: object) -> str:

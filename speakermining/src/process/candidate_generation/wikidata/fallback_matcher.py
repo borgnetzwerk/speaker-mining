@@ -536,12 +536,12 @@ def run_fallback_string_matching_stage(
     fallback_candidates = [dedup[key] for key in sorted(dedup)]
 
     paths = build_artifact_paths(Path(repo_root))
-    candidate_columns = ["mention_id", "mention_type", "mention_label", "candidate_id", "candidate_label", "source", "context"]
-    fallback_df = pd.DataFrame(fallback_candidates) if fallback_candidates else pd.DataFrame(columns=candidate_columns)
-    for col in candidate_columns:
-        if col not in fallback_df.columns:
-            fallback_df[col] = ""
-    _atomic_write_df(paths.fallback_stage_candidates_csv, fallback_df[candidate_columns])
+    # `fallback_stage_candidates.csv` is handler-owned and derived from
+    # candidate_matched events. Trigger incremental handler materialization here
+    # so fallback artifacts remain up to date without direct dual-writes.
+    from .handlers.orchestrator import run_handlers
+
+    run_handlers(repo_root, materialization_mode="incremental")
 
     eligible_df = pd.DataFrame({"candidate_id": sorted(eligible_for_expansion_qids)})
     ineligible_df = pd.DataFrame({"candidate_id": sorted(ineligible_qids)})

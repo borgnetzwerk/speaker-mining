@@ -7,20 +7,21 @@ from pathlib import Path
 import pandas as pd
 
 from process.candidate_generation.wikidata.handlers.classes_handler import ClassesHandler
+from process.candidate_generation.wikidata.node_store import upsert_discovered_item
 
 
-def _entity_event(seq: int, qid: str, entity_doc: dict, ts: str = "2026-04-02T10:00:00Z") -> dict:
+def _class_event(seq: int, class_id: str, path_to_core_class: str, subclass_of_core_class: bool, ts: str = "2026-04-02T10:00:00Z") -> dict:
     return {
         "sequence_num": seq,
-        "event_type": "query_response",
-        "source_step": "entity_fetch",
-        "status": "success",
-        "endpoint": "wikidata_api",
-        "normalized_query": f"entity:{qid}",
-        "query_hash": f"h-{seq}",
-        "key": qid,
+        "event_type": "class_membership_resolved",
         "timestamp_utc": ts,
-        "payload": {"entities": {qid: entity_doc}},
+        "payload": {
+            "entity_qid": class_id,
+            "class_id": class_id,
+            "path_to_core_class": path_to_core_class,
+            "subclass_of_core_class": subclass_of_core_class,
+            "is_class_node": False,
+        },
     }
 
 
@@ -55,11 +56,13 @@ def test_classes_handler_resolves_path_to_core(tmp_path: Path) -> None:
         "claims": {},
     }
 
+    upsert_discovered_item(tmp_path, "Q5", q5, "2026-04-02T10:00:00Z")
+    upsert_discovered_item(tmp_path, "Q215627", q215627, "2026-04-02T10:00:00Z")
+
     handler = ClassesHandler(tmp_path)
+    handler.bootstrap_from_projection(tmp_path / "classes.csv")
     handler.process_batch([
-        _entity_event(1, "Q200", q200),
-        _entity_event(2, "Q5", q5),
-        _entity_event(3, "Q215627", q215627),
+        _class_event(1, "Q5", "Q5|Q215627", True),
     ])
 
     out = tmp_path / "classes.csv"
@@ -69,6 +72,7 @@ def test_classes_handler_resolves_path_to_core(tmp_path: Path) -> None:
     row = df.loc[df["id"] == "Q5"].iloc[0]
     assert row["path_to_core_class"] == "Q5|Q215627"
     assert bool(row["subclass_of_core_class"]) is True
+    assert row["label_en"] == "human"
 
 
 def test_classes_handler_is_deterministic(tmp_path: Path) -> None:
@@ -84,15 +88,18 @@ def test_classes_handler_is_deterministic(tmp_path: Path) -> None:
     e = {
         "id": "Q100",
         "labels": {"en": {"value": "node"}},
-        "descriptions": {},
-        "aliases": {},
-        "claims": {"P31": [{"mainsnak": {"datavalue": {"value": {"entity-type": "item", "id": "Q5"}}}}]},
     }
     cls = {"id": "Q5", "labels": {}, "descriptions": {}, "aliases": {}, "claims": {}}
 
-    events = [_entity_event(2, "Q5", cls), _entity_event(1, "Q100", e)]
+    upsert_discovered_item(tmp_path, "Q5", cls, "2026-04-02T10:00:00Z")
+    upsert_discovered_item(tmp_path, "Q100", e, "2026-04-02T10:00:00Z")
+
+    events = [_class_event(2, "Q5", "Q5|Q215627", True), _class_event(1, "Q100", "Q5|Q215627", True)]
     handler1.process_batch(events)
     handler2.process_batch(events)
+
+    upsert_discovered_item(tmp_path, "Q5", cls, "2026-04-02T10:00:00Z")
+    upsert_discovered_item(tmp_path, "Q100", e, "2026-04-02T10:00:00Z")
 
     out1 = tmp_path / "classes1.csv"
     out2 = tmp_path / "classes2.csv"

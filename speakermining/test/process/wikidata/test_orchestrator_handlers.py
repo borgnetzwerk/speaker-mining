@@ -69,19 +69,6 @@ def _append_domain_events(store: EventStore, qid: str) -> None:
     )
     store.append_event(
         {
-            "event_type": "class_membership_resolved",
-            "timestamp_utc": "2026-04-08T10:00:03Z",
-            "payload": {
-                "entity_qid": qid,
-                "class_id": "Q5",
-                "path_to_core_class": "Q5|Q215627",
-                "subclass_of_core_class": True,
-                "is_class_node": False,
-            },
-        }
-    )
-    store.append_event(
-        {
             "event_type": "expansion_decision",
             "timestamp_utc": "2026-04-08T10:00:04Z",
             "payload": {
@@ -90,6 +77,22 @@ def _append_domain_events(store: EventStore, qid: str) -> None:
                 "decision": "queue_for_expansion",
                 "decision_reason": "eligible_neighbor",
                 "eligibility": {"p31_core_match": True},
+            },
+        }
+    )
+
+
+def _append_class_membership_event(store: EventStore, qid: str) -> None:
+    store.append_event(
+        {
+            "event_type": "class_membership_resolved",
+            "timestamp_utc": "2026-04-08T10:00:03Z",
+            "payload": {
+                "entity_qid": qid,
+                "class_id": "Q5",
+                "path_to_core_class": "Q5|Q215627",
+                "subclass_of_core_class": True,
+                "is_class_node": False,
             },
         }
     )
@@ -155,6 +158,7 @@ def test_orchestrator_runs_handlers_and_writes_outputs(tmp_path: Path) -> None:
         },
         "3",
     )
+    _append_class_membership_event(store, "Q5")
 
     summary = run_handlers(tmp_path)
     paths = build_artifact_paths(tmp_path)
@@ -173,6 +177,10 @@ def test_orchestrator_runs_handlers_and_writes_outputs(tmp_path: Path) -> None:
 
     instances_df = pd.read_csv(paths.instances_csv)
     assert "Q100" in set(instances_df["qid"])
+
+    classes_df = pd.read_csv(paths.classes_csv)
+    assert "Q5" in set(classes_df["id"])
+    assert bool(classes_df.loc[classes_df["id"] == "Q5", "subclass_of_core_class"].iloc[0]) is True
 
     triples_df = pd.read_csv(paths.triples_csv)
     triples = {(r.subject, r.predicate, r.object) for r in triples_df.itertuples(index=False)}
@@ -280,7 +288,9 @@ def test_orchestrator_projections_invariant_with_interleaved_domain_events(tmp_p
         )
 
     _append_domain_events(interleaved_store, "Q100")
+    _append_class_membership_event(baseline_store, "Q5")
 
+    _append_class_membership_event(interleaved_store, "Q5")
     run_handlers(baseline_root)
     run_handlers(interleaved_root)
 
@@ -343,6 +353,7 @@ def test_orchestrator_replay_after_domain_only_events_keeps_projections_stable(t
         "3",
     )
 
+    _append_class_membership_event(store, "Q5")
     run_handlers(tmp_path)
     paths = build_artifact_paths(tmp_path)
     before_instances = _normalized_records(paths.instances_csv)
