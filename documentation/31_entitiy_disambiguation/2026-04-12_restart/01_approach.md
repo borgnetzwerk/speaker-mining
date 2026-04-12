@@ -3,6 +3,9 @@
 ## Goal
 Create aligned core-class instance tables for Phase 31, prioritizing reliable person alignment through episode context.
 
+Canonical matching unit for person work:
+1. One person mention in one episode of one broadcasting program.
+
 The authoritative matching order from `00_immutable_input.md` is fixed:
 1. Broadcasting Program (already unified)
 2. Episode (main alignment target)
@@ -81,12 +84,18 @@ Build a per-class canonical schema and map source-specific columns/claims to it.
 3. Map source properties to canonical properties with traceability
 4. Persist mapping table for auditability and iterative improvement
 5. Add inferred canonical properties when a source omits critical context fields but the context is derivable from other source columns or joins.
+6. Represent source evidence in flattened, source-suffixed column families, not single scalar placeholder fields per source.
+7. Expand repeated source properties into deterministic wide-column families so one aligned row can hold all available evidence for that entity.
 
 Wikidata property IDs and labels are the primary alignment anchor where available.
 
 Missing-context policy:
 1. Blank fields in one source must not block alignment when equivalent context can be inferred from adjacent columns, publication joins, season/episode relations, or normalized title/program signals.
 2. Inferred values must be marked as inferred with source lineage in evidence fields.
+
+Evidence modeling policy:
+1. Source evidence must preserve multi-field context and repeated values within a single wide row, using deterministic column families for repeated properties.
+2. Human handoff must be able to inspect exact source fragments used for the decision via explicit flattened columns.
 
 ### 4. Layered alignment execution
 
@@ -103,12 +112,21 @@ Secondary strategy: name plus contextual/property similarity only when episode e
 #### Layer 4: Role and Organization
 Best-effort only. Use structured Wikidata claims and weak textual hints in source descriptions. Keep unresolved by default when evidence is insufficient.
 
+Layer interaction rule:
+1. Layer 4 may increase confidence when consistent with Layers 1-3 evidence.
+2. Layer 4 must not overwrite or contradict stronger Layer 1/2 constraints.
+
 ### 5. Confidence and unresolved policy
 1. Never force a match below threshold.
 2. Record match score and evidence fields.
 3. Keep unresolved entities in the aligned tables with explicit unresolved reason codes.
 4. Separate exact/high-confidence/weak-confidence tiers.
 5. Treat this as an automated handoff step; manual resolution happens after output delivery.
+
+Status vocabulary:
+1. `aligned`
+2. `unresolved`
+3. `conflict`
 
 ## Deliverables
 1. Aligned core-class tables in `data/31_entity_disambiguation/aligned/`
@@ -121,6 +139,11 @@ Best-effort only. Use structured Wikidata claims and weak textual hints in sourc
 	- Property/schema harmonization
 	- Layered alignment execution
 6. Handover notes in `documentation/00_actionably_handover/` when needed
+
+Handoff readiness rules:
+1. Aligned tables must have stable, deterministic column names and ordering across reruns with unchanged input.
+2. Deterministic method and reason fields must be human-readable for OpenRefine review.
+3. Output row ordering must be deterministic (chronological where applicable; stable tie-breakers for equal timestamps).
 
 ## Acceptance Criteria For Phase 1 Planning
 1. Approach reflects the immutable layered model exactly.
