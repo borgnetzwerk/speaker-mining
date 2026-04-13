@@ -118,7 +118,36 @@ def _merge_relation_context_catalog(
         "can_inherit",
     ]
 
+    import sys
     existing_by_key: dict[tuple[str, str, str], dict] = {}
+    # 1. Load the setup file as a read-only seed
+    setup_path = Path(paths.root).parent.parent / "data/00_setup/relevancy_relation_contexts.csv"
+    if setup_path.exists() and setup_path.stat().st_size > 0:
+        try:
+            setup_df = pd.read_csv(setup_path, dtype=str).fillna("")
+            for row in setup_df.to_dict(orient="records"):
+                key = _canonical_relation_context(
+                    str(row.get("subject_class_qid", "") or ""),
+                    str(row.get("property_qid", "") or ""),
+                    str(row.get("object_class_qid", "") or ""),
+                )
+                if not all(key):
+                    continue
+                incoming = {
+                    "subject_class_qid": key[0],
+                    "subject_class_label": str(row.get("subject_class_label", "") or ""),
+                    "property_qid": key[1],
+                    "property_label": str(row.get("property_label", "") or ""),
+                    "object_class_qid": key[2],
+                    "object_class_label": str(row.get("object_class_label", "") or ""),
+                    "decision_last_updated_at": str(row.get("decision_last_updated_at", "") or ""),
+                    "can_inherit": str(row.get("can_inherit", "") or ""),
+                }
+                existing_by_key[key] = incoming
+        except Exception as e:
+            print(f"[WARN] Could not read setup relevancy_relation_contexts.csv: {e}", file=sys.stderr)
+
+    # 2. Load the projection file as before
     existing_path = paths.relevancy_relation_contexts_csv
     if existing_path.exists() and existing_path.stat().st_size > 0:
         try:
@@ -143,14 +172,15 @@ def _merge_relation_context_catalog(
                 }
                 prior = existing_by_key.get(key)
                 if isinstance(prior, dict):
-                    prior_can = str(prior.get("can_inherit", "") or "").strip()
-                    incoming_can = str(incoming.get("can_inherit", "") or "").strip()
-                    if prior_can and not incoming_can:
-                        incoming["can_inherit"] = prior_can
-                        incoming["decision_last_updated_at"] = str(prior.get("decision_last_updated_at", "") or "")
+                    # If there is a conflict, print a warning and keep the setup value
+                    for col in ["can_inherit", "decision_last_updated_at"]:
+                        if str(prior.get(col, "")).strip() != str(incoming.get(col, "")).strip() and str(prior.get(col, "")).strip():
+                            print(f"[WARN] Conflict for {key}: setup {col}='{prior.get(col, '')}' overrides projection '{incoming.get(col, '')}'", file=sys.stderr)
+                    # Setup value always wins
+                    continue
                 existing_by_key[key] = incoming
         except Exception:
-            existing_by_key = {}
+            pass
 
     merged: dict[tuple[str, str, str], dict] = dict(existing_by_key)
 

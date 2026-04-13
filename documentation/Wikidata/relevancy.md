@@ -1,3 +1,20 @@
+## Setup Seeding and Manual Overrides
+
+To ensure stable, user-editable control over relation context approvals, the pipeline always imports a read-only seed file:
+
+- **Seed file:** `data/00_setup/relevancy_relation_contexts.csv`
+- **Projection file:** `data/20_candidate_generation/wikidata/projections/relevancy_relation_contexts.csv`
+
+**Rules:**
+
+- The setup file is treated as authoritative for any overlapping relation context (`subject_class_qid`, `property_qid`, `object_class_qid`).
+- The setup file is read-only: it is never written or modified by code. Users must update it manually.
+- When the projection is built or updated, all rows from the setup file are merged in. If a row exists in both, the setup file’s values (especially `can_inherit` and `decision_last_updated_at`) take precedence.
+- If a conflict is detected between the setup and projection files, a warning is printed to the notebook or log output. The setup file always wins.
+- To update the setup file, users must manually edit `data/00_setup/relevancy_relation_contexts.csv`.
+
+**Rationale:**
+This approach ensures that operator intent and manual approvals are always respected, while keeping the pipeline reproducible and append/merge-safe. It also aligns with repository coding principles: no writes outside the phase output directory, and all setup files are user-editable and version-controlled.
 # Wikidata Relevancy Detection And Propagation
 
 This document defines how core-class instances are classified as relevant or not relevant.

@@ -1,0 +1,202 @@
+subject_class_qid,subject_class_label,property_qid,property_label,object_class_qid,object_class_label,decision_last_updated_at,can_inherit
+Q11578774,broadcasting program,P138,named after,Q215627,person,,
+Q11578774,broadcasting program,P371,presenter,Q215627,person,2026-04-13T10:18:00Z,TRUE
+Q11578774,broadcasting program,P725,voice actor,Q215627,person,2026-04-13T10:18:00Z,TRUE
+Q11578774,broadcasting program,P162,producer,Q43229,organization,2026-04-13T10:18:00Z,TRUE
+Q11578774,broadcasting program,P17,country,Q43229,organization,,
+Q11578774,broadcasting program,P272,production company,Q43229,organization,2026-04-13T10:18:00Z,TRUE
+Q11578774,broadcasting program,P3301,broadcast by,Q43229,organization,2026-04-13T10:18:00Z,TRUE
+Q11578774,broadcasting program,P449,original broadcaster,Q43229,organization,2026-04-13T10:18:00Z,TRUE
+Q11578774,broadcasting program,P495,country of origin,Q43229,organization,,
+Q11578774,broadcasting program,P88,commissioned by,Q43229,organization,2026-04-13T10:18:00Z,TRUE
+Q11578774,broadcasting program,P179,part of the series,Q7725310,series of creative works,2026-04-13T10:18:00Z,TRUE
+Q1983062,episode,P155,follows,Q1983062,episode,2026-04-13T10:18:00Z,TRUE
+Q1983062,episode,P156,followed by,Q1983062,episode,2026-04-13T10:18:00Z,TRUE
+Q1983062,episode,P138,named after,Q215627,person,,
+Q1983062,episode,P371,presenter,Q215627,person,2026-04-13T10:18:00Z,TRUE
+Q1983062,episode,P5030,talk show guest,Q215627,person,2026-04-13T10:18:00Z,TRUE
+Q1983062,episode,P710,participant,Q215627,person,2026-04-13T10:18:00Z,TRUE
+Q1983062,episode,P921,main subject,Q215627,person,2026-04-13T10:18:00Z,TRUE
+Q1983062,episode,P921,main subject,Q26256810,topic,2026-04-13T10:18:00Z,TRUE
+Q1983062,episode,P1343,described by source,Q43229,organization,,
+Q1983062,episode,P138,named after,Q43229,organization,,
+Q1983062,episode,P272,production company,Q43229,organization,2026-04-13T10:18:00Z,TRUE
+Q1983062,episode,P291,place of publication,Q43229,organization,,
+Q1983062,episode,P364,original language of film or TV show,Q43229,organization,,
+Q1983062,episode,P371,presenter,Q43229,organization,2026-04-13T10:18:00Z,TRUE
+Q1983062,episode,P449,original broadcaster,Q43229,organization,2026-04-13T10:18:00Z,TRUE
+Q1983062,episode,P495,country of origin,Q43229,organization,,
+Q1983062,episode,P915,filming location,Q43229,organization,,
+Q1983062,episode,P921,main subject,Q43229,organization,2026-04-13T10:18:00Z,TRUE
+Q1983062,episode,P179,part of the series,Q7725310,series of creative works,2026-04-13T10:18:00Z,TRUE
+Q1983062,episode,P4908,season,Q7725310,series of creative works,2026-04-13T10:18:00Z,TRUE
+Q1983062,episode,P527,has part(s),Q7725310,series of creative works,2026-04-13T10:18:00Z,TRUE
+Q1983062,episode,P921,main subject,Q7725310,series of creative works,2026-04-13T10:18:00Z,TRUE
+Q215627,person,P1038,relative,Q215627,person,,
+Q215627,person,P108,employer,Q215627,person,2026-04-13T10:18:00Z,
+Q215627,person,P1365,replaces,Q215627,person,,
+Q215627,person,P184,doctoral advisor,Q215627,person,,
+Q215627,person,P185,doctoral student,Q215627,person,,
+Q215627,person,P22,father,Q215627,person,,
+Q215627,person,P26,spouse,Q215627,person,,
+Q215627,person,P40,child,Q215627,person,,
+Q215627,person,P451,unmarried partner,Q215627,person,,
+Q215627,person,P7604,supervised by,Q215627,person,,
+Q215627,person,P101,field of work,Q43229,organization,2026-04-13T10:18:00Z,
+Q215627,person,P102,member of political party,Q43229,organization,2026-04-13T10:18:00Z,
+Q215627,person,P1037,director / manager,Q43229,organization,2026-04-13T10:18:00Z,
+Q215627,person,P108,employer,Q43229,organization,2026-04-13T10:18:00Z,
+Q215627,person,P112,founder,Q43229,organization,2026-04-13T10:18:00Z,
+Q215627,person,P1343,described by source,Q43229,organization,,
+Q215627,person,P1344,participant in,Q43229,organization,2026-04-13T10:18:00Z,
+Q215627,person,P1416,affiliation,Q43229,organization,2026-04-13T10:18:00Z,
+Q215627,person,P1532,country for sport,Q43229,organization,,
+Q215627,person,P169,chief executive officer,Q43229,organization,2026-04-13T10:18:00Z,
+Q215627,person,P19,place of birth,Q43229,organization,,
+Q215627,person,P20,place of death,Q43229,organization,,
+Q215627,person,P27,country of citizenship,Q43229,organization,,
+Q215627,person,P35,head of state,Q43229,organization,,
+Q215627,person,P361,part of,Q43229,organization,,
+Q215627,person,P3975,general secretary,Q43229,organization,,
+Q215627,person,P463,member of,Q43229,organization,,
+Q215627,person,P488,chairperson,Q43229,organization,,
+Q215627,person,P527,has part(s),Q43229,organization,,
+Q215627,person,P551,residence,Q43229,organization,,
+Q215627,person,P6,head of government,Q43229,organization,,
+Q215627,person,P6872,has written for,Q43229,organization,,
+Q215627,person,P69,educated at,Q43229,organization,,
+Q215627,person,P937,work location,Q43229,organization,,
+Q215627,person,P101,field of work,Q7725310,series of creative works,2026-04-13T10:18:00Z,
+Q215627,person,P108,employer,Q7725310,series of creative works,2026-04-13T10:18:00Z,
+Q215627,person,P1343,described by source,Q7725310,series of creative works,,
+Q215627,person,P1344,participant in,Q7725310,series of creative works,2026-04-13T10:18:00Z,
+Q215627,person,P138,named after,Q7725310,series of creative works,,
+Q215627,person,P161,cast member,Q7725310,series of creative works,,
+Q215627,person,P162,producer,Q7725310,series of creative works,2026-04-13T10:18:00Z,
+Q215627,person,P166,award received,Q7725310,series of creative works,,
+Q215627,person,P180,depicts,Q7725310,series of creative works,,
+Q215627,person,P1889,different from,Q7725310,series of creative works,,
+Q215627,person,P301,category's main topic,Q7725310,series of creative works,,
+Q215627,person,P371,presenter,Q7725310,series of creative works,,
+Q215627,person,P3919,contributed to creative work,Q7725310,series of creative works,,
+Q215627,person,P485,archives at,Q7725310,series of creative works,,
+Q215627,person,P57,director,Q7725310,series of creative works,,
+Q215627,person,P5769,editor-in-chief,Q7725310,series of creative works,,
+Q215627,person,P800,notable work,Q7725310,series of creative works,,
+Q215627,person,P910,topic's main category,Q7725310,series of creative works,,
+Q43229,organization,P1037,director / manager,Q215627,person,,
+Q43229,organization,P112,founder,Q215627,person,,
+Q43229,organization,P169,chief executive officer,Q215627,person,,
+Q43229,organization,P35,head of state,Q215627,person,,
+Q43229,organization,P3975,general secretary,Q215627,person,,
+Q43229,organization,P488,chairperson,Q215627,person,,
+Q43229,organization,P527,has part(s),Q215627,person,,
+Q43229,organization,P6,head of government,Q215627,person,,
+Q43229,organization,P1001,applies to jurisdiction,Q43229,organization,,
+Q43229,organization,P112,founder,Q43229,organization,,
+Q43229,organization,P127,owned by,Q43229,organization,,
+Q43229,organization,P131,located in the administrative territorial entity,Q43229,organization,,
+Q43229,organization,P13574,‎most populous urban area,Q43229,organization,,
+Q43229,organization,P1365,replaces,Q43229,organization,,
+Q43229,organization,P1366,replaced by,Q43229,organization,,
+Q43229,organization,P137,operator,Q43229,organization,,
+Q43229,organization,P1376,capital of,Q43229,organization,,
+Q43229,organization,P1408,licensed to broadcast to,Q43229,organization,,
+Q43229,organization,P1416,affiliation,Q43229,organization,,
+Q43229,organization,P150,contains the administrative territorial entity,Q43229,organization,,
+Q43229,organization,P155,follows,Q43229,organization,,
+Q43229,organization,P156,followed by,Q43229,organization,,
+Q43229,organization,P159,headquarters location,Q43229,organization,,
+Q43229,organization,P17,country,Q43229,organization,,
+Q43229,organization,P1830,owner of,Q43229,organization,,
+Q43229,organization,P190,twinned administrative body,Q43229,organization,,
+Q43229,organization,P2541,operating area,Q43229,organization,,
+Q43229,organization,P264,record label,Q43229,organization,,
+Q43229,organization,P27,country of citizenship,Q43229,organization,,
+Q43229,organization,P276,location,Q43229,organization,,
+Q43229,organization,P291,place of publication,Q43229,organization,,
+Q43229,organization,P355,child organization or unit,Q43229,organization,,
+Q43229,organization,P36,capital,Q43229,organization,,
+Q43229,organization,P3842,located in the present-day administrative territorial entity,Q43229,organization,,
+Q43229,organization,P463,member of,Q43229,organization,,
+Q43229,organization,P47,shares border with,Q43229,organization,,
+Q43229,organization,P495,country of origin,Q43229,organization,,
+Q43229,organization,P5008,on focus list of Wikimedia project,Q43229,organization,,
+Q43229,organization,P530,diplomatic relation,Q43229,organization,,
+Q43229,organization,P61,discoverer or inventor,Q43229,organization,,
+Q43229,organization,P664,organizer,Q43229,organization,,
+Q43229,organization,P710,participant,Q43229,organization,,
+Q43229,organization,P740,location of formation,Q43229,organization,,
+Q43229,organization,P749,parent organization or unit,Q43229,organization,,
+Q43229,organization,P859,sponsor,Q43229,organization,,
+Q43229,organization,P127,owned by,Q7725310,series of creative works,,
+Q43229,organization,P131,located in the administrative territorial entity,Q7725310,series of creative works,,
+Q43229,organization,P137,operator,Q7725310,series of creative works,,
+Q43229,organization,P159,headquarters location,Q7725310,series of creative works,,
+Q43229,organization,P162,producer,Q7725310,series of creative works,,
+Q43229,organization,P17,country,Q7725310,series of creative works,,
+Q43229,organization,P180,depicts,Q7725310,series of creative works,,
+Q43229,organization,P1830,owner of,Q7725310,series of creative works,,
+Q43229,organization,P1889,different from,Q7725310,series of creative works,,
+Q43229,organization,P272,production company,Q7725310,series of creative works,,
+Q43229,organization,P301,category's main topic,Q7725310,series of creative works,,
+Q43229,organization,P3301,broadcast by,Q7725310,series of creative works,,
+Q43229,organization,P3931,copyright holder,Q7725310,series of creative works,,
+Q43229,organization,P449,original broadcaster,Q7725310,series of creative works,,
+Q43229,organization,P4647,location of first performance,Q7725310,series of creative works,,
+Q43229,organization,P485,archives at,Q7725310,series of creative works,,
+Q43229,organization,P495,country of origin,Q7725310,series of creative works,,
+Q43229,organization,P750,distributed by,Q7725310,series of creative works,,
+Q43229,organization,P840,narrative location,Q7725310,series of creative works,,
+Q43229,organization,P859,sponsor,Q7725310,series of creative works,,
+Q43229,organization,P88,commissioned by,Q7725310,series of creative works,,
+Q43229,organization,P910,topic's main category,Q7725310,series of creative works,,
+Q43229,organization,P915,filming location,Q7725310,series of creative works,,
+Q43229,organization,P921,main subject,Q7725310,series of creative works,,
+Q43229,organization,P971,category combines topics,Q7725310,series of creative works,,
+Q7725310,series of creative works,P179,part of the series,Q11578774,broadcasting program,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P527,has part(s),Q1983062,episode,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P138,named after,Q215627,person,,
+Q7725310,series of creative works,P161,cast member,Q215627,person,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P162,producer,Q215627,person,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P180,depicts,Q215627,person,,
+Q7725310,series of creative works,P301,category's main topic,Q215627,person,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P371,presenter,Q215627,person,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P57,director,Q215627,person,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P5769,editor-in-chief,Q215627,person,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P127,owned by,Q43229,organization,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P131,located in the administrative territorial entity,Q43229,organization,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P137,operator,Q43229,organization,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P159,headquarters location,Q43229,organization,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P162,producer,Q43229,organization,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P17,country,Q43229,organization,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P180,depicts,Q43229,organization,,
+Q7725310,series of creative works,P1889,different from,Q43229,organization,,
+Q7725310,series of creative works,P272,production company,Q43229,organization,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P301,category's main topic,Q43229,organization,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P3301,broadcast by,Q43229,organization,,
+Q7725310,series of creative works,P3931,copyright holder,Q43229,organization,,
+Q7725310,series of creative works,P449,original broadcaster,Q43229,organization,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P4647,location of first performance,Q43229,organization,,
+Q7725310,series of creative works,P495,country of origin,Q43229,organization,,
+Q7725310,series of creative works,P750,distributed by,Q43229,organization,,
+Q7725310,series of creative works,P840,narrative location,Q43229,organization,,
+Q7725310,series of creative works,P859,sponsor,Q43229,organization,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P88,commissioned by,Q43229,organization,,
+Q7725310,series of creative works,P915,filming location,Q43229,organization,,
+Q7725310,series of creative works,P921,main subject,Q43229,organization,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P971,category combines topics,Q43229,organization,,
+Q7725310,series of creative works,P1365,replaces,Q7725310,series of creative works,,
+Q7725310,series of creative works,P1366,replaced by,Q7725310,series of creative works,,
+Q7725310,series of creative works,P1478,has immediate cause,Q7725310,series of creative works,,
+Q7725310,series of creative works,P1536,immediate cause of,Q7725310,series of creative works,,
+Q7725310,series of creative works,P155,follows,Q7725310,series of creative works,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P156,followed by,Q7725310,series of creative works,TRUE,
+Q7725310,series of creative works,P166,award received,Q7725310,series of creative works,,
+Q7725310,series of creative works,P179,part of the series,Q7725310,series of creative works,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P1889,different from,Q7725310,series of creative works,,
+Q7725310,series of creative works,P361,part of,Q7725310,series of creative works,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P449,original broadcaster,Q7725310,series of creative works,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P527,has part(s),Q7725310,series of creative works,2026-04-13T10:29:20Z,TRUE
+Q7725310,series of creative works,P737,influenced by,Q7725310,series of creative works,,
+Q7725310,series of creative works,P750,distributed by,Q7725310,series of creative works,2026-04-13T10:29:20Z,TRUE
