@@ -177,7 +177,15 @@ def ensure_output_bootstrap(repo_root: Path) -> None:
             "wikidata_p921_qids",
             "wikidata_p527_qids",
             "wikidata_p361_qids",
+            "relevant",
+            "relevant_seed_source",
+            "relevance_first_assigned_at",
+            "relevance_last_updated_at",
+            "relevance_inherited_from_qid",
+            "relevance_inherited_via_property_qid",
+            "relevance_inherited_via_direction",
             "path_to_core_class",
+            "subclass_of_core_class",
             "discovered_at_utc",
             "expanded_at_utc",
         ],
@@ -203,6 +211,13 @@ def ensure_output_bootstrap(repo_root: Path) -> None:
             "wikidata_p921_qids",
             "wikidata_p527_qids",
             "wikidata_p361_qids",
+            "relevant",
+            "relevant_seed_source",
+            "relevance_first_assigned_at",
+            "relevance_last_updated_at",
+            "relevance_inherited_from_qid",
+            "relevance_inherited_via_property_qid",
+            "relevance_inherited_via_direction",
             "path_to_core_class",
             "subclass_of_core_class",
             "discovered_at_utc",
@@ -216,8 +231,11 @@ def ensure_output_bootstrap(repo_root: Path) -> None:
         if not class_filename:
             continue
         json_name = core_instances_json_filename(class_filename)
+        non_relevant_json_name = f"not_relevant_instance_core_{canonical_class_filename(class_filename)}.json"
         active_core_json_files.add(json_name)
+        active_core_json_files.add(non_relevant_json_name)
         _empty_json_object(paths.projections_dir / json_name)
+        _empty_json_object(paths.projections_dir / non_relevant_json_name)
     for legacy_core_csv_path in paths.projections_dir.glob("instances_core_*.csv"):
         if legacy_core_csv_path.is_file():
             legacy_core_csv_path.unlink()
@@ -265,6 +283,34 @@ def ensure_output_bootstrap(repo_root: Path) -> None:
     _empty_csv(paths.fallback_stage_candidates_csv, ["mention_id", "mention_type", "mention_label", "candidate_id", "candidate_label", "source", "context"])
     _empty_csv(paths.fallback_stage_eligible_for_expansion_csv, ["candidate_id"])
     _empty_csv(paths.fallback_stage_ineligible_csv, ["candidate_id"])
+    _empty_csv(
+        paths.relevancy_csv,
+        [
+            "qid",
+            "is_core_class_instance",
+            "relevant",
+            "relevant_seed_source",
+            "relevance_first_assigned_at",
+            "relevance_last_updated_at",
+            "relevance_inherited_from_qid",
+            "relevance_inherited_via_property_qid",
+            "relevance_inherited_via_direction",
+            "relevance_evidence_event_sequence",
+        ],
+    )
+    _empty_csv(
+        paths.relevancy_relation_contexts_csv,
+        [
+            "subject_class_qid",
+            "subject_class_label",
+            "property_qid",
+            "property_label",
+            "object_class_qid",
+            "object_class_label",
+            "decision_last_updated_at",
+            "can_inherit",
+        ],
+    )
 
     if not paths.summary_json.exists():
         _atomic_write_text(paths.summary_json, "{}")

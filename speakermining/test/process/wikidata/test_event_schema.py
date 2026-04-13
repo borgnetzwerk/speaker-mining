@@ -7,6 +7,7 @@ import pytest
 from process.candidate_generation.wikidata.event_log import (
     build_class_membership_resolved_event,
     build_eligibility_transition_event,
+    build_relevance_assigned_event,
     build_query_event,
     build_triple_discovered_event,
     compute_query_hash,
@@ -107,3 +108,23 @@ def test_build_eligibility_transition_event_schema() -> None:
     assert payload["previous_reason"] == "no_core_class_match"
     assert payload["current_reason"] == "direct_seed_link_and_core_match"
     assert payload["path_to_core_class"] == "Q5|Q215627"
+
+
+def test_build_relevance_assigned_event_schema() -> None:
+    event = build_relevance_assigned_event(
+        entity_qid="Q200",
+        relevant=True,
+        assignment_type="inherited",
+        relevance_inherited_from_qid="Q100",
+        relevance_inherited_via_property_qid="P179",
+        relevance_inherited_via_direction="outlink",
+        is_core_class_instance=True,
+    )
+    assert event["event_type"] == "relevance_assigned"
+    payload = event["payload"]
+    assert payload["entity_qid"] == "Q200"
+    assert payload["relevant"] is True
+    assert payload["assignment_type"] == "inherited"
+    assert payload["relevance_inherited_from_qid"] == "Q100"
+    assert payload["relevance_inherited_via_property_qid"] == "P179"
+    assert payload["relevance_inherited_via_direction"] == "outlink"

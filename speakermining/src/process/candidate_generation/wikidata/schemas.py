@@ -56,6 +56,8 @@ class ArtifactPaths:
     fallback_stage_candidates_csv: Path
     fallback_stage_eligible_for_expansion_csv: Path
     fallback_stage_ineligible_csv: Path
+    relevancy_csv: Path
+    relevancy_relation_contexts_csv: Path
 
     # Backward-compatible aliases for pre-rework callers/tests.
     @property
@@ -118,4 +120,6 @@ def build_artifact_paths(repo_root: Path) -> ArtifactPaths:
         fallback_stage_candidates_csv=projections_dir / "fallback_stage_candidates.csv",
         fallback_stage_eligible_for_expansion_csv=projections_dir / "fallback_stage_eligible_for_expansion.csv",
         fallback_stage_ineligible_csv=projections_dir / "fallback_stage_ineligible.csv",
+        relevancy_csv=projections_dir / "relevancy.csv",
+        relevancy_relation_contexts_csv=projections_dir / "relevancy_relation_contexts.csv",
     )

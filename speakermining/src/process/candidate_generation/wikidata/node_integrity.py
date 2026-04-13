@@ -129,6 +129,26 @@ def _claim_qids(entity_doc: dict, pid: str) -> set[str]:
     return out
 
 
+def _load_relevant_qids(repo_root: Path) -> set[str]:
+    paths = build_artifact_paths(Path(repo_root))
+    if not paths.relevancy_csv.exists() or paths.relevancy_csv.stat().st_size == 0:
+        return set()
+    out: set[str] = set()
+    try:
+        with paths.relevancy_csv.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                qid = canonical_qid(str(row.get("qid", "") or ""))
+                if not qid:
+                    continue
+                token = str(row.get("relevant", "") or "").strip().lower()
+                if token in {"1", "true", "yes", "y", "on"}:
+                    out.add(qid)
+    except Exception:
+        return set()
+    return out
+
+
 def _is_class_node(entity_doc: dict) -> bool:
     if bool(entity_doc.get("class_node_hint", False)):
         return True
@@ -399,6 +419,7 @@ def _eligibility_decision(
     repo_root: Path,
     class_resolution_cache: dict[str, bool],
     projected_class_resolution: dict[str, bool],
+    relevant_qids: set[str],
     recovered_lineage: RecoveredLineageEvidence | None,
     resolution_policy: str,
 ) -> dict:
@@ -417,6 +438,7 @@ def _eligibility_decision(
     eligible = is_expandable_target(
         qid,
         seed_qids=seed_qids,
+        relevant_qids=relevant_qids,
         seed_neighbor_degree=seed_neighbor_degree,
         direct_or_subclass_core_match=p31_core_match,
         is_class_node=is_class_node,
@@ -487,6 +509,8 @@ def run_node_integrity_pass(
         seed_qids,
         core_class_qids,
     )
+    relevant_qids = _load_relevant_qids(repo_root)
+    relevant_qids.update(resolved_seed_qids)
     known_qids = _known_qids(
         repo_root,
         resolved_seed_qids,
@@ -751,6 +775,7 @@ def run_node_integrity_pass(
             repo_root=repo_root,
             class_resolution_cache=pre_class_resolution_cache,
             projected_class_resolution=projected_class_resolution,
+            relevant_qids=relevant_qids,
             recovered_lineage=recovered_lineage,
             resolution_policy=resolution_policy,
         )
@@ -772,6 +797,7 @@ def run_node_integrity_pass(
             repo_root=repo_root,
             class_resolution_cache=class_resolution_cache,
             projected_class_resolution=projected_class_resolution,
+            relevant_qids=relevant_qids,
             recovered_lineage=recovered_lineage,
             resolution_policy=resolution_policy,
         )
@@ -796,6 +822,7 @@ def run_node_integrity_pass(
         if is_expandable_target(
             qid,
             seed_qids=resolved_seed_qids,
+            relevant_qids=relevant_qids,
             seed_neighbor_degree=seed_neighbor_degree_map.get(qid),
             direct_or_subclass_core_match=p31_core_match,
             is_class_node=_is_class_node(item),

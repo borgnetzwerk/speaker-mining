@@ -449,6 +449,43 @@ def upsert_expanded_item(repo_root: Path, qid: str, expanded_payload: dict, expa
     _mark_store_dirty(paths.entity_store_jsonl, _ENTITY_STORE_DIRTY)
 
 
+def mark_item_relevant(
+    repo_root: Path,
+    *,
+    qid: str,
+    relevant_seed_source: str = "",
+    relevance_first_assigned_at: str = "",
+    relevance_inherited_from_qid: str = "",
+    relevance_inherited_via_property_qid: str = "",
+    relevance_inherited_via_direction: str = "",
+) -> None:
+    """Persist monotonic relevance metadata for an entity in node store."""
+    paths = build_artifact_paths(Path(repo_root))
+    store = _cached_store(paths.entity_store_jsonl, "entities", _ENTITY_STORE_CACHE)
+    qid_norm = canonical_qid(qid)
+    if not qid_norm:
+        return
+
+    current = store["entities"].get(qid_norm, {})
+    if not isinstance(current, dict):
+        current = {"id": qid_norm}
+
+    if bool(current.get("relevant", False)):
+        return
+
+    current["id"] = qid_norm
+    current["relevant"] = True
+    current["relevant_seed_source"] = str(relevant_seed_source or "")
+    current["relevance_first_assigned_at"] = str(relevance_first_assigned_at or "")
+    current["relevance_last_updated_at"] = str(relevance_first_assigned_at or "")
+    current["relevance_inherited_from_qid"] = str(relevance_inherited_from_qid or "")
+    current["relevance_inherited_via_property_qid"] = str(relevance_inherited_via_property_qid or "")
+    current["relevance_inherited_via_direction"] = str(relevance_inherited_via_direction or "")
+
+    store["entities"][qid_norm] = current
+    _mark_store_dirty(paths.entity_store_jsonl, _ENTITY_STORE_DIRTY)
+
+
 def upsert_discovered_property(repo_root: Path, pid: str, property_doc: dict, discovered_at_utc: str) -> None:
     paths = build_artifact_paths(Path(repo_root))
     store = _cached_store(paths.property_store_jsonl, "properties", _PROPERTY_STORE_CACHE)

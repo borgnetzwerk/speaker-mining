@@ -276,6 +276,13 @@ def test_full_materialization_schema_headers_contract(tmp_path: Path) -> None:
                 "wikidata_p921_qids",
                 "wikidata_p527_qids",
                 "wikidata_p361_qids",
+                "relevant",
+                "relevant_seed_source",
+                "relevance_first_assigned_at",
+                "relevance_last_updated_at",
+                "relevance_inherited_from_qid",
+                "relevance_inherited_via_property_qid",
+                "relevance_inherited_via_direction",
                 "path_to_core_class",
                 "subclass_of_core_class",
                 "discovered_at_utc",
@@ -310,6 +317,34 @@ def test_full_materialization_schema_headers_contract(tmp_path: Path) -> None:
         ),
         "fallback_eligible": (paths.fallback_stage_eligible_for_expansion_csv, ["candidate_id"]),
         "fallback_ineligible": (paths.fallback_stage_ineligible_csv, ["candidate_id"]),
+        "relevancy": (
+            paths.relevancy_csv,
+            [
+                "qid",
+                "is_core_class_instance",
+                "relevant",
+                "relevant_seed_source",
+                "relevance_first_assigned_at",
+                "relevance_last_updated_at",
+                "relevance_inherited_from_qid",
+                "relevance_inherited_via_property_qid",
+                "relevance_inherited_via_direction",
+                "relevance_evidence_event_sequence",
+            ],
+        ),
+        "relevancy_relation_contexts": (
+            paths.relevancy_relation_contexts_csv,
+            [
+                "subject_class_qid",
+                "subject_class_label",
+                "property_qid",
+                "property_label",
+                "object_class_qid",
+                "object_class_label",
+                "decision_last_updated_at",
+                "can_inherit",
+            ],
+        ),
     }
 
     for _, (csv_path, columns) in expected_headers.items():

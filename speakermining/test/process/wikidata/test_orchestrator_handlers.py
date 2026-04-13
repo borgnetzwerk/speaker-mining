@@ -173,6 +173,7 @@ def test_orchestrator_runs_handlers_and_writes_outputs(tmp_path: Path) -> None:
     assert paths.triples_csv.exists()
     assert paths.query_inventory_csv.exists()
     assert paths.fallback_stage_candidates_csv.exists()
+    assert paths.relevancy_csv.exists()
     assert (paths.projections_dir / "backoff_pattern_windows.csv").exists()
 
     instances_df = pd.read_csv(paths.instances_csv)
@@ -215,6 +216,7 @@ def test_orchestrator_resume_is_idempotent(tmp_path: Path) -> None:
         "TripleHandler",
         "QueryInventoryHandler",
         "CandidatesHandler",
+        "RelevancyHandler",
         "BackoffLearningHandler",
     }
 

@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 from process.candidate_generation.wikidata.handlers.instances_handler import InstancesHandler
+from process.candidate_generation.wikidata.handlers.relevancy_handler import RelevancyHandler
 from process.candidate_generation.wikidata.handlers.classes_handler import ClassesHandler
 from process.candidate_generation.wikidata.handlers.query_inventory_handler import QueryInventoryHandler
 from process.candidate_generation.wikidata.handlers.triple_handler import TripleHandler
@@ -280,3 +281,46 @@ class TestHandlerAtomicWrites:
         
         # Assert final files exist
         assert output_csv.exists(), "instances.csv should exist"
+
+
+class TestRelevancyHandlerOutputContract:
+    """Verify RelevancyHandler outputs relevancy.csv with expected schema."""
+
+    def test_relevancy_handler_output_columns(self, tmp_path: Path) -> None:
+        handler = RelevancyHandler(tmp_path)
+
+        handler.process_batch(
+            [
+                {
+                    "event_type": "relevance_assigned",
+                    "sequence_num": 7,
+                    "timestamp_utc": "2026-04-13T10:00:00Z",
+                    "payload": {
+                        "entity_qid": "Q100",
+                        "relevant": True,
+                        "assignment_type": "seed",
+                        "relevant_seed_source": "listed_broadcasting_program",
+                        "is_core_class_instance": True,
+                    },
+                }
+            ]
+        )
+
+        output_csv = tmp_path / "relevancy.csv"
+        handler.materialize(output_csv)
+
+        assert output_csv.exists(), "relevancy.csv should be created"
+        df = pd.read_csv(output_csv)
+        expected_columns = [
+            "qid",
+            "is_core_class_instance",
+            "relevant",
+            "relevant_seed_source",
+            "relevance_first_assigned_at",
+            "relevance_last_updated_at",
+            "relevance_inherited_from_qid",
+            "relevance_inherited_via_property_qid",
+            "relevance_inherited_via_direction",
+            "relevance_evidence_event_sequence",
+        ]
+        assert list(df.columns) == expected_columns

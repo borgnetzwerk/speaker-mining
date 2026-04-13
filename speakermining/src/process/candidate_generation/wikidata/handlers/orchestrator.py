@@ -14,6 +14,7 @@ from process.candidate_generation.wikidata.handlers.backoff_learning_handler imp
 from process.candidate_generation.wikidata.handlers.candidates_handler import CandidatesHandler
 from process.candidate_generation.wikidata.handlers.classes_handler import ClassesHandler
 from process.candidate_generation.wikidata.handlers.instances_handler import InstancesHandler
+from process.candidate_generation.wikidata.handlers.relevancy_handler import RelevancyHandler
 from process.candidate_generation.wikidata.handlers.query_inventory_handler import QueryInventoryHandler
 from process.candidate_generation.wikidata.handlers.triple_handler import TripleHandler
 from process.candidate_generation.wikidata.schemas import build_artifact_paths
@@ -80,6 +81,7 @@ def run_handlers(
         TripleHandler(repo_root, handler_registry=registry),
         QueryInventoryHandler(repo_root, handler_registry=registry),
         CandidatesHandler(repo_root, handler_registry=registry),
+        RelevancyHandler(repo_root, handler_registry=registry),
         BackoffLearningHandler(repo_root, handler_registry=registry),
     ]
     managed_handler_names = {handler.name() for handler in handlers}
@@ -91,6 +93,7 @@ def run_handlers(
         "TripleHandler": paths.triples_csv,
         "QueryInventoryHandler": paths.query_inventory_csv,
         "CandidatesHandler": paths.fallback_stage_candidates_csv,
+        "RelevancyHandler": paths.relevancy_csv,
         "BackoffLearningHandler": paths.projections_dir / "backoff_pattern_windows.csv",
     }
 

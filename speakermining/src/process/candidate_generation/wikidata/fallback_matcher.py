@@ -67,6 +67,26 @@ def _scope_allows(mention_type: str, class_scope_hints: dict, candidate: dict) -
     return bool(expected & p31_values)
 
 
+def _load_relevant_qids(repo_root: Path) -> set[str]:
+    paths = build_artifact_paths(Path(repo_root))
+    if not paths.relevancy_csv.exists() or paths.relevancy_csv.stat().st_size == 0:
+        return set()
+    try:
+        frame = pd.read_csv(paths.relevancy_csv)
+    except Exception:
+        return set()
+    if frame.empty:
+        return set()
+    out: set[str] = set()
+    for row in frame.fillna("").to_dict(orient="records"):
+        qid = canonical_qid(str(row.get("qid", "") or ""))
+        if not qid:
+            continue
+        if str(row.get("relevant", "")).strip().lower() in {"1", "true", "yes", "y", "on"}:
+            out.add(qid)
+    return out
+
+
 def _claim_qids(entity_doc: dict, pid: str) -> set[str]:
     claims = entity_doc.get("claims", {}) if isinstance(entity_doc.get("claims"), dict) else {}
     out: set[str] = set()
@@ -147,6 +167,8 @@ def run_fallback_string_matching_stage(
     eligible_for_expansion_qids: set[str] = set()
     ineligible_qids: set[str] = set()
     seed_qids = {canonical_qid(qid) for qid in (seeds or set()) if canonical_qid(qid)}
+    relevant_qids = _load_relevant_qids(repo_root)
+    relevant_qids.update(seed_qids)
     effective_core_classes = effective_core_class_qids(core_class_qids)
     seed_neighbor_degree_map = seed_neighbor_degrees(repo_root, seed_qids, max_degree=2)
 
@@ -497,6 +519,7 @@ def run_fallback_string_matching_stage(
                 can_expand = is_expandable_target(
                     qid,
                     seed_qids=seed_qids,
+                    relevant_qids=relevant_qids,
                     seed_neighbor_degree=seed_neighbor_degree,
                     direct_or_subclass_core_match=direct_or_subclass_core_match,
                     is_class_node=bool(candidate.get("is_class_node", False)),

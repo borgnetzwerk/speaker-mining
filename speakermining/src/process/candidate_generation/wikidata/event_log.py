@@ -18,6 +18,7 @@ _EVENT_TYPES = {
     "triple_discovered",
     "class_membership_resolved",
     "eligibility_transition",
+    "relevance_assigned",
 }
 _ENDPOINTS = {"wikidata_api", "wikidata_sparql", "derived_local"}
 _STATUSES = {"success", "cache_hit", "http_error", "timeout", "fallback_cache", "not_found", "skipped"}
@@ -285,6 +286,43 @@ def build_eligibility_transition_event(
     }
 
 
+def build_relevance_assigned_event(
+    *,
+    entity_qid: str,
+    relevant: bool,
+    assignment_type: str,
+    relevant_seed_source: str = "",
+    relevance_first_assigned_at: str | None = None,
+    relevance_inherited_from_qid: str = "",
+    relevance_inherited_via_property_qid: str = "",
+    relevance_inherited_via_direction: str = "",
+    is_core_class_instance: bool = True,
+    payload: dict | None = None,
+    timestamp_utc: str | None = None,
+) -> dict:
+    """Build a relevance_assigned domain event.
+
+    Emitted when an entity gains relevance (monotonic false->true only).
+    """
+    return {
+        "event_version": "v3",
+        "event_type": "relevance_assigned",
+        "timestamp_utc": timestamp_utc or _iso_now(),
+        "payload": {
+            "entity_qid": str(entity_qid or ""),
+            "relevant": bool(relevant),
+            "assignment_type": str(assignment_type or ""),
+            "relevant_seed_source": str(relevant_seed_source or ""),
+            "relevance_first_assigned_at": str(relevance_first_assigned_at or timestamp_utc or _iso_now()),
+            "relevance_inherited_from_qid": str(relevance_inherited_from_qid or ""),
+            "relevance_inherited_via_property_qid": str(relevance_inherited_via_property_qid or ""),
+            "relevance_inherited_via_direction": str(relevance_inherited_via_direction or ""),
+            "is_core_class_instance": bool(is_core_class_instance),
+            **(payload if isinstance(payload, dict) else {}),
+        },
+    }
+
+
 def _query_payload(event: dict) -> dict:
     payload = event.get("payload", {}) if isinstance(event, dict) else {}
     return payload if isinstance(payload, dict) else {}
@@ -481,6 +519,37 @@ def write_candidate_matched_event(
             "context": str(context or ""),
         },
     }
+    store = get_event_store(Path(repo_root))
+    store.append_event(event)
+    return store.active_chunk_path
+
+
+def write_relevance_assigned_event(
+    repo_root: Path,
+    *,
+    entity_qid: str,
+    relevant: bool,
+    assignment_type: str,
+    relevant_seed_source: str = "",
+    relevance_first_assigned_at: str | None = None,
+    relevance_inherited_from_qid: str = "",
+    relevance_inherited_via_property_qid: str = "",
+    relevance_inherited_via_direction: str = "",
+    is_core_class_instance: bool = True,
+    payload: dict | None = None,
+) -> Path:
+    event = build_relevance_assigned_event(
+        entity_qid=entity_qid,
+        relevant=relevant,
+        assignment_type=assignment_type,
+        relevant_seed_source=relevant_seed_source,
+        relevance_first_assigned_at=relevance_first_assigned_at,
+        relevance_inherited_from_qid=relevance_inherited_from_qid,
+        relevance_inherited_via_property_qid=relevance_inherited_via_property_qid,
+        relevance_inherited_via_direction=relevance_inherited_via_direction,
+        is_core_class_instance=is_core_class_instance,
+        payload=payload,
+    )
     store = get_event_store(Path(repo_root))
     store.append_event(event)
     return store.active_chunk_path

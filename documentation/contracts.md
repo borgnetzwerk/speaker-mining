@@ -162,6 +162,9 @@ Projection artifacts (`projections/`):
 17. `instances_core_<core_filename>.json` (one file per configured core class; e.g. `instances_core_persons.json`)
 18. `summary.json`
 19. `summary_profiles/<run_profile>/summary_latest.json` (profile-isolated latest summary)
+20. `relevancy.csv`
+21. `relevancy_relation_contexts.csv`
+22. `not_relevant_instance_core_<core_filename>.json` (one file per configured core class)
 
 Legacy note:
 
@@ -185,7 +188,7 @@ Summary profile isolation note:
 
 1. `classes.csv`: `id`, `class_filename`, `label_en`, `label_de`, `description_en`, `description_de`, `alias_en`, `alias_de`, `path_to_core_class`, `subclass_of_core_class`, `discovered_count`, `expanded_count`
 2. `core_classes.csv`: same columns as `classes.csv`
-3. `instances.csv`: `id`, `class_id`, `class_filename`, `label_de`, `label_en`, `description_de`, `description_en`, `alias_de`, `alias_en`, `wikidata_claim_properties`, `wikidata_claim_property_count`, `wikidata_claim_statement_count`, `wikidata_property_counts_json`, `wikidata_p31_qids`, `wikidata_p279_qids`, `wikidata_p179_qids`, `wikidata_p106_qids`, `wikidata_p39_qids`, `wikidata_p921_qids`, `wikidata_p527_qids`, `wikidata_p361_qids`, `path_to_core_class`, `subclass_of_core_class`, `discovered_at_utc`, `expanded_at_utc`
+3. `instances.csv`: `id`, `class_id`, `class_filename`, `label_de`, `label_en`, `description_de`, `description_en`, `alias_de`, `alias_en`, `wikidata_claim_properties`, `wikidata_claim_property_count`, `wikidata_claim_statement_count`, `wikidata_property_counts_json`, `wikidata_p31_qids`, `wikidata_p279_qids`, `wikidata_p179_qids`, `wikidata_p106_qids`, `wikidata_p39_qids`, `wikidata_p921_qids`, `wikidata_p527_qids`, `wikidata_p361_qids`, `relevant`, `relevant_seed_source`, `relevance_first_assigned_at`, `relevance_last_updated_at`, `relevance_inherited_from_qid`, `relevance_inherited_via_property_qid`, `relevance_inherited_via_direction`, `path_to_core_class`, `subclass_of_core_class`, `discovered_at_utc`, `expanded_at_utc`
 	- Parquet sidecar: `instances.parquet`
 4. `entities.json`: object keyed by QID with full entity payloads
 5. `properties.csv`: `id`, `label_de`, `label_en`, `description_de`, `description_en`, `alias_de`, `alias_en`
@@ -205,18 +208,22 @@ Summary profile isolation note:
 14. `graph_stage_unresolved_targets.csv`: `mention_id`, `mention_type`, `mention_label`, `context`
 15. `instances_leftovers.csv`: same columns as `instances.csv`; contains non-class rows with no resolved core-class mapping
 	- Parquet sidecar: `instances_leftovers.parquet`
+16. `relevancy.csv`: `qid`, `is_core_class_instance`, `relevant`, `relevant_seed_source`, `relevance_first_assigned_at`, `relevance_last_updated_at`, `relevance_inherited_from_qid`, `relevance_inherited_via_property_qid`, `relevance_inherited_via_direction`, `relevance_evidence_event_sequence`
+17. `relevancy_relation_contexts.csv`: `subject_class_qid`, `subject_class_label`, `property_qid`, `property_label`, `object_class_qid`, `object_class_label`, `decision_last_updated_at`, `can_inherit`
 
 Projection ownership note:
 
 1. `query_inventory.csv` is handler-owned and materialized by `QueryInventoryHandler`.
 2. `fallback_stage_candidates.csv` is handler-owned and materialized from `candidate_matched` events.
-3. Runtime/materializer code must not dual-write projections that have a handler owner.
+3. `relevancy.csv` is handler-owned and materialized from `relevance_assigned` events.
+4. Runtime/materializer code must not dual-write projections that have a handler owner.
 
 Per-core handoff note:
 
 1. `instances_core_<core_filename>.json` is the handoff for future phases. It is a QID-keyed object whose values are the full entity payloads we have for that core class.
 2. `instances_core_<core_filename>.csv` and `instances_core_<core_filename>.parquet` are deprecated legacy artifacts and must not be produced by Phase 20 materialization.
-3. Duplicate top-level class JSON outputs (for example `persons.json`, `episodes.json`, `organizations.json`, `series.json`, `topics.json`, `broadcasting_programs.json`) are deprecated and must not be produced by Phase 20 materialization.
+3. `not_relevant_instance_core_<core_filename>.json` contains core-class instances that are not relevant and therefore excluded from `instances_core_<core_filename>.json`.
+4. Duplicate top-level class JSON outputs (for example `persons.json`, `episodes.json`, `organizations.json`, `series.json`, `topics.json`, `broadcasting_programs.json`) are deprecated and must not be produced by Phase 20 materialization.
 
 Lazy sidecar note:
 

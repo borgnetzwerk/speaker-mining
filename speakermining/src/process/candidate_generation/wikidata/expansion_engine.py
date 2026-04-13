@@ -209,6 +209,7 @@ def is_expandable_target(
     candidate_qid: str,
     *,
     seed_qids: set[str],
+    relevant_qids: set[str],
     seed_neighbor_degree: int | None,
     direct_or_subclass_core_match: bool,
     is_class_node: bool,
@@ -216,6 +217,8 @@ def is_expandable_target(
     qid = canonical_qid(candidate_qid)
     if not qid or is_class_node:
         return False
+    if qid in relevant_qids:
+        return True
     if qid in seed_qids:
         return True
     if not direct_or_subclass_core_match:
@@ -223,6 +226,28 @@ def is_expandable_target(
     if seed_neighbor_degree is None:
         return False
     return int(seed_neighbor_degree) in {1, 2}
+
+
+def _load_relevant_qids_from_projection(repo_root: Path) -> set[str]:
+    paths = build_artifact_paths(Path(repo_root))
+    if not paths.relevancy_csv.exists() or paths.relevancy_csv.stat().st_size == 0:
+        return set()
+    try:
+        frame = pd.read_csv(paths.relevancy_csv)
+    except Exception:
+        return set()
+    if frame.empty:
+        return set()
+
+    out: set[str] = set()
+    for row in frame.to_dict(orient="records"):
+        qid = canonical_qid(str(row.get("qid", "") or ""))
+        if not qid:
+            continue
+        token = str(row.get("relevant", "") or "").strip().lower()
+        if token in {"1", "true", "yes", "y", "on"}:
+            out.add(qid)
+    return out
 
 
 def _entity_subclass_core_match(
@@ -532,6 +557,8 @@ def run_seed_expansion(
     expanded_qids: set[str] = set()
     direct_link_to_seed: set[str] = set()
     seed_neighbor_degree_by_qid: dict[str, int] = {seed_qid: 0}
+    relevant_qids = _load_relevant_qids_from_projection(repo_root)
+    relevant_qids.update(seed_qids)
     neighbor_prefetch_batches_attempted = 0
     neighbor_prefetch_batches_succeeded = 0
     neighbor_prefetch_candidates_total = 0
@@ -785,6 +812,7 @@ def run_seed_expansion(
                     can_expand = is_expandable_target(
                         candidate_qid,
                         seed_qids=seed_qids,
+                        relevant_qids=relevant_qids,
                         seed_neighbor_degree=candidate_seed_neighbor_degree,
                         direct_or_subclass_core_match=direct_or_subclass_core_match,
                         is_class_node=_entity_is_class_node(candidate_doc),

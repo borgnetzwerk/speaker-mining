@@ -240,7 +240,7 @@ def test_full_handler_pipeline_on_sample_data(tmp_path: Path) -> None:
     
     # All handlers should have processed at least one event
     for handler_name in ["InstancesHandler", "ClassesHandler", "TripleHandler", 
-                          "QueryInventoryHandler", "CandidatesHandler", "BackoffLearningHandler"]:
+                          "QueryInventoryHandler", "CandidatesHandler", "RelevancyHandler", "BackoffLearningHandler"]:
         assert handler_name in registry_df["handler_name"].values, \
             f"Handler {handler_name} not in registry"
         last_seq = registry_df[registry_df["handler_name"] == handler_name]["last_processed_sequence"].values[0]

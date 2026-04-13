@@ -60,6 +60,7 @@ from .schemas import build_artifact_paths
 from .schemas import core_instances_json_filename
 from .triple_store import flush_triple_events, iter_unique_triples
 from .graceful_shutdown import should_terminate
+from .relevancy import bootstrap_relevancy_events
 
 
 @dataclass(frozen=True)
@@ -98,6 +99,7 @@ _PARITY_CSV_ARTIFACTS = (
     "fallback_stage_candidates_csv",
     "fallback_stage_eligible_for_expansion_csv",
     "fallback_stage_ineligible_csv",
+    "relevancy_csv",
 )
 
 
@@ -421,6 +423,13 @@ def _build_instances_df(
             "subclass_of_core_class": bool(resolution.get("subclass_of_core_class", False)),
             "discovered_at_utc": item.get("discovered_at_utc", ""),
             "expanded_at_utc": item.get("expanded_at_utc") or "",
+            "relevant": bool(item.get("relevant", False)),
+            "relevant_seed_source": str(item.get("relevant_seed_source", "") or ""),
+            "relevance_first_assigned_at": str(item.get("relevance_first_assigned_at", "") or ""),
+            "relevance_last_updated_at": str(item.get("relevance_last_updated_at", "") or ""),
+            "relevance_inherited_from_qid": str(item.get("relevance_inherited_from_qid", "") or ""),
+            "relevance_inherited_via_property_qid": str(item.get("relevance_inherited_via_property_qid", "") or ""),
+            "relevance_inherited_via_direction": str(item.get("relevance_inherited_via_direction", "") or ""),
             **_claim_property_profile(claims),
         }
         for lang in languages:
@@ -445,6 +454,13 @@ def _build_instances_df(
         "wikidata_p921_qids",
         "wikidata_p527_qids",
         "wikidata_p361_qids",
+        "relevant",
+        "relevant_seed_source",
+        "relevance_first_assigned_at",
+        "relevance_last_updated_at",
+        "relevance_inherited_from_qid",
+        "relevance_inherited_via_property_qid",
+        "relevance_inherited_via_direction",
         "path_to_core_class", "subclass_of_core_class", "discovered_at_utc", "expanded_at_utc",
     ]
     if not rows:
@@ -797,6 +813,10 @@ def _remove_stale_core_instance_projections(paths, active_json_files: set[str]) 
         legacy_parquet_path.unlink(missing_ok=True)
 
     for json_path in paths.projections_dir.glob("instances_core_*.json"):
+        if json_path.name not in active_json_files and json_path.is_file():
+            json_path.unlink()
+
+    for json_path in paths.projections_dir.glob("not_relevant_instance_core_*.json"):
         if json_path.name not in active_json_files and json_path.is_file():
             json_path.unlink()
 
@@ -1229,13 +1249,29 @@ def _write_core_instance_projections(
                 exclude_map.setdefault(obj, set()).add(subject)
 
     active_json_files: set[str] = set()
+    relevant_qids: set[str] = set()
+    if paths.relevancy_csv.exists() and paths.relevancy_csv.stat().st_size > 0:
+        try:
+            relevancy_df = pd.read_csv(paths.relevancy_csv)
+            if not relevancy_df.empty:
+                relevant_qids = {
+                    canonical_qid(str(row.get("qid", "") or ""))
+                    for row in relevancy_df.to_dict(orient="records")
+                    if canonical_qid(str(row.get("qid", "") or ""))
+                    and str(row.get("relevant", "")).strip().lower() in {"1", "true", "yes", "y", "on"}
+                }
+        except Exception:
+            relevant_qids = set()
+
     for row in core_rows:
         class_filename = str(row.get("filename", "") or "")
         core_qid = canonical_qid(str(row.get("wikidata_id", "") or ""))
         if not class_filename or not core_qid:
             continue
         json_path = paths.projections_dir / core_instances_json_filename(class_filename)
+        not_relevant_json_path = paths.projections_dir / f"not_relevant_instance_core_{class_filename}.json"
         active_json_files.add(json_path.name)
+        active_json_files.add(not_relevant_json_path.name)
         include_class_ids = include_map.get(core_qid, set())
         exclude_class_ids = exclude_map.get(core_qid, set())
 
@@ -1247,13 +1283,23 @@ def _write_core_instance_projections(
         if "resolved_core_class_id" in core_projection_df.columns:
             core_projection_df = core_projection_df.drop(columns=["resolved_core_class_id"])
         core_projection_df = core_projection_df.sort_values("id").reset_index(drop=True)
+        relevant_projection_df = core_projection_df[core_projection_df["id"].isin(relevant_qids)].copy()
+        not_relevant_projection_df = core_projection_df[~core_projection_df["id"].isin(relevant_qids)].copy()
+
         core_json_payload = {
             qid: entity_by_qid[qid]
-            for qid in core_projection_df["id"].tolist()
+            for qid in relevant_projection_df["id"].tolist()
+            if qid in entity_by_qid
+        }
+        not_relevant_json_payload = {
+            qid: entity_by_qid[qid]
+            for qid in not_relevant_projection_df["id"].tolist()
             if qid in entity_by_qid
         }
         _write_json_object_artifact(json_path, core_json_payload)
-        projection_row_counts[json_path.name] = int(len(core_projection_df))
+        _write_json_object_artifact(not_relevant_json_path, not_relevant_json_payload)
+        projection_row_counts[json_path.name] = int(len(relevant_projection_df))
+        projection_row_counts[not_relevant_json_path.name] = int(len(not_relevant_projection_df))
 
     leftovers_df = non_class_instances_df[non_class_instances_df["resolved_core_class_id"] == ""].copy()
     if "resolved_core_class_id" in leftovers_df.columns:
@@ -1276,7 +1322,24 @@ def _apply_core_output_boundary_filter(repo_root: Path, instances_df: pd.DataFra
         for seed in seeds
         if canonical_qid(str(seed.get("wikidata_id", "") or ""))
     }
+    paths = build_artifact_paths(Path(repo_root))
+    relevant_qids: set[str] = set()
+    if paths.relevancy_csv.exists() and paths.relevancy_csv.stat().st_size > 0:
+        try:
+            relevant_df = pd.read_csv(paths.relevancy_csv)
+            if not relevant_df.empty:
+                relevant_qids = {
+                    canonical_qid(str(row.get("qid", "") or ""))
+                    for row in relevant_df.to_dict(orient="records")
+                    if canonical_qid(str(row.get("qid", "") or ""))
+                    and str(row.get("relevant", "")).strip().lower() in {"1", "true", "yes", "y", "on"}
+                }
+        except Exception:
+            relevant_qids = set()
+
     if not seed_qids:
+        if relevant_qids:
+            return instances_df[instances_df["id"].isin(relevant_qids)].sort_values("id").reset_index(drop=True)
         return instances_df
 
     adjacency: dict[str, set[str]] = {}
@@ -1300,7 +1363,7 @@ def _apply_core_output_boundary_filter(repo_root: Path, instances_df: pd.DataFra
         second_hop.update(adjacency.get(hop_qid, set()))
 
     # Include seeds for stable downstream behavior while enforcing the two-hop contract.
-    allowed = seed_qids | first_hop | second_hop
+    allowed = seed_qids | first_hop | second_hop | relevant_qids
     if not allowed:
         return instances_df
 
@@ -2335,6 +2398,21 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
     _write_tabular_artifact(paths.class_resolution_map_csv, class_resolution_map_df)
     _write_tabular_artifact(paths.instances_csv, instances_df)
     _write_tabular_artifact(paths.properties_csv, properties_df)
+
+    core_qid_to_label = {
+        canonical_qid(str(row.get("wikidata_id", "") or "")): str(row.get("filename", "") or "")
+        for row in load_core_classes(repo_root)
+        if canonical_qid(str(row.get("wikidata_id", "") or ""))
+    }
+    relevancy_bootstrap = bootstrap_relevancy_events(
+        repo_root,
+        instances_df=instances_df,
+        class_hierarchy_df=class_hierarchy_df,
+        class_resolution_map_df=class_resolution_map_df,
+        triples_df=triples_df,
+        core_qid_to_label=core_qid_to_label,
+    )
+
     from .handlers.orchestrator import run_handlers
 
     handler_summary = run_handlers(repo_root, materialization_mode="incremental")
@@ -2382,6 +2460,9 @@ def _materialize(repo_root: Path, *, run_id: str, stage: str, seed_id: str | Non
             int(class_resolution_map_df["conflict_flag"].sum()) if not class_resolution_map_df.empty else 0
         ),
         "handler_projection_summary_rows": int(len(handler_summary)),
+        "relevancy_relation_context_rows": int(relevancy_bootstrap.relation_context_rows),
+        "relevancy_events_emitted": int(relevancy_bootstrap.newly_emitted_relevancy_events),
+        "relevant_qids_total": int(relevancy_bootstrap.final_relevant_qids),
     }
     _write_summary(paths, run_id, stage, stats)
     elapsed = perf_counter() - total_t0

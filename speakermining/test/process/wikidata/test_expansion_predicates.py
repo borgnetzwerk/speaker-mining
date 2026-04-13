@@ -13,11 +13,13 @@ from process.candidate_generation.wikidata.node_store import upsert_discovered_i
 
 def test_expandability_decision_table() -> None:
     seeds = {"Q100"}
+    relevant_qids: set[str] = set()
 
     # Class node is never expandable.
     assert is_expandable_target(
         "Q1",
         seed_qids=seeds,
+        relevant_qids=relevant_qids,
         seed_neighbor_degree=1,
         direct_or_subclass_core_match=True,
         is_class_node=True,
@@ -27,6 +29,7 @@ def test_expandability_decision_table() -> None:
     assert is_expandable_target(
         "Q100",
         seed_qids=seeds,
+        relevant_qids=relevant_qids,
         seed_neighbor_degree=None,
         direct_or_subclass_core_match=False,
         is_class_node=False,
@@ -36,6 +39,7 @@ def test_expandability_decision_table() -> None:
     assert is_expandable_target(
         "Q2",
         seed_qids=seeds,
+        relevant_qids=relevant_qids,
         seed_neighbor_degree=None,
         direct_or_subclass_core_match=True,
         is_class_node=False,
@@ -45,6 +49,7 @@ def test_expandability_decision_table() -> None:
     assert is_expandable_target(
         "Q3",
         seed_qids=seeds,
+        relevant_qids=relevant_qids,
         seed_neighbor_degree=1,
         direct_or_subclass_core_match=False,
         is_class_node=False,
@@ -54,6 +59,7 @@ def test_expandability_decision_table() -> None:
     assert is_expandable_target(
         "Q4",
         seed_qids=seeds,
+        relevant_qids=relevant_qids,
         seed_neighbor_degree=1,
         direct_or_subclass_core_match=True,
         is_class_node=False,
@@ -63,6 +69,7 @@ def test_expandability_decision_table() -> None:
     assert is_expandable_target(
         "Q5",
         seed_qids=seeds,
+        relevant_qids=relevant_qids,
         seed_neighbor_degree=2,
         direct_or_subclass_core_match=True,
         is_class_node=False,
@@ -72,10 +79,21 @@ def test_expandability_decision_table() -> None:
     assert is_expandable_target(
         "Q6",
         seed_qids=seeds,
+        relevant_qids=relevant_qids,
         seed_neighbor_degree=3,
         direct_or_subclass_core_match=True,
         is_class_node=False,
     ) is False
+
+    # Relevant nodes are expandable even without seed-neighborhood/class checks.
+    assert is_expandable_target(
+        "Q77",
+        seed_qids=seeds,
+        relevant_qids={"Q77"},
+        seed_neighbor_degree=None,
+        direct_or_subclass_core_match=False,
+        is_class_node=False,
+    ) is True
 
 
 def test_resolve_direct_or_subclass_core_match_accepts_subclass_paths(tmp_path) -> None:
