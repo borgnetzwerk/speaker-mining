@@ -57,6 +57,22 @@ def clean_mixed_uppercase_name(name: object) -> str:
 	return " ".join(cleaned_words)
 
 
+_UMLAUT_PAIRS = [("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("Ä", "Ae"), ("Ö", "Oe"), ("Ü", "Ue"), ("ß", "ss")]
+
+
+def normalize_name_for_matching(name: object) -> str:
+    """Return a lowercase ASCII-ish key for matching ZDF names against Wikidata labels.
+
+    Applies mixed-case cleanup then umlaut digraph substitution so that
+    "Elmar THEVEßEN" and "Elmar Thevessen" both resolve to "elmar thevessen".
+    Apply to both sides before comparison — not suitable for display.
+    """
+    text = clean_mixed_uppercase_name(name)
+    for umlaut, digraph in _UMLAUT_PAIRS:
+        text = text.replace(umlaut, digraph)
+    return text.lower()
+
+
 def _normalize_description(value: object) -> str:
 	"""Normalize description text for duplicate comparisons."""
 	if pd.isna(value):

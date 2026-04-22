@@ -63,7 +63,8 @@ def _extract_tc_range(text: str) -> tuple[str, str]:
 
 
 def _extract_info_block(text: str) -> str:
-	m = re.search(r"Sachinhalt(.*?)Jugendeignung", text, flags=re.DOTALL | re.IGNORECASE)
+	# Try to extract between 'Sachinhalt' and 'Jugendeignung' as before
+	m = re.search(r"Sachinhalt(.*?)(Jugendeignung|Bearbeiter|Autor/|Kategorie|Schlagwörter|$)", text, flags=re.DOTALL | re.IGNORECASE)
 	if not m:
 		return ""
 	return " ".join(m.group(1).replace("\n", " ").split())

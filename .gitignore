@@ -216,6 +216,10 @@ documentation/visualizations/*.drawio.xml
 documentation/visualizations/*Ps.drawio.pdf
 speakermining/src/config/main.json
 documentation/context/*
+# Local ToDo Folder
+# ToDo
+ToDo/*/*
+!ToDo/DOC/*
 
 # Ignore for now
 speakermining/src/process/candidate_generation/INSTITUTION_EXTRACTION_DEFERRED.md

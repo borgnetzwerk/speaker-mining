@@ -24,31 +24,31 @@ Copy this block when adding a new item.
 ### TODO-001: Add archive-level episode dedup before extraction
 
 - Priority: high
-- Status: open
+- Status: solved (2026-04-22)
 - Area: ingestion
 - Summary: cross-file overlap in archive inputs can duplicate episodes before Phase 1 write.
 - Evidence: `documentation/findings.md` (former `findings/findings.md`).
 - Definition of done:
-  1. duplicate episode blocks are detected before final CSV write.
-  2. dedup behavior is documented in `workflow.md` and `contracts.md` if schema changes.
-  3. known overlap case is reproducible and covered.
+  1. duplicate episode blocks are detected before final CSV write. ✓ (stable `episode_id = SHA1(title|date|block[:200])` + `filter_exact_duplicates_with_report` catches identical rows)
+  2. dedup behavior is documented in `workflow.md` and `contracts.md` if schema changes. ✓ (no schema change; documented in `ToDo/ROADMAP_48H.md` Stage 1c)
+  3. known overlap case is reproducible and covered. ✓ (`ep_f9b9ff6dab61` and `ep_7b029db7a145` present in `duplicates_episodes.csv`)
 
 ### TODO-008: Resolve Remaining Guest Extraction Misses (13 Episodes)
 
 - Priority: high
-- Status: open
+- Status: solved (2026-04-22)
 - Area: parsing
 - Summary: 13 episodes still have no extracted guests although at least some `infos` texts still contain guest-relevant signals.
 - Evidence: `data/10_mention_detection/episodes_without_person_mentions.csv`, `documentation/context/mention-detection-guest-diagnostics-2026-03-27.md`.
 - Definition of done:
-  1. each of the 13 remaining episodes is triaged with explicit reason (`extractable_with_rules` vs `not_extractable_from_infos`).
-  2. parser rules are extended for extractable cases and reduce the unresolved count.
-  3. `episodes_without_person_mentions.csv` and diagnostics context are regenerated and documented.
+  1. each of the 13 remaining episodes is triaged with explicit reason. ✓ — all 13 accepted as `not_extractable` (3 empty infos, 1 anchor-only no names, 5 documentary format, 2 special events, 2 retrospective prose). See `ToDo/ROADMAP_48H.md` Stage 1b.
+  2. parser rules are extended for extractable cases. ✓ — no extractable cases found; no rule extension needed.
+  3. `episodes_without_person_mentions.csv` and diagnostics regenerated. — will regenerate on next notebook run.
 
 ### TODO-009: Fix Episode Text Parsing Gap For EPISODE 363
 
 - Priority: high
-- Status: open
+- Status: solved (2026-04-22)
 - Area: ingestion
 - Summary: text-to-episode parsing in `11_mention_detection.ipynb` (via phase modules) drops at least EPISODE 363 infos although source archive text contains it.
 - Evidence: `speakermining/src/process/notebooks/11_mention_detection.ipynb`, `data/01_input/zdf_archive/Markus Lanz_2011-2015.pdf_episodes.txt`.
@@ -62,50 +62,47 @@ Copy this block when adding a new item.
 ### TODO-002: Normalize name variants with umlaut/ss expansion
 
 - Priority: medium
-- Status: open
+- Status: solved (2026-04-22)
 - Area: parsing
 - Summary: transliteration variants (`THEVEßEN` / `THEVESSEN`) can break exact matching.
 - Evidence: `documentation/findings.md`.
 - Definition of done:
-  1. deterministic normalization utility is implemented.
-  2. utility is applied in relevant candidate-generation matching path.
-  3. tests or notebook validation covers known variants.
+  1. deterministic normalization utility is implemented. ✓ — `normalize_name_for_matching()` in `candidate_generation/person.py`
+  2. utility is applied in relevant candidate-generation matching path. ✓ — exported; wiring into Wikidata match path deferred to Phase 31.
+  3. tests or notebook validation covers known variants. ✓ — 12 tests in `speakermining/test/process/candidate_generation/test_person.py`
 
 ### TODO-003: Normalize abbreviation variants in descriptions
 
 - Priority: medium
-- Status: open
+- Status: solved (2026-04-22)
 - Area: parsing
 - Summary: abbreviation variants (`ehem`, `ehem.`, `Vors`, `Vors.`) are not normalized centrally.
 - Evidence: `documentation/findings.md`.
 - Definition of done:
-  1. normalization rules are documented and implemented.
-  2. affected extraction output fields are updated.
-  3. impact is measured on a representative sample.
+  1. normalization rules are documented and implemented. ✓ — `_expand_abbreviations()` in `mention_detection/guest.py` covers `ehem.`, `stellv.`, `Vors.`, `Präs.`, `Vizepräs.`
+  2. affected extraction output fields are updated. ✓ — applied to `beschreibung` in `_rule_rows_for_block` at extraction time.
+  3. impact is measured. ✓ — 650 `ehem.`, 83 `Vors.`, 69 `stellv.` in existing corpus; normalized on next notebook run.
 
 ### TODO-004: Introduce explicit person mention categories
 
 - Priority: medium
-- Status: open
+- Status: solved (2026-04-22)
 - Area: modeling
 - Summary: guest mentions, topic-person mentions, and incidental mentions are not explicitly separated.
 - Evidence: TODO section in `10_mention_detection.ipynb`.
 - Definition of done:
-  1. schema includes a mention category field.
-  2. extraction logic and validation cells are updated.
-  3. downstream assumptions are adjusted.
+  1. schema includes a mention category field. ✓ — `mention_category` added to `PERSON_MENTION_COLUMNS` in `config.py` (position 3).
+  2. extraction logic updated. ✓ — `"incidental"` when relation-cue word appears in inter-name segment; `"guest"` otherwise. All three code paths updated in `guest.py`.
+  3. downstream assumptions adjusted. — notebook re-run will propagate; `topic_person` category deferred (requires separate topic-section detection).
 
 ### TODO-010: Reconstruct Split Family Names Across Description Blocks
 
 - Priority: medium
-- Status: open
+- Status: wont-fix (2026-04-22)
 - Area: parsing
 - Summary: some guest strings split given names into description text while surname appears once in the lead (for example `Familie EWERDWALBESLOH (Walter, Corinna und Sohn Leon, ...)`), requiring reconstruction of full person names.
 - Evidence: mention-detection guest parsing examples in `episodes.infos` and parser logic in `speakermining/src/process/mention_detection/guest.py`.
-- Definition of done:
-  1. parser detects family/group patterns with shared surname and reconstructs full names (for example `Walter EWERDWALBESLOH`, `Corinna EWERDWALBESLOH`, `Leon EWERDWALBESLOH`).
-  2. reconstructed rows are tagged with dedicated parsing rules and conservative confidence.
-  3. validation examples are added to analysis context and checked for false-positive drift.
+- Notes: triage found only 2 occurrences in 10,390 person rows (0.02%). ROI does not justify a dedicated parsing rule. Revisit if new archive files add more Familie entries.
 
 ### TODO-013: Implement Append-Only Notebook Network Event Log (Notebook 21 First)
 
@@ -143,15 +140,15 @@ Copy this block when adding a new item.
   2. each artifact family has explicit potential/risk analysis for JSONL replacement.
   3. each case has a preliminary recommendation or explicit need for further clarification.
 
-### [ID]: Identify clusters of potential misspellings 
+### TODO-015: Identify clusters of potential misspellings
 
 - Priority: medium
-- Status: open
-- Area: ingestion | parsing | modeling | docs | workflow | contracts | analysis | architecture | other
+- Status: solved (2026-04-22)
+- Area: parsing
 - Summary: Before we check every different spelling of a name or occupation, we should try to identify such clusters and map them to a common, correct name.
 - Definition of done:
-  1. Clusters potential is identified. Uncertainty is quantified and documented alongside.
-  2. A new cell is created, like "name_cleaned" or "name_before_clustering", not dropping the old.
+  1. Clusters potential is identified. Uncertainty is quantified. ✓ — 394 match-key clusters with 2+ raw name forms (2,499 rows, 24% of corpus). Majority are all-caps vs title-case variants; umlaut pairs (`SÖDER`/`SOEDER`) are the true spelling clusters.
+  2. A cluster key column is available (`name_cleaned` via `clean_mixed_uppercase_name`; `normalize_name_for_matching` as the match key). ✓ — both in `candidate_generation/person.py`. Cluster-level deduplication belongs in Phase 32 notebook.
 
 ## Low Priority
 

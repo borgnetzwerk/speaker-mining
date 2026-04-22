@@ -102,6 +102,21 @@ _MONONYM_STOPWORDS = {
 	"SCHWERPUNKTTHEMEN",
 }
 
+_ABBREV_EXPANSIONS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\behem\.", re.IGNORECASE), "ehemalig"),
+    (re.compile(r"\bstellv\.", re.IGNORECASE), "stellvertretend"),
+    (re.compile(r"\bVors\."), "Vorsitzende(r)"),
+    (re.compile(r"\bVizepräs\."), "Vizepräsident"),
+    (re.compile(r"\bPräs\."), "Präsident"),
+]
+
+
+def _expand_abbreviations(text: str) -> str:
+    for pattern, replacement in _ABBREV_EXPANSIONS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
 _RELATION_CUE_PATTERN = re.compile(
 	r"\b(?:ehefrau|ehemann|mutter|vater|tochter|sohn|bruder|schwester|"
 	r"zwillingsbruder|freundin|freund|deren|dessen|seine|ihr|ihre|ihrer|ihrem)\b",
@@ -188,6 +203,7 @@ def _rule_rows_for_block(
 	block_text: str,
 	section: str,
 ) -> list[dict[str, str]]:
+	desc = _expand_abbreviations(desc)
 	candidates = _candidate_names_with_spans(raw_names)
 	if not candidates:
 		return []
@@ -196,10 +212,14 @@ def _rule_rows_for_block(
 	group_desc = _is_group_description(desc)
 	multi = len(candidates) > 1
 
+	prev_end = 0
 	for idx, (name, start, _end, name_kind) in enumerate(candidates):
 		is_last = idx == len(candidates) - 1
-		left_window = raw_names[max(0, start - 40) : start]
-		has_relation_cue = bool(_RELATION_CUE_PATTERN.search(left_window))
+		# Check only the inter-name segment (from previous name's end to this name's start)
+		# to avoid spill-over of relation cues from earlier names in a chain.
+		inter_segment = raw_names[prev_end:start]
+		has_relation_cue = bool(_RELATION_CUE_PATTERN.search(inter_segment))
+		prev_end = _end
 
 		beschreibung = ""
 		parsing_rule = "single_parenthetical"
@@ -230,11 +250,14 @@ def _rule_rows_for_block(
 				confidence = 0.45 if has_relation_cue else 0.55
 				confidence_note = "name appears in multi-name chain; description withheld to avoid misattribution"
 
+		mention_category = "incidental" if has_relation_cue else "guest"
+
 		rows.append(
 			{
 				"mention_id": _mention_id(episode_id, name, beschreibung),
 				"episode_id": episode_id,
 				"name": name,
+				"mention_category": mention_category,
 				"beschreibung": beschreibung,
 				"source_text": block_text,
 				"source_context": section,
@@ -312,6 +335,7 @@ def _extract_surname_fallback_rows(episode_id: str, section: str) -> list[dict[s
 				"mention_id": _mention_id(episode_id, name, ""),
 				"episode_id": episode_id,
 				"name": name,
+				"mention_category": "guest",
 				"beschreibung": "",
 				"source_text": lead,
 				"source_context": section,
@@ -401,6 +425,7 @@ def extract_person_mentions(episode_blocks: Iterable[str], episodes_df: pd.DataF
 							"mention_id": _mention_id(episode_id, name, desc),
 							"episode_id": episode_id,
 							"name": name,
+							"mention_category": "guest",
 							"beschreibung": desc,
 							"source_text": f"{raw_names} ({desc})",
 							"source_context": sachinhalt,

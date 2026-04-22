@@ -40,6 +40,7 @@ PERSON_MENTION_COLUMNS = [
     "mention_id",
     "episode_id",
     "name",
+    "mention_category",
     "beschreibung",
     "source_text",
     "source_context",
