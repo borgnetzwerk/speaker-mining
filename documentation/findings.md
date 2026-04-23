@@ -167,3 +167,28 @@ Among the first episodes of Markus Lanz, there are episodes which have no guests
 * https://www.fernsehserien.de/hart-aber-fair/folgen/119-folge-119-654066
 * https://www.fernsehserien.de/hart-aber-fair/folgen/12-folge-12-653959
 * https://www.fernsehserien.de/hart-aber-fair/folgen/120-folge-120-654067
+
+## F-014: Data Sources Differ in Time Scope
+
+- Observation: the ZDF archive PDFs cover only 2008–2024 while fernsehserien.de continues to update with more recent episodes (post-2024).
+- Impact: fernsehserien.de is expected to have more data for the current period. Comparative analysis across sources must account for this temporal asymmetry; raw guest-count differences between sources may partly reflect coverage window differences, not extraction quality.
+- Recommendation: when comparing source outputs, always filter to the shared time range or explicitly note the scope difference.
+
+## F-015: Language Encodes Sensitive Data
+
+- Observation: natural language in the corpus implicitly encodes protected attributes. German grammar encodes grammatical gender (and often biological gender) through articles, adjectives, and noun forms. Japanese may encode age/seniority through politeness registers.
+- Impact: even routine text processing may inadvertently extract sensitive personal attributes. This is a data-privacy relevant consideration for any NLP applied to the corpus.
+- Recommendation: be mindful that language-level inference of personal attributes (gender, age) is present in the data even when no explicit attribute fields exist.
+
+## F-016: All-Caps Surname Is a Reliable Positive Confidence Signal — Absence Is Not a Negative
+
+- Observation: 315 title-case surname occurrences (`single_parenthetical` + `last_name_parenthetical`) are genuine studio guests — older episodes and foreign names did not follow the all-caps convention. Therefore title-case does not reliably indicate an incidental mention.
+- Implication: all-caps surname is a strong positive indicator for a guest, but its absence cannot be used to classify a mention as incidental. The current implementation correctly assigns `incidental` only when an explicit relation-cue word (ehemann, ihr, ihrem, etc.) appears in the inter-name segment, which is the clean signal. All-caps can be used as a supplementary confidence boost but must not be the sole classifier.
+- Related: `mention_detection/guest.py` classification logic.
+
+## F-017: PDF Candidate Discovery Is Conceptually Equivalent to Other Discovery Sources
+
+- Observation: Phase 1 PDF extraction, Wikidata graph discovery (Phase 21), and fernsehserien.de scraping are currently treated as distinct pipeline tiers with different phase numbering. Conceptually all three are peer candidate discovery steps: each is self-contained, produces candidate entities from a different source, and requires only the root broadcast-program context as input.
+- Implication: the Wikidata string-based candidate generation step is better understood as a substep of disambiguation (Phase 3.1 / Reconciliation) rather than a standalone major phase. Adopting this framing drops one phase number from the count and makes the phase model cleaner.
+- Proposed simplified map: Phase 1 (all candidate discovery) → Phase 2.0 (normalization) → Phase 2.1 (reconciliation) → Phase 2.2 (deduplication) → Phase 3 (link prediction).
+- Related tracker item: `TODO-034`.

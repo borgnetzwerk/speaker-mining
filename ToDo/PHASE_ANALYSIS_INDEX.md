@@ -1,6 +1,6 @@
 # Phase Analysis Index
 
-> Generated: 2026-04-18  
+> Generated: 2026-04-18 | Last updated: 2026-04-23  
 > This is the master index for the phase-by-phase analysis pass over all .md, .py, and .ipynb files.
 
 ---
@@ -29,10 +29,10 @@
 | Phase 2c | `22_candidate_generation_fernsehserien_de.ipynb` | ✓ Complete | Row 3 bug CLOSED 2026-04-22 (non-issue) |
 | Phase 2d | `23_candidate_generation_other.ipynb` | ✗ Placeholder | Not implemented |
 | Phase 31 | `31_entity_disambiguation.ipynb` | ✓ Step 311 runs | Step 312 needs tooling |
-| Phase 32 | `32_entity_deduplication.ipynb` | ✓ Implemented 2026-04-23 | 31,811→8,976 entities (71.8% reduction) |
+| Phase 32 | `32_entity_deduplication.ipynb` | ✓ Active 2026-04-23 | 31,811→8,976 entities (71.8% reduction); manual reconciliation CSV integration pending (TODO-018) |
 | Phase 4 | `40_link_prediction.ipynb` | ✗ Placeholder | Not implemented |
-| Analysis | `41_analysis.ipynb` (new) | ✓ Done 2026-04-23 | Guest catalogue + page-rank computed |
-| Visualization | `51_visualization.ipynb` (new) | ✓ Done 2026-04-23 | 5 chart types (plotly HTML+PNG) |
+| Analysis | `41_analysis.ipynb` | ✓ Active 2026-04-23 | Guest catalogue (640 matched) + page-rank computed; QID label fix pending (TODO-031) |
+| Visualization | `51_visualization.ipynb` | ✓ Active 2026-04-23 | 5 chart types (plotly HTML+PNG); principles + rework pending (TODO-024, TODO-025, TODO-032) |
 
 ---
 
@@ -53,41 +53,72 @@
 | fernsehserien.de broadcasts | 15,929 | Phase 2c |
 | Aligned persons (Phase 31) | ~10,000+ | Phase 31 |
 | Aligned seasons (Phase 31) | 412 (410 unresolved) | Phase 31 |
+| Canonical entities (Phase 32) | 8,976 (from 31,811; 71.8% reduction) | Phase 32 |
+| Wikidata-matched persons (Analysis) | 640 | Phase 32 → Analysis |
+| Unmatched canonical entities | ~8,336 | Phase 32 (no Wikidata link yet) |
 
 ---
 
-## All Open Issues (Consolidated)
+## Open Issues — Current State
 
-### Critical / Phase-Blocking
+> **Source of truth**: `documentation/open-tasks.md`  
+> **Execution order and dependency map**: `ToDo/TASK_EXECUTION_PLAN.md`  
+>  
+> All pre-Phase-32 bugs are resolved or triaged. Phase 32 is implemented. Current work is in analysis, visualization, and documentation.
 
-| ID | Phase | Description | Fix Location |
-|----|-------|-------------|--------------|
-| ~~TODO-009~~ | ~~P1~~ | ~~EPISODE 363 `infos` field empty~~ — **RESOLVED 2026-04-22** | |
-| ~~TODO-008~~ | ~~P1~~ | ~~13 episodes with no guest extractions~~ — **TRIAGED 2026-04-22** (all not_extractable) | |
-| ~~TODO-001~~ | ~~P1~~ | ~~Cross-archive episode duplicates~~ — **ALREADY RESOLVED** (stable SHA1 ID + exact dedup) | |
-| ~~(bug)~~ | ~~P2c~~ | ~~Row 3 of fernsehserien.de guest description missing~~ — **CLOSED 2026-04-22 (non-issue)** | |
-| (empty) | P31 | `wikidata_roles` is 0 rows — role alignment impossible | Wikidata expansion config |
+### Resolved since initial analysis (2026-04-22/23)
 
-### Medium Priority
+| ID | Resolution |
+|----|------------|
+| TODO-001 | Episode dedup — resolved (SHA1 ID + exact dedup) |
+| TODO-002 | Umlaut/ß normalization — done (`normalize_name_for_matching`) |
+| TODO-003 | Abbreviation normalization — done (`_expand_abbreviations`) |
+| TODO-004 | `mention_category` field — done (`guest`/`incidental` in config + guest.py) |
+| TODO-008 | 13 miss episodes — triaged (all `not_extractable`) |
+| TODO-009 | EPISODE 363 infos drop — resolved |
+| TODO-010 | Split family names — wont-fix (2 occurrences in 10,390 rows) |
+| TODO-011 | Guarded file writes — done |
+| TODO-012 | Wikidata language-default fallback — done |
+| TODO-013 | Notebook network event log — done |
+| TODO-014 | JSONL migration assessment — done |
+| TODO-015 | Misspelling cluster identification — done |
 
-| ID | Phase | Description | Fix Location |
-|----|-------|-------------|--------------|
-| ~~TODO-002~~ | ~~P1→P31~~ | ~~Umlaut/ß normalization~~ — **DONE 2026-04-22** (`normalize_name_for_matching` in `person.py`) | |
-| ~~TODO-003~~ | ~~P1~~ | ~~Abbreviation normalization~~ — **DONE 2026-04-22** (`_expand_abbreviations` in `guest.py`) | |
-| ~~TODO-004~~ | ~~P1→P31~~ | ~~No `mention_category` field~~ — **DONE 2026-04-22** (`guest`/`incidental` in `config.py` + `guest.py`) | |
-| ~~TODO-010~~ | ~~P1~~ | ~~Split family names~~ — **WONT-FIX 2026-04-22** (2 occurrences, ROI too low) | |
-| ~~TODO-015~~ | ~~P1~~ | ~~Misspelling cluster identification~~ — **DONE 2026-04-22** (`normalize_name_for_matching` is cluster key) | |
-| (question) | P31 | OpenRefine match storage — add `open_refine_name` column to handoff | `entity_disambiguation/contracts.py` |
+### Open — High Priority
 
-### Low Priority / Future Work
+| ID | Title | Blocks |
+|----|-------|--------|
+| TODO-018 | Integrate 6-column reconciliation CSV (**deadline 2026-05-03**) | TODO-019 |
+| TODO-019 | Complete guest catalogue (add unmatched ~8,336 entities) | TODO-020, TODO-021, TODO-022 |
+| TODO-024 | Visualization principles document | TODO-020, TODO-025, TODO-032 |
 
-| ID | Phase | Description |
-|----|-------|-------------|
-| TODO-005 | P1 | Institution extraction responsibility clarification |
-| TODO-006 | Analysis | Gender-framing analysis methodology |
-| TODO-007 | Analysis | Role/occupation merge strategy |
-| TODO-016 | Architecture | Normalization-timing policy — when to store vs. derive; symmetric-both-sides requirement for match keys |
-| (future) | Governance | Forbidden Features / Data Privacy Catalogue |
+### Open — Medium Priority
+
+| ID | Title | Blocks |
+|----|-------|--------|
+| TODO-016 | Normalization-timing policy document | — |
+| TODO-017 | Reduce `aligned_persons.csv` to ~40 columns | — |
+| TODO-020 | Extended gender distribution analysis | TODO-022 |
+| TODO-022 | Compare to prior work | — |
+| TODO-023 | Dataset overview and pipeline statistics | TODO-022 |
+| TODO-025 | Ingest Wikidata viz + 5 improvements | TODO-022 |
+| TODO-026 | Unify ToDo structure | — |
+| TODO-027 | Propagate `mention_category` through pipeline | TODO-019, TODO-020 |
+| TODO-031 | Fix QID labels in analysis output | TODO-020, TODO-025, TODO-023 |
+| TODO-032 | Fix page rank viz (replace bar chart with node graph) | — |
+
+### Open — Low Priority
+
+| ID | Title |
+|----|-------|
+| TODO-005 | Clarify institution extraction responsibility |
+| TODO-006 | Define gender-framing analysis methodology |
+| TODO-007 | Define role/occupation merge strategy |
+| TODO-021 | Predictive analytics |
+| TODO-028 | Document title disambiguation finding |
+| TODO-029 | Document Wikidata birthdate bias finding |
+| TODO-030 | Compile pipeline findings for paper/talk |
+| TODO-033 | Document gender bias scope limitation |
+| TODO-034 | Document phase equivalence of discovery sources |
 
 ---
 
@@ -119,8 +150,10 @@
 | `22_candidate_generation_fernsehserien_de.ipynb` | Active |
 | `23_candidate_generation_other.ipynb` | Placeholder |
 | `31_entity_disambiguation.ipynb` | Partially active |
-| `32_entity_deduplication.ipynb` | Placeholder |
+| `32_entity_deduplication.ipynb` | Active (2026-04-23) |
 | `40_link_prediction.ipynb` | Placeholder |
+| `41_analysis.ipynb` | Active (2026-04-23) |
+| `51_visualization.ipynb` | Active (2026-04-23) |
 
 ### Documentation Files (key)
 
@@ -150,8 +183,8 @@ Every downstream phase reads Phase 1 output. The bugs in TODO-001, TODO-008, TOD
 2. Empty roles (needs Wikidata expansion fix)
 3. OpenRefine handoff columns not yet defined
 
-### F-C: Phase 32 and Phase 4 Are Greenfield
-Neither notebook has any implementation. They are pure placeholders. Building them requires designing the contracts first, then implementing.
+### F-C: Phase 32 Is Implemented; Phase 4 Remains Greenfield
+Phase 32 (`32_entity_deduplication.ipynb`) was implemented 2026-04-23, reducing 31,811 entities to 8,976 (71.8%). Manual reconciliation CSV integration (TODO-018) is the remaining high-priority item. Phase 4 (`40_link_prediction.ipynb`) is still a pure placeholder.
 
 ### F-D: Analysis Can Start Sooner Than Expected
 The Wikidata triples (120,930 edges), Wikidata persons (640 with 767 properties), and Phase 31 aligned persons already exist. A preliminary analysis limited to matched persons is possible **without** completing Phase 32.
@@ -167,12 +200,23 @@ Finding F-013: many early episodes on fernsehserien.de have no guest data. This 
 
 ---
 
-## Recommended Next Steps (Priority Order)
+## Recommended Next Steps
 
-1. ~~**Stage 1 (Phase 1 bugs)**~~ — **ALL DONE 2026-04-22** (TODO-001/002/003/004/008/009/010/015)
-2. ~~**Fix fernsehserien.de row 3 bug**~~ — **CLOSED 2026-04-22 (non-issue)**
-3. **Re-run `11_mention_detection.ipynb`** to generate persons.csv with new fields (`mention_category`, expanded abbreviations)
-4. **Add `open_refine_name` columns** to Phase 31 handoff tables
-5. **Implement Phase 32** deduplication notebook (Step 321)
-6. **Build Phase 4 / analysis** using already-available Wikidata property data
-7. **Create visualization notebooks**
+> Full dependency-ordered execution plan: **`ToDo/TASK_EXECUTION_PLAN.md`**
+
+**Wave 0 (deadline-driven):** TODO-018 — implement 6-column CSV integration before 2026-05-03.
+
+**Wave 1 (foundations, parallelizable):**
+- TODO-024 — visualization principles (unblocks all chart work)
+- TODO-031 — fix QID labels (unblocks correct analysis output)
+- TODO-017 — reduce `aligned_persons.csv` to ~40 columns
+- TODO-016, TODO-026 — policy/structure documentation
+- TODO-028, TODO-029, TODO-033, TODO-034 — quick-win finding docs
+
+**Wave 2 (data completeness):** TODO-027 → TODO-019 → TODO-023
+
+**Wave 3 (analysis + visualization):** TODO-020, TODO-025, TODO-032
+
+**Wave 4 (synthesis):** TODO-022, TODO-021, TODO-030
+
+**Wave 5 (deferred):** TODO-005, TODO-006, TODO-007

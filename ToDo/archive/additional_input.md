@@ -214,3 +214,51 @@ Identify if the new guest / other mention differentiation from the phase 1 is pr
 | Role/occupation merge strategy (TODO-007) | Depends on deduplication design |
 
 Particularly Einschaltquoten would be interesting: Identify what predicts Einschaltquoten, is it specific people, topics, weekdays?
+
+---
+> **ARCHIVED 2026-04-23** — Second batch of additional input processed below.
+
+# Persistent Task archiving and structuring
+> **Archived** — TODO-010 (wont-fix 2026-04-22) moved from `open-tasks.md` to `closed-tasks.md` (Wont-fix section). The `documentation/visualizations/classes.md` content was already ingested into the `open_additional_input.md` visualization section and then into task notes; the file deletion was already staged.
+
+# Additional information for the Visualization rework
+> **Archived** — Two notes added: (1) edge-overlap minimization for hierarchical/circular layouts added to TODO-024 Notes; (2) multi-parent challenge for sunburst/sankey added to TODO-025 Notes.
+
+## Circular and hierarchical visualization
+The layout principle — co-locate subclasses that share the same superclass set, place edge-non-interacting nodes at cluster perimeters — is captured in TODO-024 Notes.
+
+## Sunburst and sankey diagram
+The multi-parent challenge (subclasses with multiple superclasses break tree-like hierarchy) is captured in TODO-025 Notes.
+
+# Many QIDs still not labeled
+> **Archived** — Tracked as **TODO-031** in `documentation/open-tasks.md`. Evidence: Q1238570 (political scientist / Politikwissenschaftler) and Q40348 (lawyer / Rechtsanwalt) appearing as bare QIDs in `top_occupations` output despite both having German and English Wikidata labels.
+
+# Ensure we have all analysis and visualization LanzMining had
+> **Archived** — Covered by **TODO-022** in `documentation/open-tasks.md` (Compare to prior work, includes ingesting arrrrrmin/Website/LanzMining.html). The "Not less data for humans / very good as is: Tons of columns, tons of data" note is an affirmation of current analysis output quality — no new task required.
+
+# Current Page rank visualization is flawed
+> **Archived** — Tracked as **TODO-032** in `documentation/open-tasks.md`. Page rank should be a node graph, not a bar chart.
+
+# Differentiate gender bias in entire population from gender bias in sample set
+> **Archived** — Tracked as **TODO-033** in `documentation/open-tasks.md`. The analysis can only report sample-set bias; population-level claims require external reference data. This is a methodological caveat to document, not a data quality issue to fix.
+
+# Some not task-relevant findings
+> **Archived** — All three findings added to `documentation/findings.md`.
+
+## Data sources differ in time scope
+> Tracked as **F-014** in `documentation/findings.md`. ZDF archive covers 2008–2024; fernsehserien.de includes more recent post-2024 episodes.
+
+## Our Language encodes data
+> Tracked as **F-015** in `documentation/findings.md`. German grammatical gender, Japanese seniority encoding, etc. are data-privacy relevant attributes encoded in everyday language.
+
+## Some signals may be reliable positive indicator, but their absence does not mean negative
+> Tracked as **F-016** in `documentation/findings.md`. All-caps surname is a strong positive indicator for a guest but title-case does not reliably mean incidental. Current implementation correctly uses relation-cue words (ehemann, ihr, etc.) as the clean incidental signal.
+
+# Learnings
+## PDF Extraction is equal to other source retrieval
+> **Archived** — Tracked as **F-017** in `documentation/findings.md` and **TODO-034** in `documentation/open-tasks.md`. PDF archive, Wikidata graph discovery, and fernsehserien.de are peer candidate discovery steps. Wikidata string-based generation is a substep of reconciliation (Phase 3.1), not a standalone major phase.
+
+# Some context is helpful for manual Reconciliation
+> **Archived** — Incorporated into **TODO-017** (`documentation/open-tasks.md`): updated definition of done with ~40-column target, column selection priority (ids, label, description, aliases, links, most-common properties), and cut criteria (≥ 99% empty or not useful for human reviewers). OpenRefine usability is the driving rationale.
+
+Current state: `aligned_persons.csv` has ~2,531 (sometimes ~5,000) columns — too many for OpenRefine to load comfortably. Target: ~40 columns (hard ceiling 50). Keep enough for a human reviewer to match or reject an entity without leaving OpenRefine.
