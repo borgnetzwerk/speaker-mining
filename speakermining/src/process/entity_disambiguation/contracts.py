@@ -47,6 +47,7 @@ SHARED_COLUMNS = [
     "fernsehserien_de_id",
     "mention_id",
     "canonical_label",
+    "open_refine_name",
     "entity_class",
     "match_confidence",
     "match_tier",

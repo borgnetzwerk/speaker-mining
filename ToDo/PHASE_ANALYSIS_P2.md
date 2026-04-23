@@ -201,17 +201,11 @@ The notebook has extensive diagnostics for the guest coverage problem (F-013):
 | `cache/pages/*.html` | — | Cached episode HTML |
 | `eventhandler.csv` | — | Per-handler `last_processed_sequence` |
 
-### Known Issues / Bug Site: Row 3 Missing (ToDo item)
-**Symptom:** The third row of the fernsehserien.de guest description appears to be missing.
+### ~~Known Issues / Bug Site: Row 3 Missing~~ — CLOSED 2026-04-22 (Non-Issue)
 
-**Two candidate root causes:**
-1. **CSV write in step 2.1** — `projection.py` may drop a row when writing due to encoding or line-count logic
-2. **CSV conversion in step 3.1** — Normalization in `orchestrator.py` / `projection.py` may strip a row with a specific guest_order or empty field
+**Original symptom:** "The third row of the fernsehserien.de guest description appears to be missing."
 
-**Investigation steps:**
-- Inspect `projection.py` for any `head(n)` or `iloc[1:]` style operations
-- Check if `guest_order=2` (0-indexed 3rd row) has a special case
-- Add a before/after row count assertion around the CSV write
+**Investigation result (2026-04-22):** Not a bug. Both `episode_guests_discovered.csv` and `episode_guests_normalized.csv` have exactly 25,452 rows with zero per-episode discrepancy. Guest descriptions are correctly propagated to Phase 31 (`fs_episode_guests_normalized.csv`, 71.7% coverage). Sample check: Ute Teichert's "Vorsitzende Bundesverband der Ärztinnen und Ärzte des Öffentlichen Gesundheitsdienstes (BVÖGD)" is present in `aligned_persons.csv`. The parser correctly splits `<br>` within `<dd><p>...</p></dd>` into `guest_role` (line 0) and `guest_description` (lines 1+). Empty descriptions in the data (28.3%) are genuine — those guests have no description line in the source HTML.
 
 **Connection to F-013:** Many episodes on fernsehserien.de have no guests at all (esp. Hart aber fair early episodes). This is a data source limitation, not a parsing bug.
 
@@ -245,7 +239,7 @@ These modules are shared by Phase 2 notebooks and their initialization:
 
 | ID | Priority | Description |
 |----|----------|-------------|
-| (bug) | HIGH | fernsehserien.de guest description row 3 missing — investigate `projection.py` write and normalization |
+| ~~(bug)~~ | ~~HIGH~~ | ~~fernsehserien.de guest description row 3 missing~~ — **CLOSED 2026-04-22 (non-issue, descriptions confirmed present)** |
 | F-012 | MEDIUM | Season misclassification (Q3464665 entering broadcasting_program path) — document in governance |
 | F-013 | INFO | Many fernsehserien.de episodes have no guests — structural limitation, not a bug |
 | `wikidata_roles` empty | LOW | Roles instance table is 0 rows — review expansion config for roles class |

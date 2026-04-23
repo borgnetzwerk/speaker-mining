@@ -108,11 +108,70 @@ Operational semantics:
 2. `max_network_calls>0` is bounded network execution.
 3. `max_network_calls<0` is unlimited network execution.
 
-## Phase 31/32/40
+## Phase 31: Entity Disambiguation (`data/31_entity_disambiguation`)
 
-These phases are present in workflow structure but no stable, repository-wide schema contract is documented yet from generated files in this repository state.
+### Output location
 
-When Phase 31/32/40 schemas are finalized, extend this document and add explicit headers for each produced file.
+`data/31_entity_disambiguation/aligned/`
+
+### Core files
+
+1. `aligned_persons.csv`
+2. `aligned_episodes.csv`
+3. `aligned_seasons.csv`
+4. `aligned_broadcasting_programs.csv`
+5. `aligned_topics.csv`
+6. `aligned_roles.csv`
+7. `aligned_organizations.csv`
+8. `match_evidence.csv`
+9. `source_schema_mapping.csv`
+10. `run_summary.json`
+
+### Shared columns (all aligned files)
+
+`alignment_unit_id`, `wikidata_id`, `fernsehserien_de_id`, `mention_id`, `canonical_label`, `open_refine_name`, `entity_class`, `match_confidence`, `match_tier`, `match_strategy`, `evidence_summary`, `unresolved_reason_code`, `unresolved_reason_detail`, `inference_flag`, `inference_basis`, `notes`
+
+Plus `label_wikidata`, `label_fernsehserien_de`, `label_zdf`, `description_wikidata`, `description_fernsehserien_de`, `description_zdf`, `alias_wikidata`, `alias_fernsehserien_de`, `alias_zdf`
+
+### Match tiers
+
+`exact` > `high` > `medium` > `unresolved`
+
+## Phase 32: Entity Deduplication (`data/32_entity_deduplication`)
+
+### Purpose
+
+Clusters Phase 31 alignment units (one row per mention × entity) into canonical entities (one row per real-world person). Reduces 31,811 person alignment rows to a smaller set of deduplicated canonical entities.
+
+### Output files
+
+1. `dedup_persons.csv` — one row per canonical entity
+2. `dedup_cluster_members.csv` — membership mapping (alignment_unit_id → canonical_entity_id)
+3. `dedup_summary.json` — run statistics
+
+### `dedup_persons.csv` columns
+
+`canonical_entity_id`, `entity_class`, `cluster_size`, `cluster_strategy`, `cluster_confidence`, `wikidata_id`, `canonical_label`, `open_refine_name`, `cluster_key`, `evidence_summary`, `representative_alignment_unit_id`
+
+### `dedup_cluster_members.csv` columns
+
+`canonical_entity_id`, `alignment_unit_id`, `mention_id`, `canonical_label`, `wikidata_id`, `match_tier`, `cluster_key`, `is_representative`
+
+### Cluster strategies
+
+| Strategy | Confidence | Description |
+|----------|-----------|-------------|
+| `wikidata_qid_match` | high | Rows sharing the same non-empty `wikidata_id` |
+| `normalized_name_match` | medium | Rows sharing the same `normalize_name_for_matching(canonical_label)` key |
+| `singleton` | low | No cluster partner found |
+
+### Normalization note
+
+`normalize_name_for_matching` is applied symmetrically to all `canonical_label` values being compared (see TODO-016 and `documentation/normalization-policy.md` when written).
+
+## Phase 40
+
+Not yet implemented. Schema contract to be added when Phase 40 is designed.
 
 ## Phase 2 Wikidata Graph Store (Canonical v3 Contract)
 

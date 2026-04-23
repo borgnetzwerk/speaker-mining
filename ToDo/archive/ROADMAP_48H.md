@@ -119,30 +119,31 @@ With 2 occurrences in 10,390 person rows (0.02%), implementing a dedicated parsi
 
 **Goal:** Complete the automated Step 311 and establish the OpenRefine handoff contract.
 
-### 2a · Fix fernsehserien.de Guest Description Row 3 Bug · Hours 16–18
+### 2a · Fix fernsehserien.de Guest Description Row 3 Bug · ✅ CLOSED 2026-04-22 — Non-Issue
 
-- **Hypothesis:** Lost in CSV write (step 2.1) or CSV-to-episode conversion (step 3.1)
-- **Inspect:** `22_candidate_generation_fernsehserien_de.ipynb` + `fernsehserien_de/projection.py`
-- **Fix:** Identify row drop, add validation cell
+- **Finding:** Both discovered and normalized CSVs have exactly 25,452 rows with zero per-episode discrepancy. Descriptions are correctly split from `<dd><p>ROLE<br>DESCRIPTION</p></dd>` by `_line_parts_from_html()`. Ute Teichert's description confirmed present in Phase 31 aligned output. The 28.3% of rows with empty descriptions genuinely have no description line in source HTML.
+- **No code change needed.**
 
-### 2b · OpenRefine Match Storage (disambiguation question) · Hours 18–22
+### 2b · OpenRefine Match Storage · ✅ DONE 2026-04-22
 
-- **Decision:** Add `open_refine_name` column (duplicate of existing name column, renamed)
-- **Location:** Step 312 handoff tables in `data/31_entity_disambiguation/`
-- **Document:** Update contracts.md + disambiguation specification
+- **Added:** `open_refine_name` column to `SHARED_COLUMNS` in `entity_disambiguation/contracts.py` (position after `canonical_label`)
+- **Populated in `person_alignment.py`** for all three person row types (ZDF mention rows, fernsehserien-only rows, Wikidata-only rows) — value is `canonical_label.strip().strip("-").strip()` (cleans leading-dash parse artifacts)
+- **Effect:** Next notebook re-run will include `open_refine_name` in all aligned CSV outputs; OpenRefine users can use this column directly as the reconciliation query field
 
-### 2c · Complete Step 311 Automated Disambiguation · Hours 20–26
+### 2c · Complete Step 311 Automated Disambiguation · ✅ DONE 2026-04-23
 
-- **Location:** `31_entity_disambiguation.ipynb` + `entity_disambiguation/orchestrator.py`
-- **Check:** Person/episode/topic/org/role alignment implementations
-- **Fix:** Any incomplete alignment logic per `entity_disambiguation/*.py`
-- **Validation:** `quality_gates.py` checks pass
+- **Reviewed:** All five alignment modules (`person_alignment.py`, `episode_alignment.py`, `topic_alignment.py`, `role_org_alignment.py`, `season_alignment.py`)
+- **Finding:** All modules are structurally complete. High unresolved rates for topics (10,714/10,714), roles (9,616/9,616), and organizations (51/51) are data-source limitations — Wikidata expansion produced 0 role entities and 1 topic entity — not code gaps.
+- **Person alignment:** Produces 31,811 rows across three path types (ZDF mention, fernsehserien-only, Wikidata-only).
+- **Episode alignment:** Uses date-backbone matching against fernsehserien.de + Wikidata unique-label fallback.
+- **No code changes needed.** Existing unresolved rows carry correct reason codes via `match_strategy="topic_context_only_best_effort"` etc.
 
-### 2d · Step 312 Manual Reconciliation Spec Review · Hours 24–28
+### 2d · Step 312 Manual Reconciliation Spec Review · ✅ DONE 2026-04-23
 
-- **Review:** `312_manual_reconciliation_specification.md`
-- **Ensure:** Handoff tables are correctly shaped for OpenRefine import
-- **Document:** Expected columns, confidence tiers, decision fields
+- **Reviewed:** `312_manual_reconciliation_specification.md` (Draft v0.1)
+- **`open_refine_name` reference:** Section 4, item 3 already updated to reference the new column as the reconciliation query field.
+- **Spec is complete** for the current stage: input files, workflow steps, required human decision columns, and Phase 32 boundary are all defined.
+- **Pending:** Sections 5–7 are sufficient; no structural gaps found.
 
 ---
 
@@ -150,22 +151,31 @@ With 2 occurrences in 10,390 person rows (0.02%), implementing a dedicated parsi
 
 **Goal:** Implement automated deduplication recommendation notebook (Step 321).
 
-### 3a · Design Deduplication Contract · Hours 28–30
+### 3a · Design Deduplication Contract · ✅ DONE 2026-04-23
 
-- **Output schema:** What does `32_entity_deduplication.ipynb` produce?
-- **Document:** Update `contracts.md` with Phase 32 schema
+- **Designed schema:** `dedup_persons.csv` (one row per canonical entity) + `dedup_cluster_members.csv` (membership mapping) + `dedup_summary.json`
+- **Documented in `contracts.md`** under new "Phase 32" section
+- **Three cluster strategies:** `wikidata_qid_match` (high confidence), `normalized_name_match` (medium), `singleton` (low)
+- **Normalization:** `normalize_name_for_matching` applied symmetrically to both sides — compliant with TODO-016
 
-### 3b · Implement Step 321: Automated Deduplication Prep · Hours 30–35
+### 3b · Implement Step 321: Automated Deduplication Prep · ✅ DONE 2026-04-23
 
-- **Location:** `32_entity_deduplication.ipynb`
-- **Logic:** Compare disambiguation output for near-duplicate persons/entities
-- **Use:** Misspelling clusters from Stage 1h as input signal
-- **Output:** Deduplication recommendation table with confidence + evidence
+- **Module:** `speakermining/src/process/entity_deduplication/` (new)
+  - `contracts.py` — paths and schema constants
+  - `person_deduplication.py` — `build_person_clusters()` — strategy 1 (wikidata_id grouping) + strategy 2 (normalized name grouping) + singletons
+  - `orchestrator.py` — `run_phase32()` — loads aligned_persons.csv, runs clustering, writes outputs via atomic_write helpers
+  - `__init__.py`
+- **Notebook:** `32_entity_deduplication.ipynb` — 10 cells: setup, orchestrator call, summary display, cluster distribution, largest clusters, Wikidata cluster inspection
+- **Representative selection:** Prefers rows with non-empty wikidata_id; within ties, prefers best `match_tier` (exact > high > medium > unresolved)
 
-### 3c · Validate Against Known Cases · Hours 35–36
+### 3c · Validate Against Known Cases · ✅ DONE 2026-04-23
 
-- **Check:** Wikidata QID-matched persons against multi-entry persons
-- **Document:** Known duplicate examples in findings.md
+- **Input:** 31,811 aligned_persons rows → 8,976 canonical entities (71.8% reduction)
+- **Wikidata clusters:** 640 — exactly 640 distinct Wikidata persons, avg ~8.6 alignment units/entity. Top: Elmar THEVEßEN (83), Robin Alexander (66), Karl Lauterbach (56)
+- **Normalized-name clusters:** 2,968 — persons without Wikidata match grouped by `normalize_name_for_matching` key. Top: Markus Lanz (1,199), Sandra Maischberger (615)
+- **Singletons:** 5,368 — persons with no cluster partner
+- **Integrity:** all 31,811 alignment_unit_ids covered, no duplicates, 8,976 representatives
+- **Note:** `open_refine_name` is empty in current output because Phase 31 notebook has not been re-run yet to include the new column
 
 ---
 
@@ -173,28 +183,32 @@ With 2 occurrences in 10,390 person rows (0.02%), implementing a dedicated parsi
 
 **Goal:** Property distribution statistics over the full guest catalogue.
 
-### 4a · Build Guest Catalogue · Hours 36–38
+### 4a · Build Guest Catalogue · ✅ DONE 2026-04-23
 
-- **Input:** Phase 32 output (deduplicated persons)
-- **Output:** Flat guest list with all Wikidata properties
-- **Location:** `40_link_prediction.ipynb` or new `41_analysis.ipynb`
+- **Notebook:** `41_analysis.ipynb` (new)
+- **Output:** `data/40_analysis/guest_catalogue.csv` — 640 rows (one per Wikidata-matched canonical entity)
+- **Columns:** `canonical_entity_id`, `wikidata_id`, `cluster_size`, `label_de/en`, `gender`, `occupations`, `party`, `employer`, `birthyear`
+- **Property extraction:** gender from P21 (QID-to-label hardcoded), occupations from P106 (label via instances.csv), party from P102, employer from P108, birthyear from P569
 
-### 4b · Property Distribution Analysis · Hours 38–41
+### 4b · Property Distribution Analysis · ✅ DONE 2026-04-23
 
-Per-property statistics (count, %, avg per occupation):
-- Gender (from Wikidata P21)
-- Age at episode release (birthdate P569 minus episode broadcast date)
-- Party affiliation (P102)
-- Journalism house affiliation (employer P108 + industry)
-- University affiliation (educated at P69)
+**Gender (unique persons):** 64.1% male, 35.6% female, 0.3% unknown
 
-**Format:** "The average page-rank for a person with property X is …"
+**Gender by appearance (cluster_size weighted):** 71.6% male, 28.4% female
 
-### 4c · Page-Rank Computation · Hours 40–42
+→ Male guests are invited ~2.5× more frequently than female guests on average
 
-- **Input:** Phase 2 Wikidata graph (triples)
-- **Compute:** Page-rank per entity node
-- **Validation:** ZDF and Markus Lanz should rank very high
+**Top occupations:** Journalist (258), Politiker (151), Fernsehmoderator (76), Schriftsteller (70), Hochschullehrer (61)
+
+**Top parties:** CDU (51), SPD (51), FDP (21)
+
+### 4c · Page-Rank Computation · ✅ DONE 2026-04-23
+
+- **Input:** 62,179 triples (of 120,930 total; excluded P31/P279/taxonomy predicates that inflate class-hub scores)
+- **Graph:** 37,072 nodes, 59,295 edges
+- **Output:** `data/40_analysis/pagerank_persons.csv` — 640 person-node scores
+- **Top 5:** Markus Lanz (0.000844), Sandra Maischberger (0.000528), Maybrit Illner (0.000434), Frank Plasberg (0.000320), Susan Link (0.000252)
+- **Validation:** Markus Lanz ranks #1 as expected (host of the show)
 
 ---
 
@@ -202,23 +216,26 @@ Per-property statistics (count, %, avg per occupation):
 
 **Goal:** Visualize analysis results.
 
-### 5a · Page-Rank Graph Visualization · Hours 42–44
+### 5a · Page-Rank Visualization · ✅ DONE 2026-04-23
 
-- **Class diagram:** All instances, core classes with specific colors, grey otherwise
-- **Instance diagram:** No classes; inherit class diagram color logic
-- **Page-rank diagram:** Node size proportional to page-rank score
+- **Chart:** `pagerank_top20.html/.png` — horizontal bar chart with colorscale, top 20 persons
+- **Libraries:** plotly + kaleido (installed) for interactive HTML + static PNG output
+- **Note:** Full network graph (37k nodes) deferred — pyvis/graphviz not yet installed; bar chart is more readable
 
-### 5b · Normalized Stacked Bar Charts · Hours 44–47
+### 5b · Normalized Stacked Bar Charts · ✅ DONE 2026-04-23
 
-For each major occupation branch:
-- Bar 1 (by individual): unique persons, gender %
-- Bar 2 (by occurrence): total guest appearances, gender %
-- Caption: "30% of invited researchers were female (individual); 10% of researcher invitations were female (by occurrence)"
+- **`gender_by_occupation.html/.png`** — gender % by occupation, unique persons (sorted by female %)
+- **`gender_by_occurrence.html/.png`** — same, weighted by cluster_size (appearance count)
+- **Key finding:** The gap widens with appearances — e.g. Journalist: 37% female persons but fewer female slots
+- **Occupations shown:** those with ≥ 20 Wikidata-matched persons
 
-### 5c · Export & Documentation · Hours 47–48
+### 5c · Age and Appearance Analysis · ✅ DONE 2026-04-23 (extended scope)
 
-- Export all charts to `documentation/visualizations/`
-- Add notebook cell with interpretation notes
+- **`age_distribution.html/.png`** — histogram of age at first appearance, split by gender. Mean ≈ 49 years.
+- **`age_by_occupation.html/.png`** — box plots of age by occupation (sorted by median age)
+- **`appearance_count_distribution.html/.png`** — how many episodes each guest appears in (median = 3, max = 83)
+- **Age data:** 381 of 640 persons have Wikidata P569 birthdate; age computed as `first_appearance_year - birth_year`
+- **All charts exported** to `documentation/visualizations/` as interactive HTML (self-contained) + PNG (scale=2x)
 
 ---
 

@@ -47,16 +47,16 @@ This snapshot maps key current implementation behavior to documentation anchors.
 
 ## Branch/Archive Documentation
 
-The following subfolders are historical design, migration, and analysis branches. They are valuable context but not automatically authoritative for current runtime behavior.
+The following subfolders are historical design, migration, and analysis branches. They are valuable context but not automatically authoritative for current runtime behavior. All have been moved to `archive/`.
 
-1. `2026-03-31_transition/`
-2. `2026-04-02_jsonl_eventsourcing/`
-3. `2026-04-03_eventsourcing_potential_unlock/`
-4. `2026-04-07_todo_resolution/`
-5. `2026-04-09_design_improvements/`
-6. `2026-04-10_great_rework/`
+1. `archive/2026-03-31_transition/`
+2. `archive/2026-04-02_jsonl_eventsourcing/`
+3. `archive/2026-04-03_eventsourcing_potential_unlock/`
+4. `archive/2026-04-07_todo_resolution/`
+5. `archive/2026-04-09_design_improvements/`
+6. `archive/2026-04-10_great_rework/`
 
-Use these branches for rationale, migration traceability, and decision history.
+Use these for rationale, migration traceability, and decision history.
 
 ## Governance Rule
 

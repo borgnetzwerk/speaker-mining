@@ -149,11 +149,11 @@ The notebook ran and produced output. Key observations:
 
 ### Design Documentation (in documentation/)
 
-Extensive design documentation exists in:
-- `documentation/31_entitiy_disambiguation/2026-04-11_redesign/` — Full redesign specs (12+ files)
-- `documentation/31_entitiy_disambiguation/2026-04-12_restart/` — Restart approach
+Extensive design documentation exists in the archive:
+- `documentation/31_entitiy_disambiguation/archive/2026-04-11_redesign/` — Full redesign specs (12+ files)
+- `documentation/31_entitiy_disambiguation/archive/2026-04-12_restart/` — Restart approach
 
-Key documents:
+Key archived documents:
 - `311_automated_disambiguation_specification.md` — Step 311 spec
 - `311_implementation_guide.md` — How-to walkthrough
 - `312_manual_reconciliation_specification.md` — Step 312 design
@@ -180,65 +180,49 @@ Detect and merge duplicate entities after cross-source alignment. Two-step model
 - **Step 322:** Human validation and merge decisions
 
 ### Status
-**Not implemented. Placeholder only.**
+**✓ IMPLEMENTED 2026-04-23** — Step 321 automated deduplication is complete.
 
 ### Files
 
 #### [32_entity_deduplication.ipynb](../speakermining/src/process/notebooks/32_entity_deduplication.ipynb)
-Contains only:
-```
-# Placeholder Notebook: 32 Entity Deduplication
-This notebook is a temporary placeholder and is not implemented yet.
-Intended future task: support manual merge review and canonical entity consolidation in data/32_entity_deduplication.
-```
+10-cell notebook: setup, `run_phase32()` call, summary display, cluster distribution, top clusters, Wikidata clusters.
 
-No Python modules exist yet for Phase 32.
+#### Module: `speakermining/src/process/entity_deduplication/`
+- `contracts.py` — paths and column schemas
+- `person_deduplication.py` — `build_person_clusters()`: 3-strategy clustering
+- `orchestrator.py` — `run_phase32()`: entry point, atomic writes
 
-### What Needs to Be Built
+### Actual Output (2026-04-23)
 
-**Step 321: Automated Deduplication Prep**
-Inputs:
-- `data/31_entity_disambiguation/aligned/aligned_persons.csv`
-- Misspelling clusters (from Stage 1h in roadmap)
-- Wikidata QIDs as deduplication anchors
-
-Logic:
-1. Group ZDF person mentions by normalized name + description similarity
-2. Identify near-duplicate person clusters (Levenshtein distance, shared QID, shared episode occurrence)
-3. Score cluster confidence; flag for human review
-
-Output:
-- `data/32_entity_deduplication/dedup_candidates.csv` — cluster id, member mention_ids, confidence, recommendation (merge/keep)
-
-**Step 322: Manual Validation**
-- Human reviews the dedup_candidates table
-- Approves or rejects merge recommendations
-- Writes `dedup_decisions.csv`
-
-### Contract Proposal
+**31,811 alignment units → 8,976 canonical entities (71.8% reduction)**
 
 ```
 data/32_entity_deduplication/
-    dedup_candidates.csv       # automated recommendations
-    dedup_decisions.csv        # human decisions
-    canonical_persons.csv      # post-merge canonical person list
+    dedup_persons.csv           # 8,976 rows — one per canonical entity
+    dedup_cluster_members.csv   # 31,811 rows — alignment_unit_id → canonical_entity_id
+    dedup_summary.json          # run statistics
 ```
+
+Cluster breakdown:
+- `wikidata_qid_match` (high confidence): 640 clusters — avg 8.6 alignment units each
+- `normalized_name_match` (medium confidence): 2,968 clusters
+- `singleton` (low confidence): 5,368 clusters
 
 ### Open Tasks for Phase 32
 
 | ID | Priority | Description |
 |----|----------|-------------|
-| (implement) | HIGH | Create Step 321 implementation in `32_entity_deduplication.ipynb` |
-| (design) | MEDIUM | Define output schema for `dedup_candidates.csv` |
-| (design) | MEDIUM | Link misspelling clusters from Phase 1 as input signal |
-| (design) | LOW | Define Step 322 manual review workflow |
+| ~~(implement)~~ | ~~HIGH~~ | ~~Create Step 321 implementation~~ — **DONE 2026-04-23** |
+| ~~(design)~~ | ~~MEDIUM~~ | ~~Define output schema~~ — **DONE 2026-04-23** (`contracts.md`) |
+| ~~(design)~~ | ~~MEDIUM~~ | ~~Link misspelling clusters~~ — **DONE** (`normalize_name_for_matching` symmetric) |
+| (design) | LOW | Step 322 manual review workflow — not yet needed |
 
 ---
 
 ## Key Interdependencies (Phase 31/32)
 
 - Phase 31 reads all Phase 1 and Phase 2 outputs
-- Phase 31 `aligned_persons.csv` → Phase 32 deduplication input
-- Phase 32 `canonical_persons.csv` → Phase 4 / analysis input
+- Phase 31 `aligned_persons.csv` → Phase 32 deduplication input ✓ (flowing)
+- Phase 32 `dedup_persons.csv` → Phase 4 / analysis input ✓ (flowing; `41_analysis.ipynb` uses this)
 - Fixing TODO-004 (mention categories) will make person alignment more precise
 - Empty `wikidata_roles` means roles will not be properly aligned until the Wikidata expansion is corrected

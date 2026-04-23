@@ -15,18 +15,20 @@ This is the authoritative source for execution order and phase ownership rules.
 Active notebook implementation order:
 
 1. `speakermining/src/process/notebooks/10_text_extraction.ipynb` (optional pre-phase; only needed when source PDFs must be converted to text dumps)
-2. `speakermining/src/process/notebooks/10_mention_detection.ipynb`
+2. `speakermining/src/process/notebooks/11_mention_detection.ipynb`
 3. `speakermining/src/process/notebooks/19_analysis.ipynb` (optional lightweight inspection of Phase 1 outputs)
 4. `speakermining/src/process/notebooks/20_candidate_generation_wikibase.ipynb`
 5. `speakermining/src/process/notebooks/21_candidate_generation_wikidata.ipynb`
 6. `speakermining/src/process/notebooks/22_candidate_generation_fernsehserien_de.ipynb`
+7. `speakermining/src/process/notebooks/31_entity_disambiguation.ipynb` (Step 311 automated; Step 312 manual via OpenRefine)
+8. `speakermining/src/process/notebooks/32_entity_deduplication.ipynb` (Step 321 automated)
+9. `speakermining/src/process/notebooks/41_analysis.ipynb` (guest catalogue, property distribution, page-rank)
+10. `speakermining/src/process/notebooks/51_visualization.ipynb` (plotly charts → `documentation/visualizations/`)
 
-Placeholder notebooks (not implemented yet):
+Placeholder notebooks (not yet implemented):
 
 1. `speakermining/src/process/notebooks/23_candidate_generation_other.ipynb`
-2. `speakermining/src/process/notebooks/31_entity_disambiguation.ipynb`
-3. `speakermining/src/process/notebooks/32_entity_deduplication.ipynb`
-4. `speakermining/src/process/notebooks/40_link_prediction.ipynb`
+2. `speakermining/src/process/notebooks/40_link_prediction.ipynb`
 
 Historical notebook (legacy placeholder):
 

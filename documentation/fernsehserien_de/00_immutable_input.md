@@ -99,8 +99,8 @@ Particularly important is the Event-Sourcing:
 * every projection, such as "list of episodes" or "list of guests" or any other data beyond events 
 
 The potential for Event-Sourcing was already discussed in two previous migrations:
-* `documentation/Wikidata/2026-04-02_jsonl_eventsourcing`
-* `documentation/Wikidata/2026-04-03_eventsourcing_potential_unlock`
+* `documentation/Wikidata/archive/2026-04-02_jsonl_eventsourcing`
+* `documentation/Wikidata/archive/2026-04-03_eventsourcing_potential_unlock`
 Since the code for fernsehserien.de is written from scratch, we can ensure we follow the eventsourcing principles perfectly. We need to utilize this freedom and unlock the potential of eventsourcing.
 
 ### Wait time

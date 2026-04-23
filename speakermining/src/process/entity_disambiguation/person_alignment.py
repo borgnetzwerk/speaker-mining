@@ -119,6 +119,7 @@ def build_aligned_persons(
             "fernsehserien_de_id": fs_episode_url,
             "mention_id": mention_id,
             "canonical_label": name,
+            "open_refine_name": name.strip().strip("-").strip(),
             "entity_class": "person",
             "match_confidence": round(confidence, 3),
             "match_tier": tier,
@@ -174,6 +175,7 @@ def build_aligned_persons(
             "fernsehserien_de_id": fs_episode_url,
             "mention_id": "",
             "canonical_label": guest_name,
+            "open_refine_name": guest_name.strip().strip("-").strip(),
             "entity_class": "person",
             "match_confidence": 0.0,
             "match_tier": UNRESOLVED_TIER,
@@ -214,12 +216,14 @@ def build_aligned_persons(
         if wd_id in used_wikidata_ids:
             continue
 
+        wd_label = wd_item.get("label", "")
         row = {
             "alignment_unit_id": stable_id("person_wd", wd_id),
             "wikidata_id": wd_id,
             "fernsehserien_de_id": "",
             "mention_id": "",
-            "canonical_label": wd_item.get("label", ""),
+            "canonical_label": wd_label,
+            "open_refine_name": wd_label.strip().strip("-").strip(),
             "entity_class": "person",
             "match_confidence": 0.0,
             "match_tier": UNRESOLVED_TIER,

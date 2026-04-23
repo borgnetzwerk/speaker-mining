@@ -60,133 +60,83 @@ This provides a clear ground-truth check — if these entities don't rank high, 
 ## Analysis
 
 ### Purpose
-Compute property distribution statistics over the full guest catalogue. Specified in `speaker_mining_code.md`:
-
-> "The average page-rank for a person with property X is ..."
-> "Make a list of all guests. Then make a list of all their properties. Then analyze all these properties and make a statistic of their values."
+Compute property distribution statistics over the full guest catalogue.
 
 ### Status
-**Not implemented.** No analysis notebook or module exists. The `19_analysis.ipynb` is limited to Phase 1 confidence checks only.
+**✓ IMPLEMENTED 2026-04-23** — `41_analysis.ipynb` is complete and producing outputs.
 
-### What Needs to Be Built
+### Files
 
-#### New Notebook: `41_analysis.ipynb` (or extend `40_link_prediction.ipynb`)
+#### [41_analysis.ipynb](../speakermining/src/process/notebooks/41_analysis.ipynb)
 
-**Section 1: Guest Catalogue**
+Three-section notebook:
 
-Build flat guest list from Phase 32 canonical persons with all Wikidata properties:
-```python
-# Merge canonical_persons with wikidata_persons.json
-# Output: one row per guest with all properties
-guests_catalogue = merge(canonical_persons, wikidata_instances)
-```
+| Section | Description |
+|---------|-------------|
+| 4a | Guest catalogue build — merge Phase 32 canonical entities with Wikidata properties → `data/40_analysis/guest_catalogue.csv` |
+| 4b | Property distribution — gender/occupation/party/age statistics over 640 Wikidata-matched persons |
+| 4c | Page-rank computation — 37,072 nodes / 59,295 edges (taxonomy predicates excluded); → `data/40_analysis/pagerank_persons.csv` |
 
-**Section 2: Property Distribution**
+### Actual Output (2026-04-23)
 
-For each key Wikidata property, compute statistics:
+**`data/40_analysis/guest_catalogue.csv`** — 640 rows (Wikidata-matched canonical entities only)
 
-| Property | Wikidata PID | Analysis |
-|----------|-------------|---------|
-| Gender | P21 | % male / female / other across all guests and by occupation |
-| Date of birth | P569 | Derive age at episode date; histogram |
-| Party affiliation | P102 | Distribution of political parties |
-| Employer / journalism house | P108 | Major media organizations |
-| University / educated at | P69 | Academic institutions |
-| Occupation | P106 | Role/occupation distribution |
+Key columns: `canonical_entity_id`, `wikidata_id`, `cluster_size`, `label_de`, `gender`, `occupations`, `party`, `birthyear`, `first_appearance_year`, `last_appearance_year`, `median_appearance_year`, `episode_count`, `age_at_first_appearance`, `age_at_median_appearance`
 
-**Key computation — Age at episode:**
-```python
-# For each guest-episode pair:
-age_at_episode = episode_broadcast_date - person_birthdate
-# Use publications.csv for broadcast dates
-```
+**`data/40_analysis/pagerank_persons.csv`** — 640 rows
 
-**Expected statistics format:**
-```
-"The average page-rank for a person with property P21=female is X"
-"30% of invited researchers were female (by individual)"
-"10% of researcher invitations were female (by occurrence)"
-```
+Top results: Markus Lanz (0.000844), Sandra Maischberger (0.000528), Maybrit Illner (0.000434) — validates graph wiring.
 
-**Section 3: Per-Occupation Sub-Analysis**
+### Design Notes
 
-For each major occupation branch:
-- Count unique persons
-- Count total appearances (occurrences)
-- Gender breakdown (by individual AND by occurrence)
-- Average age at first appearance
+- Page-rank predicate filter: `EXCLUDE_PREDICATES = {P31, P279, P1889, P460, ...}` — prevents class-hub dominance by ontology concepts
+- Guest catalogue has 640 rows, not 8,976: the join with Wikidata is the limiting factor; unmatched entities lack property data. See **TODO-019** for the complementary unmatched-persons list.
 
-**Section 4: Page-Rank Statistics**
+### Open Tasks
 
-- Average page-rank by gender
-- Average page-rank by occupation
-- Average page-rank by party affiliation
+| ID | Priority | Description |
+|----|----------|-------------|
+| TODO-019 | high | Complete guest catalogue: add ~8,336 unmatched canonical entities to a separate list |
+| TODO-020 | medium | Extended gender distribution: grouped bars + occupation subclustering |
+| TODO-021 | low | Predictive analytics: identify what predicts other properties (gender, age) |
+| TODO-022 | medium | Compare to prior work: Arrrrrmin, Spiegel, Omar datasets |
 
 ---
 
 ## Visualization
 
 ### Purpose
-Visualize all analysis results. Specified in detail in `speaker_mining_code.md`.
+Visualize all analysis results.
 
 ### Status
-**Not implemented.** No visualization notebook or module exists.
-`documentation/visualizations/` exists but only contains the workflow diagram PNG.
+**✓ IMPLEMENTED 2026-04-23** — `51_visualization.ipynb` is complete and producing outputs.
 
-### What Needs to Be Built
+### Files
 
-#### Page-Rank Graph Visualization
+#### [51_visualization.ipynb](../speakermining/src/process/notebooks/51_visualization.ipynb)
 
-**Class diagram:**
-- All instances, organized by class
-- Core classes (persons, episodes, organizations, etc.) have specific colors
-- Other/unknown classes are grey
+Plotly-based visualization notebook; 5 chart types:
 
-**Instance diagram:**
-- No class labels shown
-- Inherits color from class assignment
-- Node size proportional to page-rank score
-- Validation: ZDF and Markus Lanz nodes should be very large
+| Chart | Description |
+|-------|-------------|
+| Page-rank bar | Top 20 persons by page-rank score |
+| Gender stacked bars (by individual) | Gender breakdown per occupation, each unique person counted once |
+| Gender stacked bars (by occurrence) | Gender breakdown per occupation, each appearance counted separately |
+| Age histogram | Age at first appearance |
+| Appearance count histogram | Episodes per canonical person |
 
-**Implementation suggestion:**
-- Use `networkx` + `pyvis` or `plotly` for interactive graph
-- Or `graphviz` / `d3.js` for publication-quality output
-- Input: `data/20_candidate_generation/wikidata/projections/triples.csv` (120,930 edges) — may need subsampling for visual clarity
+All charts exported to `documentation/visualizations/` as **HTML** (interactive) and **PNG** (scale=2x via kaleido).
 
-#### Normalized Stacked Bar Charts
+**Implementation stack:** Plotly Express + kaleido for export; colorblind-friendly palette; Windows path handling for kaleido.
 
-**Design specification (from `speaker_mining_code.md`):**
+### Open Tasks
 
-> "Every time there is a bar, make two: One 'by individual', one 'by occurrence'."
->
-> "30% of the invited researchers were female. When a researcher was guest, 10% of them were female."
->
-> Bar 1 (by individual): each unique person counted once regardless of appearance count.  
-> Bar 2 (by occurrence): each guest appearance counted separately.
-
-**Charts to produce:**
-
-1. **Total gender distribution** — all guests, by individual and by occurrence
-2. **Gender by occupation branch** — each major occupation category
-3. **Age distribution** — histogram at time of episode
-4. **Party affiliation distribution** — top N parties
-5. **Media house affiliation** — top N journalism organizations
-6. **University affiliation** — top N institutions
-
-**Implementation suggestion:**
-```python
-import matplotlib.pyplot as plt
-# or
-import plotly.express as px
-
-# Each chart: two bars side-by-side (by_individual, by_occurrence)
-# Normalized to 100% (stacked within each bar)
-# Color: gender-standard colors or custom palette
-```
-
-**Export:**
-- Save all charts to `documentation/visualizations/`
-- Include both PNG and HTML (interactive) versions
+| ID | Priority | Description |
+|----|----------|-------------|
+| TODO-020 | medium | Extended gender distribution: grouped (side-by-side) bars combining unique and occurrence views |
+| TODO-023 | medium | Dataset overview: dashboard-like visualizations per core class |
+| TODO-024 | medium | Visualization principles document: formalize from existing work, review `ToDo/visualization_references` |
+| TODO-025 | medium | Ingest `21_wikidata_vizualization.ipynb` visualizations + 5 targeted improvements |
 
 ---
 
@@ -222,26 +172,22 @@ These are explicitly documented as potentially out of scope or advised against:
 
 ## Key Interdependencies (Phase 4 + Analysis + Visualization)
 
-- Phase 4 requires Phase 32 canonical persons (not yet built)
-- Analysis requires Phase 4 page-rank scores and Phase 2 Wikidata property data
-- Visualization requires Analysis outputs
-- Gender analysis uses **only Wikidata P21** — not description inference
-- Age computation uses `publications.csv` broadcast dates from Phase 1
-- Page-rank uses `triples.csv` from Phase 2 Wikidata (already available: 120,930 edges)
+- Phase 4 (link prediction) still placeholder — not yet needed for current analysis outputs
+- `41_analysis.ipynb` reads Phase 32 `dedup_persons.csv` + `dedup_cluster_members.csv` ✓ (flowing)
+- `51_visualization.ipynb` reads `data/40_analysis/guest_catalogue.csv` ✓ (flowing)
+- Gender analysis uses **only Wikidata P21** — not description inference (confirmed policy)
+- Age computation uses episode `publikationsdatum` via `persons.csv` → `episodes.csv` join chain
+- Page-rank uses `triples.csv` from Phase 2 Wikidata (120,930 edges; 37,072 usable after predicate filter)
 
 ---
 
-## Available Data for Analysis (Already Computed)
-
-The following data is already available and can be used immediately:
+## Current Data State (2026-04-23)
 
 | Data | Location | Rows | Notes |
 |------|----------|------|-------|
 | Wikidata persons | `projections/instances_core_persons.json` | 640 | 767 properties each |
-| Wikidata triples | `projections/triples.csv` | 120,930 | Graph edges for page-rank |
-| ZDF persons | `data/10_mention_detection/persons.csv` | 10,381 | With episode links |
-| fernsehserien.de guests | `projections/episode_guests_normalized.csv` | 25,452 | With episode URLs |
-| Aligned persons | `data/31_entity_disambiguation/aligned/aligned_persons.csv` | — | Cross-source links |
-| Wikidata organizations | `projections/instances_core_organizations.json` | 51 | 881 properties |
-
-Even without Phase 32 deduplication, a preliminary analysis can be conducted directly on `aligned_persons.csv` filtered to `match_tier != unresolved`.
+| Wikidata triples | `projections/triples.csv` | 120,930 | 59,295 usable after predicate filter |
+| Phase 32 canonical entities | `data/32_entity_deduplication/dedup_persons.csv` | 8,976 | 640 Wikidata-matched; 8,336 unmatched |
+| Guest catalogue | `data/40_analysis/guest_catalogue.csv` | 640 | Wikidata-matched only — see TODO-019 |
+| Page-rank scores | `data/40_analysis/pagerank_persons.csv` | 640 | Top: Markus Lanz, Maischberger, Illner |
+| Visualizations | `documentation/visualizations/` | 5 chart types | HTML + PNG |

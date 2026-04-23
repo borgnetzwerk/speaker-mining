@@ -13,7 +13,7 @@
 | [PHASE_ANALYSIS_P2.md](PHASE_ANALYSIS_P2.md) | Phase 2 (Wikidata + fernsehserien.de candidate generation) | Complete |
 | [PHASE_ANALYSIS_P31_P32.md](PHASE_ANALYSIS_P31_P32.md) | Phase 31 (disambiguation) + Phase 32 (deduplication) | Complete |
 | [PHASE_ANALYSIS_P4_ANALYSIS_VIZ.md](PHASE_ANALYSIS_P4_ANALYSIS_VIZ.md) | Phase 4 (link prediction) + Analysis + Visualization | Complete |
-| [ROADMAP_48H.md](ROADMAP_48H.md) | 48-hour staged implementation roadmap | Complete |
+| [ROADMAP_48H.md](archive/ROADMAP_48H.md) | 48-hour staged implementation roadmap | Complete (archived) |
 
 ---
 
@@ -26,13 +26,13 @@
 | Phase 1 inspect | `19_analysis.ipynb` | ✓ Optional | Confidence checks only |
 | Phase 2a | `20_candidate_generation_wikibase.ipynb` | ✓ Active (legacy prereq) | Must run before 2b |
 | Phase 2b | `21_candidate_generation_wikidata.ipynb` | ✓ Complete | v3 event-sourced engine |
-| Phase 2c | `22_candidate_generation_fernsehserien_de.ipynb` | ✓ Complete | 1 known bug (row 3 missing) |
+| Phase 2c | `22_candidate_generation_fernsehserien_de.ipynb` | ✓ Complete | Row 3 bug CLOSED 2026-04-22 (non-issue) |
 | Phase 2d | `23_candidate_generation_other.ipynb` | ✗ Placeholder | Not implemented |
 | Phase 31 | `31_entity_disambiguation.ipynb` | ✓ Step 311 runs | Step 312 needs tooling |
-| Phase 32 | `32_entity_deduplication.ipynb` | ✗ Placeholder | Not implemented |
+| Phase 32 | `32_entity_deduplication.ipynb` | ✓ Implemented 2026-04-23 | 31,811→8,976 entities (71.8% reduction) |
 | Phase 4 | `40_link_prediction.ipynb` | ✗ Placeholder | Not implemented |
-| Analysis | — | ✗ Not started | Requires Phase 32 |
-| Visualization | — | ✗ Not started | Requires Analysis |
+| Analysis | `41_analysis.ipynb` (new) | ✓ Done 2026-04-23 | Guest catalogue + page-rank computed |
+| Visualization | `51_visualization.ipynb` (new) | ✓ Done 2026-04-23 | 5 chart types (plotly HTML+PNG) |
 
 ---
 
@@ -65,7 +65,7 @@
 | ~~TODO-009~~ | ~~P1~~ | ~~EPISODE 363 `infos` field empty~~ — **RESOLVED 2026-04-22** | |
 | ~~TODO-008~~ | ~~P1~~ | ~~13 episodes with no guest extractions~~ — **TRIAGED 2026-04-22** (all not_extractable) | |
 | ~~TODO-001~~ | ~~P1~~ | ~~Cross-archive episode duplicates~~ — **ALREADY RESOLVED** (stable SHA1 ID + exact dedup) | |
-| (bug) | P2c | Row 3 of fernsehserien.de guest description missing | `fernsehserien_de/projection.py` |
+| ~~(bug)~~ | ~~P2c~~ | ~~Row 3 of fernsehserien.de guest description missing~~ — **CLOSED 2026-04-22 (non-issue)** | |
 | (empty) | P31 | `wikidata_roles` is 0 rows — role alignment impossible | Wikidata expansion config |
 
 ### Medium Priority
@@ -86,6 +86,7 @@
 | TODO-005 | P1 | Institution extraction responsibility clarification |
 | TODO-006 | Analysis | Gender-framing analysis methodology |
 | TODO-007 | Analysis | Role/occupation merge strategy |
+| TODO-016 | Architecture | Normalization-timing policy — when to store vs. derive; symmetric-both-sides requirement for match keys |
 | (future) | Governance | Forbidden Features / Data Privacy Catalogue |
 
 ---
@@ -169,7 +170,7 @@ Finding F-013: many early episodes on fernsehserien.de have no guest data. This 
 ## Recommended Next Steps (Priority Order)
 
 1. ~~**Stage 1 (Phase 1 bugs)**~~ — **ALL DONE 2026-04-22** (TODO-001/002/003/004/008/009/010/015)
-2. **Fix fernsehserien.de row 3 bug** — `fernsehserien_de/projection.py` (Stage 2a)
+2. ~~**Fix fernsehserien.de row 3 bug**~~ — **CLOSED 2026-04-22 (non-issue)**
 3. **Re-run `11_mention_detection.ipynb`** to generate persons.csv with new fields (`mention_category`, expanded abbreviations)
 4. **Add `open_refine_name` columns** to Phase 31 handoff tables
 5. **Implement Phase 32** deduplication notebook (Step 321)
