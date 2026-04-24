@@ -73,8 +73,8 @@ class ArtifactPaths:
         return self.projections_dir / "triple_events.json"
 
 
-def core_instances_json_filename(class_filename: str) -> str:
-    return f"instances_core_{canonical_class_filename(class_filename)}.json"
+def core_json_filename(class_filename: str) -> str:
+    return f"core_{canonical_class_filename(class_filename)}.json"
 
 
 def canonical_class_filename(name: str) -> str:

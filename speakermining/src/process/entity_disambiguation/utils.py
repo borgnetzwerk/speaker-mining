@@ -114,6 +114,7 @@ def prefixed_row_values(
     *,
     suffix: str,
     exclude: set[str] | None = None,
+    include: set[str] | None = None,
 ) -> dict[str, str]:
     excluded = exclude or set()
     out: dict[str, str] = {}
@@ -124,6 +125,8 @@ def prefixed_row_values(
 
     for key, value in items:
         if key in excluded:
+            continue
+        if include is not None and key not in include:
             continue
         out[f"{key}_{suffix}"] = str(value or "")
     return out

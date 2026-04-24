@@ -10,7 +10,7 @@ from .common import language_projection_suffix, parquet_sidecars_enabled, projec
 from .schemas import (
     build_artifact_paths,
     canonical_class_filename,
-    core_instances_json_filename,
+    core_json_filename,
 )
 
 _QID_RE = re.compile(r"^Q[1-9][0-9]*$")
@@ -48,6 +48,7 @@ def _load_class_setup_rows(repo_root: Path, setup_filename: str) -> list[dict]:
                 "filename": filename,
                 "label": str(row.get("label", "") or ""),
                 "wikidata_id": str(row.get("wikidata_id", "") or ""),
+                "projection_mode": str(row.get("projection_mode", "") or "instances").strip() or "instances",
             }
         )
     return rows
@@ -230,8 +231,8 @@ def ensure_output_bootstrap(repo_root: Path) -> None:
         class_filename = str(row.get("filename", "") or "")
         if not class_filename:
             continue
-        json_name = core_instances_json_filename(class_filename)
-        non_relevant_json_name = f"not_relevant_instance_core_{canonical_class_filename(class_filename)}.json"
+        json_name = core_json_filename(class_filename)
+        non_relevant_json_name = f"not_relevant_core_{canonical_class_filename(class_filename)}.json"
         active_core_json_files.add(json_name)
         active_core_json_files.add(non_relevant_json_name)
         _empty_json_object(paths.projections_dir / json_name)
@@ -241,7 +242,15 @@ def ensure_output_bootstrap(repo_root: Path) -> None:
             legacy_core_csv_path.unlink()
         legacy_core_parquet_path = legacy_core_csv_path.with_suffix(".parquet")
         legacy_core_parquet_path.unlink(missing_ok=True)
-    for core_json_path in paths.projections_dir.glob("instances_core_*.json"):
+    # Remove old instances_core_*.json files (superseded by core_*.json naming).
+    for old_json_path in paths.projections_dir.glob("instances_core_*.json"):
+        if old_json_path.is_file():
+            old_json_path.unlink()
+    # Remove old not_relevant_instance_core_*.json files (superseded by not_relevant_core_*.json naming).
+    for old_json_path in paths.projections_dir.glob("not_relevant_instance_core_*.json"):
+        if old_json_path.is_file():
+            old_json_path.unlink()
+    for core_json_path in paths.projections_dir.glob("core_*.json"):
         if core_json_path.name not in active_core_json_files and core_json_path.is_file():
             core_json_path.unlink()
     for row in core_rows:

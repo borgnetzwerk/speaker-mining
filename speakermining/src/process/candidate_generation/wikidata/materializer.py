@@ -8,7 +8,7 @@ from collections import deque
 from dataclasses import dataclass
 from urllib.parse import quote
 from pathlib import Path
-from time import perf_counter
+from time import perf_counter, sleep
 from collections import Counter
 
 import pandas as pd
@@ -42,6 +42,7 @@ from .common import (
     canonical_pid,
     canonical_qid,
     effective_core_class_qids,
+    get_active_wikidata_languages,
     language_projection_suffix,
     parquet_sidecars_enabled,
     projection_languages,
@@ -50,14 +51,23 @@ from .event_log import get_query_event_field, get_query_event_response_data, ite
 from .node_store import (
     activate_core_subclass,
     flush_node_store,
+    get_item,
     iter_items,
     iter_properties,
     mark_inactive_core_subclass,
+    upsert_discovered_item,
 )
 from .inlinks import build_subclass_inlinks_query, parse_subclass_inlinks_results
-from .entity import get_or_fetch_entities_batch, get_or_fetch_entity
+from .entity import (
+    get_or_fetch_entities_batch,
+    get_or_fetch_entity,
+    _build_wbgetentities_url,
+    _ensure_literal_coverage_marker,
+    _filter_entity_payload_languages,
+    _payload_from_entity_doc,
+)
 from .schemas import build_artifact_paths
-from .schemas import core_instances_json_filename
+from .schemas import core_json_filename
 from .triple_store import flush_triple_events, iter_unique_triples
 from .graceful_shutdown import should_terminate
 from .relevancy import bootstrap_relevancy_events
@@ -812,20 +822,30 @@ def _remove_stale_core_instance_projections(paths, active_json_files: set[str]) 
         legacy_parquet_path = legacy_csv_path.with_suffix(".parquet")
         legacy_parquet_path.unlink(missing_ok=True)
 
-    for json_path in paths.projections_dir.glob("instances_core_*.json"):
+    # Remove old instances_core_*.json files (superseded by core_*.json naming).
+    for old_json_path in paths.projections_dir.glob("instances_core_*.json"):
+        if old_json_path.is_file():
+            old_json_path.unlink()
+
+    # Remove old not_relevant_instance_core_*.json files (superseded by not_relevant_core_*.json naming).
+    for old_json_path in paths.projections_dir.glob("not_relevant_instance_core_*.json"):
+        if old_json_path.is_file():
+            old_json_path.unlink()
+
+    for json_path in paths.projections_dir.glob("core_*.json"):
         if json_path.name not in active_json_files and json_path.is_file():
             json_path.unlink()
 
-    for json_path in paths.projections_dir.glob("not_relevant_instance_core_*.json"):
+    for json_path in paths.projections_dir.glob("not_relevant_core_*.json"):
         if json_path.name not in active_json_files and json_path.is_file():
             json_path.unlink()
 
     # Remove deprecated duplicate top-level class JSON outputs
-    # (e.g. persons.json, episodes.json) in favor of instances_core_*.json.
+    # (e.g. persons.json, episodes.json) in favor of core_*.json.
     for active_name in active_json_files:
-        if not active_name.startswith("instances_core_") or not active_name.endswith(".json"):
+        if not active_name.startswith("core_") or not active_name.endswith(".json"):
             continue
-        class_filename = active_name[len("instances_core_") : -len(".json")]
+        class_filename = active_name[len("core_") : -len(".json")]
         legacy_core_json_path = paths.projections_dir / f"{class_filename}.json"
         if legacy_core_json_path.is_file():
             legacy_core_json_path.unlink()
@@ -1179,16 +1199,15 @@ def _write_core_instance_projections(
         }
 
     non_class_instances_df = instances_df[~instances_df["id"].isin(class_node_ids)].copy()
-    if non_class_instances_df.empty:
+    class_nodes_df = instances_df[instances_df["id"].isin(class_node_ids)].copy()
+
+    if non_class_instances_df.empty and class_nodes_df.empty:
         _write_tabular_artifact(paths.instances_leftovers_csv, non_class_instances_df)
         _remove_stale_core_instance_projections(paths, set())
         return projection_row_counts
 
     non_class_instances_df = _apply_core_output_boundary_filter(repo_root, non_class_instances_df)
-    if non_class_instances_df.empty:
-        _write_tabular_artifact(paths.instances_leftovers_csv, non_class_instances_df)
-        _remove_stale_core_instance_projections(paths, set())
-        return projection_row_counts
+    class_nodes_df = _apply_core_output_boundary_filter(repo_root, class_nodes_df)
 
     resolution_lookup: dict[str, str] = {}
     if class_resolution_map_df is not None and not class_resolution_map_df.empty:
@@ -1198,19 +1217,32 @@ def _write_core_instance_projections(
             if class_id and core_id:
                 resolution_lookup[class_id] = core_id
 
-    if resolution_lookup:
-        non_class_instances_df["resolved_core_class_id"] = non_class_instances_df["class_id"].map(
-            lambda q: resolution_lookup.get(canonical_qid(str(q or "")), "")
-        )
-        fallback_mask = non_class_instances_df["resolved_core_class_id"] == ""
-        if bool(fallback_mask.any()):
-            non_class_instances_df.loc[fallback_mask, "resolved_core_class_id"] = non_class_instances_df.loc[
-                fallback_mask
-            ].apply(lambda row: _resolve_row_core_class_id(row, core_class_qids), axis=1)
-    else:
-        non_class_instances_df["resolved_core_class_id"] = non_class_instances_df.apply(
-            lambda row: _resolve_row_core_class_id(row, core_class_qids), axis=1
-        )
+    def _apply_resolution(df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty:
+            df["resolved_core_class_id"] = pd.Series(dtype=str)
+            return df
+        if resolution_lookup:
+            df["resolved_core_class_id"] = df["class_id"].map(
+                lambda q: resolution_lookup.get(canonical_qid(str(q or "")), "")
+            )
+            fallback_mask = df["resolved_core_class_id"] == ""
+            if bool(fallback_mask.any()):
+                df.loc[fallback_mask, "resolved_core_class_id"] = df.loc[fallback_mask].apply(
+                    lambda row: _resolve_row_core_class_id(row, core_class_qids), axis=1
+                )
+        else:
+            df["resolved_core_class_id"] = df.apply(
+                lambda row: _resolve_row_core_class_id(row, core_class_qids), axis=1
+            )
+        return df
+
+    if non_class_instances_df.empty and class_nodes_df.empty:
+        _write_tabular_artifact(paths.instances_leftovers_csv, non_class_instances_df)
+        _remove_stale_core_instance_projections(paths, set())
+        return projection_row_counts
+
+    non_class_instances_df = _apply_resolution(non_class_instances_df)
+    class_nodes_df = _apply_resolution(class_nodes_df)
 
     entity_by_qid = {
         canonical_qid(str(item.get("id", "") or "")): item
@@ -1268,16 +1300,18 @@ def _write_core_instance_projections(
         core_qid = canonical_qid(str(row.get("wikidata_id", "") or ""))
         if not class_filename or not core_qid:
             continue
-        json_path = paths.projections_dir / core_instances_json_filename(class_filename)
-        not_relevant_json_path = paths.projections_dir / f"not_relevant_instance_core_{class_filename}.json"
+        json_path = paths.projections_dir / core_json_filename(class_filename)
+        not_relevant_json_path = paths.projections_dir / f"not_relevant_core_{class_filename}.json"
         active_json_files.add(json_path.name)
         active_json_files.add(not_relevant_json_path.name)
         include_class_ids = include_map.get(core_qid, set())
         exclude_class_ids = exclude_map.get(core_qid, set())
 
-        mask_resolved = non_class_instances_df["resolved_core_class_id"] == core_qid
-        mask_rewired = non_class_instances_df["class_id"].isin(include_class_ids)
-        core_projection_df = non_class_instances_df[mask_resolved | mask_rewired].copy()
+        projection_mode = str(row.get("projection_mode", "") or "instances").strip() or "instances"
+        source_df = class_nodes_df if projection_mode == "subclasses" else non_class_instances_df
+        mask_resolved = source_df["resolved_core_class_id"] == core_qid
+        mask_rewired = source_df["class_id"].isin(include_class_ids)
+        core_projection_df = source_df[mask_resolved | mask_rewired].copy()
         if exclude_class_ids:
             core_projection_df = core_projection_df[~core_projection_df["class_id"].isin(exclude_class_ids)].copy()
         if "resolved_core_class_id" in core_projection_df.columns:
@@ -1460,6 +1494,7 @@ def crawl_subclass_expansion(
     http_backoff_base_seconds: float,
     page_limit: int,
     superclass_branch_discovery_max_depth: int = 0,
+    additional_active_class_predicates: tuple[str, ...] = (),
 ) -> dict:
     """Crawl subclass frontiers from every core class using direct incoming P279 links.
 
@@ -1500,6 +1535,7 @@ def crawl_subclass_expansion(
             "max_depth": int(max_depth),
             "page_limit": int(page_limit),
             "superclass_branch_discovery_max_depth": int(superclass_branch_discovery_max_depth),
+            "additional_active_class_predicates": list(additional_active_class_predicates or ()),
         },
     )
 
@@ -1790,6 +1826,14 @@ def crawl_subclass_expansion(
             force=True,
         )
 
+        _seed_pids: frozenset[str] = frozenset(
+            p for p in (
+                [canonical_pid("P31")]
+                + [canonical_pid(str(p)) for p in (additional_active_class_predicates or ())]
+            )
+            if p
+        )
+
         triple_active_classes: set[str] = set()
         triples_projection_path = paths.triples_csv
         triple_projection_rows = 0
@@ -1803,10 +1847,10 @@ def crawl_subclass_expansion(
                     na_filter=False,
                 )
                 triple_projection_rows = int(len(triples_df))
-                p31_mask = triples_df["predicate"].astype(str).map(canonical_pid) == "P31"
+                _seed_pred_series = triples_df["predicate"].astype(str).map(canonical_pid)
                 triple_active_classes = {
                     canonical_qid(str(qid))
-                    for qid in triples_df.loc[p31_mask, "object"].astype(str).tolist()
+                    for qid in triples_df.loc[_seed_pred_series.isin(_seed_pids), "object"].astype(str).tolist()
                     if canonical_qid(str(qid))
                 }
             except Exception:
@@ -1833,7 +1877,7 @@ def crawl_subclass_expansion(
                     )
                     break
                 predicate = canonical_pid(str(triple.get("predicate", "") or ""))
-                if predicate == "P31":
+                if predicate in _seed_pids:
                     object_qid = canonical_qid(str(triple.get("object", "") or ""))
                     if object_qid:
                         triple_active_classes.add(object_qid)
@@ -2481,3 +2525,439 @@ def materialize_checkpoint(repo_root: Path, *, run_id: str, checkpoint_ts: str, 
 
 def materialize_final(repo_root: Path, *, run_id: str) -> dict:
     return _materialize(repo_root, run_id=run_id, stage="final", seed_id=None)
+
+
+# ---------------------------------------------------------------------------
+# Step 2.4.2 — Property-Value Basic Hydration
+# ---------------------------------------------------------------------------
+
+_DEFAULT_PROPERTY_HYDRATION_PREDICATES: tuple[str, ...] = (
+    "P106",  # occupation
+    "P102",  # member of political party
+    "P108",  # employer
+    "P21",   # sex or gender
+    "P527",  # has part(s)
+    "P17",   # country
+)
+
+_PROPERTY_HYDRATION_BATCH_SIZE = 50  # Wikidata wbgetentities limit per unauthenticated call
+
+
+def _claim_item_qids_from_doc(entity_doc: dict, pid: str) -> list[str]:
+    """Extract QID values from a specific claim property in an entity document."""
+    claims = entity_doc.get("claims", {}) if isinstance(entity_doc.get("claims"), dict) else {}
+    stmts = claims.get(pid, []) or []
+    result: list[str] = []
+    for stmt in stmts:
+        try:
+            qid = stmt["mainsnak"]["datavalue"]["value"]["id"]
+            qid_norm = canonical_qid(str(qid))
+            if qid_norm:
+                result.append(qid_norm)
+        except (KeyError, TypeError):
+            continue
+    return result
+
+
+def _try_local_class_resolution(
+    entity_doc: dict,
+    root: Path,
+    core_class_qids: set[str],
+) -> dict | None:
+    """Attempt local-only class resolution via P279 chain without network calls.
+
+    Returns a class_catalogue dict if the entity can be identified as a valid core
+    class subclass using only locally stored data, or None if resolution is inconclusive.
+    """
+    p279_parents = _claim_item_qids_from_doc(entity_doc, "P279")
+    if not p279_parents:
+        return None
+
+    for parent_qid in p279_parents:
+        if parent_qid in core_class_qids:
+            return {
+                "is_valid_core_subclass": True,
+                "resolved_core_class_id": parent_qid,
+                "resolution_depth": 1,
+                "max_depth": None,
+            }
+        parent_item = get_item(root, parent_qid)
+        if not isinstance(parent_item, dict):
+            continue
+        parent_catalogue = parent_item.get("class_catalogue", {})
+        if not isinstance(parent_catalogue, dict):
+            continue
+        if parent_catalogue.get("is_valid_core_subclass"):
+            resolved_core = canonical_qid(str(parent_catalogue.get("resolved_core_class_id", "") or ""))
+            parent_depth = parent_catalogue.get("resolution_depth")
+            depth = (int(parent_depth) + 1) if parent_depth is not None else None
+            return {
+                "is_valid_core_subclass": True,
+                "resolved_core_class_id": resolved_core,
+                "resolution_depth": depth,
+                "max_depth": None,
+            }
+    return None
+
+
+def run_property_value_hydration(
+    root: Path | str,
+    *,
+    run_id: str = "",
+    query_budget_remaining: int = -1,
+    cache_max_age_days: int = 365,
+    query_timeout_seconds: int = 5,
+    query_delay_seconds: float = 1.0,
+    progress_every_calls: int = 50,
+    heartbeat_interval_seconds: float = 60.0,
+    http_max_retries: int = 4,
+    http_backoff_base_seconds: float = 1.0,
+    hydration_predicates: list[str] | None = None,
+    hydrate_all_core_instance_objects: bool = True,
+    hydrate_all_objects: bool = False,
+) -> dict:
+    """Hydrate basic metadata for nodes referenced as property values on core class instances.
+
+    Runs AFTER subclass preflight (Step 2.4). Ensures that every node referenced by an
+    expanded core class instance has label/description/alias/P31/P279 data in the entity
+    store, so downstream analysis notebooks can resolve QID labels without bare-QID fallback.
+
+    Hydration scope (evaluated in priority order):
+    1. Objects of whitelisted predicates (hydration_predicates list).
+    2. If hydrate_all_core_instance_objects=True: ALL objects of expanded non-class nodes.
+    3. If hydrate_all_objects=True: every object QID in the triple store.
+       WARNING: enabling this may trigger thousands of network fetches. Leave False unless
+       the total unhydrated QID count has been verified to be manageable.
+
+    For each candidate QID:
+    - Already hydrated (labels present, not inactive_guarded): skipped.
+    - inactive_guarded: activate_core_subclass called (removes guard, stores fetched labels).
+    - Absent from store: upsert_discovered_item called; if P279 chain resolves to a core
+      class via local data, the entity is additionally marked as an active class node.
+
+    All network calls respect documentation/Wikidata/Wikidata.md: User-Agent with contact
+    info, cache-first, rate-limited, budget-bounded.
+    """
+    root = Path(root)
+    paths = build_artifact_paths(root)
+    now_utc = datetime.now(timezone.utc).isoformat()
+    run_id = run_id or f"prop-hydration-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+
+    notebook_logger = get_or_create_notebook_logger(root, NOTEBOOK_21_ID)
+
+    if bool(hydrate_all_objects):
+        notebook_logger.append_event(
+            event_type="property_value_hydration_warning",
+            phase="property_value_hydration",
+            message=(
+                "hydrate_all_objects=True is set. This enables unbounded hydration of ALL "
+                "property value QIDs in the triple store and may trigger thousands of network "
+                "requests. Set to False unless total unhydrated QID count is known and manageable."
+            ),
+        )
+
+    notebook_logger.append_event(
+        event_type="property_value_hydration_started",
+        phase="property_value_hydration",
+        message=f"property-value basic hydration started run_id={run_id}",
+        extra={
+            "run_id": run_id,
+            "hydration_predicates": hydration_predicates or list(_DEFAULT_PROPERTY_HYDRATION_PREDICATES),
+            "hydrate_all_core_instance_objects": bool(hydrate_all_core_instance_objects),
+            "hydrate_all_objects": bool(hydrate_all_objects),
+            "query_budget_remaining": int(query_budget_remaining),
+        },
+    )
+
+    # Step 1: Load triples
+    if not paths.triples_csv.exists():
+        notebook_logger.append_event(
+            event_type="property_value_hydration_skipped",
+            phase="property_value_hydration",
+            message="triples_csv not found — property-value hydration skipped",
+        )
+        return {"status": "skipped", "reason": "triples_csv_missing", "network_queries": 0}
+
+    triples_df = pd.read_csv(paths.triples_csv, dtype=str, keep_default_na=False, na_filter=False)
+    if triples_df.empty:
+        return {"status": "skipped", "reason": "triples_empty", "network_queries": 0}
+
+    # Step 2: Identify expanded core class instance subjects (non-class expanded nodes)
+    core_instance_subjects: set[str] = set()
+    if bool(hydrate_all_core_instance_objects) and not bool(hydrate_all_objects):
+        for item in iter_items(root):
+            if item.get("expanded_at_utc") and not bool(item.get("class_node_hint", False)):
+                qid_norm = canonical_qid(str(item.get("id", "") or ""))
+                if qid_norm:
+                    core_instance_subjects.add(qid_norm)
+
+    # Step 3: Build predicate whitelist (None means all predicates)
+    pred_whitelist: set[str] | None
+    if bool(hydrate_all_objects):
+        pred_whitelist = None
+    else:
+        pred_whitelist = {
+            canonical_pid(str(p))
+            for p in (hydration_predicates or list(_DEFAULT_PROPERTY_HYDRATION_PREDICATES))
+            if canonical_pid(str(p))
+        }
+
+    # Step 4: Collect candidate object QIDs from triples
+    candidate_qids: set[str] = set()
+    for _, row in triples_df.iterrows():
+        obj = canonical_qid(str(row.get("object", "") or ""))
+        if not obj:
+            continue
+        pred = canonical_pid(str(row.get("predicate", "") or ""))
+        subj = canonical_qid(str(row.get("subject", "") or ""))
+
+        if pred_whitelist is None or pred in pred_whitelist:
+            candidate_qids.add(obj)
+        elif bool(hydrate_all_core_instance_objects) and subj in core_instance_subjects:
+            candidate_qids.add(obj)
+
+    # Step 5: Filter — keep only QIDs that need hydration
+    # A QID needs hydration if: (a) not in entity store, OR (b) inactive_guarded in entity store
+    # A QID with labels and no inactive guard is already hydrated — skip it.
+    qids_inactive_guarded: set[str] = set()
+    qids_absent: set[str] = set()
+    for qid in sorted(candidate_qids):
+        item = get_item(root, qid)
+        if item is None:
+            qids_absent.add(qid)
+            continue
+        if bool(item.get("inactive_hydration_guard", False)):
+            qids_inactive_guarded.add(qid)
+            continue
+        # Already hydrated — check if it actually has label data
+        has_labels = bool(item.get("labels"))
+        if not has_labels:
+            # In store but no labels and not guarded — treat as needing hydration
+            qids_absent.add(qid)
+
+    qids_to_fetch: list[str] = sorted(qids_inactive_guarded | qids_absent)
+    total_to_fetch = len(qids_to_fetch)
+
+    notebook_logger.append_event(
+        event_type="property_value_hydration_candidates",
+        phase="property_value_hydration",
+        message=(
+            f"property-value hydration candidates: "
+            f"total_candidates={len(candidate_qids)} "
+            f"inactive_guarded={len(qids_inactive_guarded)} "
+            f"absent={len(qids_absent)} "
+            f"to_fetch={total_to_fetch}"
+        ),
+        extra={
+            "total_candidates": len(candidate_qids),
+            "inactive_guarded": len(qids_inactive_guarded),
+            "absent": len(qids_absent),
+            "to_fetch": total_to_fetch,
+        },
+    )
+
+    print(
+        f"[2.4.2] property-value hydration: "
+        f"total_candidates={len(candidate_qids)} "
+        f"to_fetch={total_to_fetch} "
+        f"(inactive_guarded={len(qids_inactive_guarded)} absent={len(qids_absent)}) "
+        f"already_hydrated={len(candidate_qids) - total_to_fetch}",
+        flush=True,
+    )
+
+    if total_to_fetch == 0:
+        print("[2.4.2] all property-value nodes already hydrated — nothing to do", flush=True)
+        notebook_logger.append_event(
+            event_type="property_value_hydration_complete",
+            phase="property_value_hydration",
+            message="all property-value nodes already hydrated — nothing to do",
+            extra={"network_queries": 0, "hydrated": 0},
+        )
+        return {"status": "complete", "network_queries": 0, "hydrated": 0, "skipped_already_hydrated": len(candidate_qids)}
+
+    # Step 6: Load core class QIDs for class resolution
+    core_class_rows = load_core_classes(root)
+    core_class_qids: set[str] = {
+        canonical_qid(str(r.get("id", "") or ""))
+        for r in (core_class_rows if isinstance(core_class_rows, list) else [])
+        if canonical_qid(str(r.get("id", "") or ""))
+    }
+
+    # Step 7: Batch-fetch with rate limiting and budget tracking
+    network_queries = 0
+    hydrated_count = 0
+    inactive_guarded_activated_count = 0
+    budget_remaining = int(query_budget_remaining)
+    last_heartbeat_time = perf_counter()
+    _heartbeat_interval = max(0.0, float(heartbeat_interval_seconds))
+
+    for batch_start in range(0, total_to_fetch, _PROPERTY_HYDRATION_BATCH_SIZE):
+        if budget_remaining == 0:
+            notebook_logger.append_event(
+                event_type="property_value_hydration_budget_exhausted",
+                phase="property_value_hydration",
+                message=f"query budget exhausted after {network_queries} queries, stopping hydration",
+                extra={"hydrated_so_far": hydrated_count, "remaining": total_to_fetch - batch_start},
+            )
+            break
+
+        if should_terminate(_shutdown_path(root)):
+            notebook_logger.append_event(
+                event_type="property_value_hydration_interrupted",
+                phase="property_value_hydration",
+                message="graceful shutdown requested — stopping property-value hydration",
+            )
+            break
+
+        batch = qids_to_fetch[batch_start: batch_start + _PROPERTY_HYDRATION_BATCH_SIZE]
+
+        # Separate cache hits from network misses within this batch
+        requested_languages: set[str] = {
+            str(lang).strip().lower()
+            for lang in get_active_wikidata_languages()
+            if str(lang).strip()
+        }
+        requested_languages.add(DEFAULT_WIKIDATA_FALLBACK_LANGUAGE)
+
+        batch_docs: dict[str, dict] = {}
+        needs_network: list[str] = []
+
+        for qid in batch:
+            cached = _latest_cached_record(root, "entity", qid)
+            if cached:
+                try:
+                    payload = _filter_entity_payload_languages(get_query_event_response_data(cached[0]))
+                    doc = _entity_from_payload(payload, qid)
+                    if isinstance(doc, dict) and doc and doc.get("labels"):
+                        batch_docs[qid] = doc
+                        continue
+                except Exception:
+                    pass
+            needs_network.append(qid)
+
+        # Fetch uncached QIDs from Wikidata
+        if needs_network:
+            url = _build_wbgetentities_url(
+                "|".join(needs_network),
+                languages=requested_languages,
+                include_claims=True,
+            )
+            try:
+                batch_payload = _http_get_json(url, timeout=int(query_timeout_seconds))
+                batch_payload = _filter_entity_payload_languages(batch_payload)
+                entities = batch_payload.get("entities", {}) if isinstance(batch_payload, dict) else {}
+                for qid in needs_network:
+                    entity_doc = entities.get(qid, {}) if isinstance(entities, dict) else {}
+                    if not isinstance(entity_doc, dict) or not entity_doc:
+                        continue
+                    _ensure_literal_coverage_marker(entity_doc, kind="entity", requested_languages=requested_languages)
+                    single_payload = _payload_from_entity_doc(qid, entity_doc)
+                    write_query_event(
+                        root,
+                        endpoint="wikidata_api",
+                        normalized_query=f"entity:{qid}",
+                        source_step="property_value_hydration",
+                        status="success",
+                        key=qid,
+                        payload=single_payload,
+                        http_status=200,
+                        error=None,
+                    )
+                    batch_docs[qid] = entity_doc
+                network_queries += 1
+                if budget_remaining > 0:
+                    budget_remaining = max(0, budget_remaining - 1)
+            except Exception as exc:
+                notebook_logger.append_event(
+                    event_type="property_value_hydration_batch_error",
+                    phase="property_value_hydration",
+                    message=f"batch fetch failed for {len(needs_network)} QIDs: {exc}",
+                    extra={"qids": needs_network[:10], "error": str(exc)},
+                )
+
+            if float(query_delay_seconds) > 0.0:
+                sleep(float(query_delay_seconds))
+
+        # Store each fetched entity
+        for qid, entity_doc in batch_docs.items():
+            was_inactive_guarded = qid in qids_inactive_guarded
+
+            if was_inactive_guarded:
+                activate_core_subclass(
+                    root,
+                    qid,
+                    entity_doc,
+                    now_utc,
+                    activation_source="property_value_hydration",
+                )
+                inactive_guarded_activated_count += 1
+            else:
+                # Check local P279 resolution for class membership
+                resolved_catalogue = _try_local_class_resolution(entity_doc, root, core_class_qids)
+                if resolved_catalogue is not None:
+                    enriched_doc = dict(entity_doc)
+                    enriched_doc["class_catalogue"] = resolved_catalogue
+                    enriched_doc["class_node_hint"] = True
+                    enriched_doc["class_hydration_state"] = "active"
+                    activate_core_subclass(
+                        root,
+                        qid,
+                        enriched_doc,
+                        now_utc,
+                        activation_source="property_value_hydration_class_node",
+                    )
+                else:
+                    upsert_discovered_item(root, qid, entity_doc, now_utc)
+
+            hydrated_count += 1
+
+        now_t = perf_counter()
+        if _heartbeat_interval > 0.0 and (now_t - last_heartbeat_time) >= _heartbeat_interval:
+            remaining = total_to_fetch - (batch_start + _PROPERTY_HYDRATION_BATCH_SIZE)
+            print(
+                f"[2.4.2] heartbeat: "
+                f"hydrated={hydrated_count}/{total_to_fetch} "
+                f"remaining={max(0, remaining)} "
+                f"network_queries={network_queries} "
+                f"budget_remaining={budget_remaining} "
+                f"elapsed={now_t - last_heartbeat_time + _heartbeat_interval:.0f}s",
+                flush=True,
+            )
+            notebook_logger.append_event(
+                event_type="property_value_hydration_progress",
+                phase="property_value_hydration",
+                message=(
+                    f"property-value hydration progress: "
+                    f"hydrated={hydrated_count}/{total_to_fetch} "
+                    f"network_queries={network_queries}"
+                ),
+            )
+            last_heartbeat_time = now_t
+
+    flush_node_store(root)
+
+    stats = {
+        "status": "complete",
+        "run_id": run_id,
+        "total_candidates": len(candidate_qids),
+        "inactive_guarded_activated": inactive_guarded_activated_count,
+        "absent_hydrated": hydrated_count - inactive_guarded_activated_count,
+        "total_hydrated": hydrated_count,
+        "network_queries": network_queries,
+        "budget_remaining": budget_remaining,
+        "core_instance_subjects": len(core_instance_subjects),
+    }
+
+    notebook_logger.append_event(
+        event_type="property_value_hydration_complete",
+        phase="property_value_hydration",
+        message=(
+            f"property-value hydration complete: "
+            f"hydrated={hydrated_count} "
+            f"network_queries={network_queries} "
+            f"budget_remaining={budget_remaining}"
+        ),
+        extra=stats,
+    )
+
+    return stats

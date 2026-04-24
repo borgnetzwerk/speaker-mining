@@ -192,3 +192,27 @@ Among the first episodes of Markus Lanz, there are episodes which have no guests
 - Implication: the Wikidata string-based candidate generation step is better understood as a substep of disambiguation (Phase 3.1 / Reconciliation) rather than a standalone major phase. Adopting this framing drops one phase number from the count and makes the phase model cleaner.
 - Proposed simplified map: Phase 1 (all candidate discovery) → Phase 2.0 (normalization) → Phase 2.1 (reconciliation) → Phase 2.2 (deduplication) → Phase 3 (link prediction).
 - Related tracker item: `TODO-034`.
+
+## F-018: Title Prefixes Do Not Hinder Deduplication in Practice (TODO-028)
+
+- Observation: person name strings in the corpus may carry academic or professional title prefixes (Prof., Prof. Dr., Dr., Professor, Doktor) in varying forms. On first inspection this appeared likely to break deduplication clustering.
+- Finding: confirmed non-issue. Example evidence: alignment units for Karl Lauterbach exist with bare name (`Karl LAUTERBACH`, matched to Q105676) and with title prefix (`Prof. Dr. Karl Lauterbach`, unresolved); they are correctly deduplicated because `normalize_name_for_matching` strips titles before forming the cluster key.
+- Example data:
+  - `ce_221b8ed90820, Q105676, Karl Lauterbach` (Wikidata-matched)
+  - `ce_762af71f2daa, Prof. Dr. Karl Lauterbach` (unresolved — merged via normalized name)
+- Conclusion: no special deduplication tier for title stripping is needed. Document the finding; revisit only if normalization is changed.
+- Related tracker item: `TODO-028` (closed once this entry exists).
+
+## F-019: Wikidata Birthdate Data Skews Age Statistics Upward (TODO-029)
+
+- Observation: age statistics derived from Wikidata birth dates (`P569`) systematically over-represent older individuals. Younger and underage persons are underrepresented on Wikidata for two reasons: (1) Wikidata's notability requirement typically requires some years of public prominence before an entry is created; (2) data-protection considerations further limit the coverage of living minors.
+- Impact: mean and median age of guests computed from `guest_catalogue.csv` birth years will be skewed upward. The true age distribution of all guests (including those not on Wikidata) is likely younger than the data suggests.
+- Mitigation: this bias cannot be corrected — it is structural to the data source. It must be acknowledged in any publication of age statistics. Suggested framing: "Age statistics are based on Wikidata-matched guests only (N=640 of 8,976 canonical entities) and are skewed toward older, more notable individuals."
+- Related tracker item: `TODO-029` (closed once this entry exists).
+
+## F-020: Gender Bias Analysis Describes the Sample, Not the Population (TODO-033)
+
+- Observation: the corpus represents a sample — guests who appeared on the program. Gender distribution computed from this sample reflects who was invited, not the gender distribution of any underlying population (e.g. "all teachers" or "all scientists").
+- Implication: a finding such as "80% of guest teachers are male" does not permit the inference that "80% of all teachers are male." To assess whether the program's guest selection reflects or deviates from a population baseline, external reference data would be required (e.g. national statistics on gender distribution per occupation).
+- Required framing for all gender statistics: use "in our sample" or "among guests" — never imply population-level conclusions.
+- Related tracker item: `TODO-033` (closed once the framing is applied to output notebooks).

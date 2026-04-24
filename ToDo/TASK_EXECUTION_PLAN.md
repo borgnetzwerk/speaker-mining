@@ -61,36 +61,43 @@ TODO-016, TODO-017, TODO-026, TODO-028, TODO-029, TODO-030, TODO-033, TODO-034, 
 
 ### Wave 1 — Foundation (no blocking predecessors; start in parallel with Wave 0)
 
-These tasks unblock all later visualization and analysis work. Start as many as available agent bandwidth allows.
+These tasks unblock all later visualization and analysis work.
 
-| TODO | Title | Why first |
-|------|-------|-----------|
-| TODO-024 | Visualization principles document | Unblocks every chart task (TODO-020, TODO-025, TODO-032) |
-| TODO-031 | Fix QID labels | Unblocks correct analysis output; needed before generating final charts |
-| TODO-017 | Reduce aligned_*.csv columns (~40) | Enables cleaner reconciliation workflow; reduces Phase 32 re-run cost |
-| TODO-016 | Normalization-timing policy document | Standalone doc; prevents future ad-hoc decisions |
-| TODO-026 | Unify ToDo structure | Clears notebook-embedded TODOs into the tracker; housekeeping |
+| TODO | Title | Status |
+|------|-------|--------|
+| **TODO-036** | **Fix Phase 31/32 notebook orchestration drift** | **Open — do first; blocks TODO-017 completion and all Phase 31/32 work** |
+| **TODO-037** | **Create AGENT.md / CLAUDE.md coding principles** | **Open — do alongside TODO-036** |
+| ~~TODO-024~~ | ~~Visualization principles document~~ | **Done 2026-04-23** — `documentation/visualization-principles.md` |
+| ~~TODO-031~~ | ~~Fix QID labels~~ | **Done 2026-04-24** |
+| TODO-017 | Reduce aligned_*.csv columns (~40) | In-progress — trim implemented in all `build_aligned_*` functions (2026-04-24); needs Phase 31 re-run to verify counts ≤ 50 |
+| TODO-038 | Investigate Wikidata Node Integrity Pass performance | Open |
+| TODO-039 | Exclude moderator from all analysis | Open |
+| ~~TODO-016~~ | ~~Normalization-timing policy document~~ | **Done 2026-04-23** — `documentation/normalization-policy.md` |
+| ~~TODO-026~~ | ~~Unify ToDo structure~~ | **Done 2026-04-23** |
 
-**Quick-win documentation** (can be done by any agent in < 1 session each):
+**Quick-win documentation:**
 
-| TODO | Title |
-|------|-------|
-| TODO-028 | Document title disambiguation finding → `documentation/findings.md` |
-| TODO-029 | Document Wikidata birthdate bias finding → `documentation/findings.md` |
-| TODO-033 | Document gender bias scope caveat → `documentation/findings.md` |
-| TODO-034 | Document phase equivalence of discovery sources → `documentation/workflow.md` |
+| TODO | Title | Status |
+|------|-------|--------|
+| ~~TODO-028~~ | ~~Title disambiguation finding~~ | **Done 2026-04-23** — F-018 in findings.md |
+| ~~TODO-029~~ | ~~Wikidata birthdate bias finding~~ | **Done 2026-04-23** — F-019 in findings.md |
+| TODO-033 | Document gender bias scope caveat | Open (F-020 added; notebook update pending) |
+| ~~TODO-034~~ | ~~Phase equivalence of discovery sources~~ | **Done 2026-04-23** — F-017, workflow.md note |
 
 ---
 
 ### Wave 2 — Data Completeness (after Wave 0+1 core items)
 
-Prerequisite: TODO-018 logic implemented, TODO-031 fixed.
+Prerequisite: TODO-018 logic implemented, TODO-036 fixed, TODO-039 applied.
 
 | TODO | Title | Prerequisites |
 |------|-------|---------------|
+| **TODO-042** | **Re-run Phase 2 to verify `core_roles.json` (code done 2026-04-24)** | Re-run Notebook 21 then Notebook 31 |
 | TODO-027 | Propagate mention_category through pipeline | None strictly, but do this before re-running analysis notebooks |
+| TODO-040 | Audit guest classification accuracy | TODO-027 (category split helps verify) |
+| TODO-041 | Respect time-sensitive Wikidata claims | Phase 31 stable (TODO-036 done) |
 | TODO-019 | Complete guest catalogue (add unmatched) | TODO-018 (reconciliation data in), TODO-027 (category split ready) |
-| TODO-023 | Dataset overview and pipeline statistics | TODO-031 (clean labels), Phase 32 output stable |
+| TODO-023 | Dataset overview and pipeline statistics | Phase 32 output stable |
 
 ---
 
@@ -124,6 +131,9 @@ These have no hard upstream dependencies and no active downstream blockers. Tack
 
 | TODO | Title |
 |------|-------|
+| **TODO-042** | **Fix roles projection (subclasses not instances) — in-progress; code done, needs Phase 2 re-run** |
+| TODO-043 | Align property hydration config with relevancy propagation config |
+| TODO-044 | Wikidata v4 conceptual rework (document only, no implementation) |
 | TODO-005 | Clarify institution extraction responsibility |
 | TODO-006 | Define gender-framing analysis methodology |
 | TODO-007 | Define merge strategy for role/occupation/position/institution |
@@ -143,7 +153,7 @@ These have no hard upstream dependencies and no active downstream blockers. Tack
 
 | Wave | Key files to read |
 |------|------------------|
-| 0 | `documentation/31_entitiy_disambiguation/post-processing.md`, `data/32_entity_deduplication/`, `documentation/contracts.md` |
+| 0 | `documentation/31_entity_disambiguation/post-processing.md`, `data/32_entity_deduplication/`, `documentation/contracts.md` |
 | 1 | `ToDo/visualization_references/`, `documentation/visualizations/`, `speakermining/src/process/candidate_generation/person.py`, `data/31_entity_disambiguation/aligned/aligned_persons.csv` |
 | 2 | `speakermining/src/process/config.py`, `data/10_mention_detection/persons.csv`, `data/32_entity_deduplication/dedup_persons.csv`, `data/40_analysis/guest_catalogue.csv` |
 | 3 | `speakermining/src/process/notebooks/51_visualization.ipynb`, `speakermining/src/process/notebooks/21_wikidata_vizualization.ipynb`, `documentation/visualization-principles.md` |

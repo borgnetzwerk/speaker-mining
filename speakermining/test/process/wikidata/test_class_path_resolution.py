@@ -326,8 +326,8 @@ def test_materializer_writes_per_core_and_leftovers_projections(tmp_path: Path) 
     materialize_final(tmp_path, run_id="run-wdt-012")
     paths = build_artifact_paths(tmp_path)
 
-    persons_core_json = paths.projections_dir / "instances_core_persons.json"
-    episodes_core_json = paths.projections_dir / "instances_core_episodes.json"
+    persons_core_json = paths.projections_dir / "core_persons.json"
+    episodes_core_json = paths.projections_dir / "core_episodes.json"
     leftovers_projection = paths.instances_leftovers_csv
 
     assert persons_core_json.exists()
@@ -433,7 +433,7 @@ def test_materializer_core_projections_enforce_two_hop_boundary(tmp_path: Path) 
 
     materialize_final(tmp_path, run_id="run-two-hop-boundary")
     paths = build_artifact_paths(tmp_path)
-    persons_projection = paths.projections_dir / "instances_core_persons.json"
+    persons_projection = paths.projections_dir / "core_persons.json"
     persons_json = json.loads(persons_projection.read_text(encoding="utf-8"))
 
     assert set(persons_json.keys()) == {"Q200", "Q300"}

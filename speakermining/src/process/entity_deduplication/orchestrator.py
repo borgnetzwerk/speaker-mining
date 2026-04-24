@@ -14,15 +14,21 @@ from .person_deduplication import build_person_clusters
 def run_phase32() -> dict:
     """Run Phase 32 entity deduplication for persons.
 
-    Reads aligned_persons.csv from Phase 31, clusters rows into canonical
-    entities using wikidata_id (high confidence) and normalized name key
-    (medium confidence), and writes dedup_persons.csv + dedup_cluster_members.csv.
+    Reads aligned_persons.csv from Phase 31 and clusters rows into canonical
+    entities. If the manual reconciliation CSV exists at the path defined in
+    INPUT_FILES["reconciliation_csv"], it is applied as the highest-confidence
+    (authoritative) tier before any automated strategy runs.
     """
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     aligned_persons = pd.read_csv(INPUT_FILES["aligned_persons"], dtype=str).fillna("")
 
-    dedup_persons, dedup_members = build_person_clusters(aligned_persons)
+    reconciliation_path = INPUT_FILES["reconciliation_csv"]
+    reconciliation_df = None
+    if reconciliation_path.exists():
+        reconciliation_df = pd.read_csv(reconciliation_path, dtype=str).fillna("")
+
+    dedup_persons, dedup_members = build_person_clusters(aligned_persons, reconciliation_df)
 
     atomic_write_csv(OUTPUT_FILES["dedup_persons"], dedup_persons)
     atomic_write_csv(OUTPUT_FILES["dedup_cluster_members"], dedup_members)
@@ -40,6 +46,7 @@ def run_phase32() -> dict:
         "reduction_ratio": round(1 - n_entities / max(n_input, 1), 4),
         "strategy_counts": strategy_counts,
         "confidence_counts": confidence_counts,
+        "manual_reconciliation_used": reconciliation_df is not None,
     }
 
     atomic_write_text(OUTPUT_FILES["dedup_summary"], json.dumps(summary, indent=2, ensure_ascii=False))

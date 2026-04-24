@@ -2,6 +2,8 @@
 
 This is the authoritative source for execution order and phase ownership rules.
 
+See also: [`documentation/normalization-policy.md`](normalization-policy.md) — rules for when normalization is stored vs. derived, and the symmetric-both-sides requirement for all matching keys.
+
 ## Visual Overview
 
 ![SpeakerMining V3 Approach](visualizations/SpeakerMining_V3-Approach.drawio.png)
@@ -57,6 +59,8 @@ Institutions are currently documented as deferred from active Phase 1 outputs.
 ### Phase 2: Candidate Generation
 
 Loads setup and Phase 1 outputs, then creates lookup/context tables and candidate tables under `data/20_candidate_generation`.
+
+> **Architectural note (F-017):** Phase 1 (PDF/text extraction), Phase 2a/2b (Wikidata), and Phase 2c (fernsehserien.de) are conceptually equivalent peer candidate-discovery steps — each is self-contained and requires only the root broadcast-program context as input. The Wikidata string-based candidate generation is better understood as a substep of Phase 31 reconciliation (a lookup aid for human reviewers) rather than a distinct major discovery phase. A future simplified phase map would be: Phase 1 (all candidate discovery) → Phase 2.0 (normalization) → Phase 2.1 (reconciliation) → Phase 2.2 (deduplication) → Phase 3 (link prediction). See `documentation/findings.md` F-017 and TODO-034.
 
 ### Phase 31: Disambiguation
 

@@ -1,3 +1,125 @@
+> **ARCHIVED 2026-04-24 (batch 5)** — Processed into TODO-036 through TODO-044. See `documentation/open-tasks.md` for details.
+
+---
+
+## Phases 3.1 onwards does not follow the notebook orchestration guidelines.
+`speakermining/src/process/entity_disambiguation/orchestrator.py` contains a function called run_phase31.
+Similarly, Phase 3.2 has a similar function run_phase32 in `speakermining/src/process/entity_deduplication/orchestrator.py`.
+
+This clearly breaks with our `documentation/coding-principles.md`. Notebooks should be the orchestrators, not single functions. Where possible, we need cells containing the step by step processes, with intermediate and regular output so the user can monitor the process and progress.  
+We need to inspect the scope of this drift - it likely begins in Notebook 3.1. and then fans out to every notebook thereafter. We must both fix this, as well as formalizing an AGENT.md and CLAUDE.md, since likely this issue was introduced when Claude Code was introduced as well and assumed some coding principles which are not aligned with this repository.
+
+### Example 1: Column trimming (all aligned files, TODO-017)
+Claude Output:
+  The issue is that the notebook calls the build functions directly, bypassing run_phase31. The trim must live inside each build function.
+
+TODO-017 was fixed not in the actual notebook workflow, but in an artificial wrapping "run_phase31" function. This means work and time was invested in a side-track that now needs to be worked back into the maintrack: The notebooks and their modules.
+
+### Example 2: Visualization notebook 51 is completely outdated and full of errors
+Another example that the code written was not executed through the notebook, but through some structure created in parallel. When the Notebook was first executed, it did not even run properly.
+Reworking the Visualization notebook 51 should propably wait until all the vislualization tasks are on the current task list - but when that happens, we need to make sure that these follow our notebook-first orchestration coding principles. 
+
+
+## property based hydration fix may be structurally related to relevancy propagation 
+
+There is a consideration to be bad that our # ToDo 31 related property based hydration fix should be either constructed similarly to our relevancy propagation or be merged into it.
+
+What this means:
+1. Those two are not the same, one propagates relevancy, qualifying a node for EXPANSION (meaning it is an interesting subjective), the other is an object hydration engine, mostly ensuring that the outlinks of our subjects are meaningful.
+Notheles, both say "if you find a link with this this property, you are allowed to [expand/hydrate] a the object if the subject meets some criteria".
+2. Since the logic is similar, it may make sense to treat them similar. Either by handling both through the same config file (currently, relevancy has a config file where relevancy propagation can be set to true for certain properties), or treat them both through similar, yet independent config files.
+Likely, two similar, yet separate config files are better, since a) that stresses that they are not the same, and b) hydration properties can target non-core-class-instances, where relevancy propagation is explicitly reduced to links between core-class-instance. By the time our property hydration whitelisting is used, we sometimes don't even know yet if the object is a core class instance
+
+
+
+## Wikidata v4 rework
+Generally, the logic from wikidata likely needs could use a fundamentall rework. This is explicitly out of scope for now, but an important lesson learned:
+Currently, 2.1 seems like a patchwork of of various different modules, all mending different shortcomings of the other modules. The ideal goal would be a simple, rule driven graph expansion: Find core node: Apply rules, then discover links via  hydration or expansion. For each of those newly discovered rules, same thing again:  apply rule, hydrate or expand, or do nothing and leave them as a QID.
+
+If all the logic from all the modules were to be correctly integrated into these rules - that would be the ideal state.
+
+This is a task for much, much later. Not a priority now.
+
+
+
+## Ontological Findings: Classes that are subclasses of multiple core classes
+On the note of interesting findings worth discussing:
+The discover conflict patterns may be ontologically interesting to discuss:
+ 
+[notebook] Step 2.4.1 start: discover conflict patterns from all rows
+[notebook] Step 2.4.1 label language: en
+Conflict summary:
+  class_resolution_rows: 14704
+  conflict_rows: 1381
+  clustered_rows (patterned): 1377
+  outlier_rows (unclustered): 4
+  discovered_cluster_count (coarse): 10
+  discovered_cluster_count (strict): 12
+  largest_cluster_size: 1183
+  source: data/20_candidate_generation/wikidata/projections/class_resolution_map.csv
+
+Discovered coarse conflict clusters (labels + decision rationale):
+...
+
+There are some interesting implications, e.g. "Arabic Speaker" being both a role and a person.
+And plenty other.
+
+
+
+## age at first appearance is only a first step
+
+Currently, we only have "age at first appearance"
+We could have a secpmd visualization / overlay for "age" in general, so not only counting the first appearance, but every appearance. If the same Person of age 50, 51, 52, 53 ... appears over and over again, every appearance should be counted there.
+
+### General principle:
+We should exclude the moderator from all such analysis. The data of the moderator should not skew all the graphics. Maybe, this is already considered - a simple check would be to see if Markus Lanz himself is counted in the evaluation.
+
+
+
+## Treatment for time sensitive claims
+
+We have learned that some statements get outdated. Whenever we have a start or end date, we should check if the statement was true during the particular episde the guest appeared in (party afficliation, position, occupation, ...)
+
+
+
+## The final guest list is certainly wrong right now
+
+Elon Musk is part of the final data/40_analysis/guest_catalogue.csv
+
+Yet, the single time I could find him was in the description of Markus Lanz 27.09.2023.
+
+As far as I can tell, he was never a guest.
+
+If Elon Musk got into this list by accident, then there is likely a much deeper issue of people getting misclassified as guests. There are some other open Tasks already raised to sharpen the definition of guests, so we can use this as a test if we avoided missclassification.
+That being said, we should also have a closing analysis segment that takes a random sample of our output and traces their origins back and checks if these serve correct. If we find something like a mislabeled guest who actually comes from a topic description, we raise an alarm and know we have to refine our code.
+
+
+
+## Finding / Lesson learned: Our starting assumption that we are looking for core class instances was not even correct.
+We are not looking for core class instances only, in the case of "roles", what we are actually looking for is core class subclasses
+
+
+
+## Wikidata Step took quite some time
+These steps took a relatively long time. I have preserved some outputs in 
+* `ToDo/21_wikidata_6_5_run_Node_integrity_pass_context.md`
+* `ToDo/21_wikidata_6_5_run_Node_integrity_pass_context_second.md`
+I also see that these are here:
+`documentation/context/node_integrity/node_integrity_20260424T140800Z.md`
+`documentation/context/node_integrity/node_integrity_20260424T105030Z.md`
+
+since this took over 6726 seconds (or the first run: 1648 seconds) without completing, it may be worth investigating if everything going on there is correct
+
+---
+
+> **ARCHIVED 2026-04-23 (batch 4)** — TODO-031 clarification processed: root cause was wrong. Fix is NOT a one-time script but a new Phase 2.1 notebook step (Step 2.4.2 "Property-Value Basic Hydration"). Predicate whitelist: P106, P102, P108, P21, P527, P17, plus all objects of expanded core class instance subjects. Design documented in TODO-031 notes. No new TODO created — implementation proceeds directly.
+
+---
+
+> **ARCHIVED 2026-04-23 (batch 3)** — Visualization principles feedback processed: centered stacked bar charts section added, nested subgraphs section added, universal-rules-first restructuring applied, use-case-specific mappings section added. All items resolved in `documentation/visualization-principles.md` directly (no new TODO required — principles doc is open-ended).
+
+---
+
 > **ARCHIVED 2026-04-23** — All actionable items from this file have been converted to formal TODOs in `documentation/open-tasks.md`. This file is preserved for historical context only. Do not add new tasks here — use `documentation/open-tasks.md` directly.
 
 ---
@@ -262,3 +384,56 @@ The multi-parent challenge (subclasses with multiple superclasses break tree-lik
 > **Archived** — Incorporated into **TODO-017** (`documentation/open-tasks.md`): updated definition of done with ~40-column target, column selection priority (ids, label, description, aliases, links, most-common properties), and cut criteria (≥ 99% empty or not useful for human reviewers). OpenRefine usability is the driving rationale.
 
 Current state: `aligned_persons.csv` has ~2,531 (sometimes ~5,000) columns — too many for OpenRefine to load comfortably. Target: ~40 columns (hard ceiling 50). Keep enough for a human reviewer to match or reject an entity without leaving OpenRefine.
+
+## Clarification for TODO-031
+> **Archived **
+The problem has two parts, not one:
+
+* 65 occupation QIDs: in entity store but inactive_guarded (zero labels) — discovered via P279 subclass chain
+* 157 occupation QIDs: completely absent from entity store — appeared only as P106 property values in hydrated persons but were never added to the store at all
+
+The broader scope is large. Across all predicates, the counts of unhydrated object QIDs are: P31 missing 4,534 — P279 missing 3,630 — P1343, P17, P527, P910 each missing 1,000–4,000+. For P106 specifically: 222 unhydrated of 312 unique.
+
+Before implementing a systematic fix, I need four answers:
+
+1. Predicate scope. The "every referenced node should be hydrated" rule, taken literally, would require ~20,000+ network fetches across all predicates — P17 (country), P1343 (encyclopedia), P910 (topic category), etc. Are you intending the rule to apply to ALL property value QIDs, or should we scope basic hydration to a defined set of predicates (e.g. only those that produce analysis-relevant labels: P106, P102, P108, P21)?
+   1. **Clarification:** This consideration seems very correct, this could escalate very quickly. Let us carefully proceed by only whitelisting certain properties for this hydration now. If we then find this to be not enough, we can continue to add more properties to that list. If we find this approach to not scale well, we can also place a flag that simply says "hydrate all properties" (obviously set to false for now), with adequate warnings and descriptions in place why this is currently set to false. For now, let us proceed with hydrating them by explicitly whitelisting the hydration via certain properties (there should be a configurable list):
+      * P106 (occupation)
+      * P102 (member of political party)
+      * P108 (employer)
+      * P21 (sex or gender)
+      * P527 (has part(s))
+      * P17 (Country)
+    2. be sure to confirm that this still hydrates the objects of these properties properly, including their class belonging, so we discover if they themselves are core class instances. P102 (member of political party) should reveal organizations, P106 (occupation) should reveal roles, P527 (has part(s)) may reveal seasons or episodes.
+    3. Beyond those specific properties, we should always at least fetch the basic information for objects that are linked to a relevant core class instance subject. Basically, the following principles apply:
+      * If the subject is a core class instance (e.g. episode, person) connected to a broadcasting program, then every of it's links should be hydrated. We have a core set of broadcasting programs (e.g. Markus Lanz), their seasons (e.g. Markus Lanz Season 1), episodes (e.g. Markus Lanz Episode 1) and guests (e.g. Elmar Theveßen). Whenever any of them are subject, we need the label of their objects - and thus, the objects of their outgoing links need to be hydrated.
+      * The fact that P106 (occupation) has 222 unhydrated of 312 unique is especially damning since those objects are likely themselves core class instances (roles), meaning we'd need them in our subclass tree (e.g. biologist (Q864503) -> scientist (Q901) -> researcher (Q1650915) -> academic professional (Q66666685), all of which being subclass of profession (Q28640) -> occupation (Q12737077) -> social position (Q1807498) -> position (Q4164871) -> role (Q214339), which is one of our core classes). If we don't hydrate those occupations, we're likely missing plenty of our core class instances.
+
+2. P31/P279 gap. P31 itself has 4,534 object QIDs missing from the store. Should those also be covered by the fix, or is P31 already handled through the existing activation path (meaning the issue is something else for P31)?
+   1. **Clarification:** There will be leaf nodes in our graph, meaning mostly classes from which we do not search further. For example: A person has a favorite Band X - > that band's node will be a leaf node, since it is not further relevant for us. This Band X will be instance of something, but we don't care about that and don't further hydrate this bands class belonging. So the fact that P31 has unhydrated object QIDS by itself is expected and does not raise further concern.
+
+3. Where the fix lives architecturally. Should the new "property-value basic hydration" step be:
+* Integrated into the existing subclass preflight (Notebook 21, after Pass 2), OR
+* A separate post-expansion pass triggered at the end of the main expansion loop, OR
+* Something else?
+    1. **Clarification:** There are good reasons for either of them. I would say a new cell right after the subclass preflight. This way, we do a top-down subclass discovery first, and then ensure in a separate cell that all bottom-up links are able to properly connect to this fanned out subclass tree.
+
+4. Retroactive vs. forward-only. The current entity store has 65 inactive_guarded + 157 completely absent occupation QIDs with no labels. Should the fix include a mechanism to hydrate these on the NEXT run of Notebook 21 (i.e. the fix takes effect after a re-run), or do we also need a separate one-time backfill step to fix the existing stored data without re-running the full Phase 2?
+    1. **Clarification:** Never implement one-time backfills, or one-time actions of any kind. All features we implement should be integrated in to the run of a notebook. "Run All" should be the only thing that has to be done to complete the step of any given Notebooks - no branching patches, no one-time actions anywhere outside.
+
+## 6.5 Run Node integrity pass very slow
+This may be correct behaviour, but 6.5 Run Node integrity pass spent 1600 seconds to expand 34 QIDs. An excerpt from `ToDo/21_wikidata_6_5_run_Node_integrity_pass_context.md` (inspect for full output):
+
+[notebook] Step 6.5 complete in 1648.80s
+Node integrity summary:
+  known_qids: 41153
+  checked_qids: 41153
+  repaired_discovery_qids: 392
+  newly_discovered_qids: 349
+  eligible_unexpanded_qids: 1082
+  expanded_qids: 34
+  network_queries_discovery: 2
+  network_queries_expansion: 617
+  total_network_queries: 619
+  timeout_warnings: 0
+  stop_reason: user_interrupted

@@ -133,6 +133,17 @@ Operational semantics:
 
 Plus `label_wikidata`, `label_fernsehserien_de`, `label_zdf`, `description_wikidata`, `description_fernsehserien_de`, `description_zdf`, `alias_wikidata`, `alias_fernsehserien_de`, `alias_zdf`
 
+### Column trimming (all aligned files, TODO-017)
+
+All aligned files are trimmed to ≤ 50 columns by `trim_to_top_columns` in `orchestrator.py` after each entity DataFrame is built. The selection is data-driven per entity type:
+
+1. `COMMON_BASE_COLUMNS` (25 columns) are always kept.
+2. All `_norm_*` variant columns are excluded — they duplicate their plain counterparts.
+3. `raw_json_wikidata` is excluded — full payloads live in `core_*.json`.
+4. The remaining 25 slots are filled by the columns with the highest non-empty population rate in that entity's actual data. Different entity types (persons, episodes, seasons) will naturally select different properties.
+
+The selection logic lives in `speakermining/src/process/entity_disambiguation/utils.py` (`trim_to_top_columns`).
+
 ### Match tiers
 
 `exact` > `high` > `medium` > `unresolved`
@@ -157,13 +168,29 @@ Clusters Phase 31 alignment units (one row per mention × entity) into canonical
 
 `canonical_entity_id`, `alignment_unit_id`, `mention_id`, `canonical_label`, `wikidata_id`, `match_tier`, `cluster_key`, `is_representative`
 
+### Input files
+
+| File | Required | Description |
+|------|----------|-------------|
+| `data/31_entity_disambiguation/aligned/aligned_persons.csv` | Yes | Phase 31 alignment output |
+| `data/31_entity_disambiguation/reconciliation_export.csv` | No | Manual OpenRefine reconciliation CSV (6 columns); when present, supersedes automated strategies for covered rows |
+
+### Reconciliation CSV columns (when present)
+
+`alignment_unit_id`, `wikibase_id`, `wikidata_id`, `fernsehserien_de_id`, `mention_id`, `canonical_label`
+
+The file is produced externally by the OpenRefine reconciliation team and placed at the path above before running Phase 32.
+
 ### Cluster strategies
 
-| Strategy | Confidence | Description |
-|----------|-----------|-------------|
-| `wikidata_qid_match` | high | Rows sharing the same non-empty `wikidata_id` |
-| `normalized_name_match` | medium | Rows sharing the same `normalize_name_for_matching(canonical_label)` key |
-| `singleton` | low | No cluster partner found |
+Strategies are applied in priority order. A row claimed by a higher-priority strategy is not re-processed by lower ones.
+
+| Priority | Strategy | Confidence | Description |
+|----------|----------|-----------|-------------|
+| 0 | `manual_reconciliation` | **authoritative** | Rows covered by the manual reconciliation CSV; grouped by `wikidata_id` (tier A), then `wikibase_id` (tier B), then as authoritative singletons (tier C) |
+| 1 | `wikidata_qid_match` | high | Remaining rows sharing the same non-empty `wikidata_id` |
+| 2 | `normalized_name_match` | medium | Remaining rows sharing the same `normalize_name_for_matching(canonical_label)` key |
+| 3 | `singleton` | low | No cluster partner found |
 
 ### Normalization note
 
@@ -218,12 +245,12 @@ Projection artifacts (`projections/`):
 14. `aliases_en.csv`
 15. `aliases_de.csv`
 16. `instances_leftovers.csv`
-17. `instances_core_<core_filename>.json` (one file per configured core class; e.g. `instances_core_persons.json`)
+17. `core_<core_filename>.json` (one file per configured core class; e.g. `core_persons.json`)
 18. `summary.json`
 19. `summary_profiles/<run_profile>/summary_latest.json` (profile-isolated latest summary)
 20. `relevancy.csv`
 21. `relevancy_relation_contexts.csv`
-22. `not_relevant_instance_core_<core_filename>.json` (one file per configured core class)
+22. `not_relevant_core_<core_filename>.json` (one file per configured core class)
 
 Legacy note:
 
@@ -279,9 +306,9 @@ Projection ownership note:
 
 Per-core handoff note:
 
-1. `instances_core_<core_filename>.json` is the handoff for future phases. It is a QID-keyed object whose values are the full entity payloads we have for that core class.
+1. `core_<core_filename>.json` is the handoff for future phases. It is a QID-keyed object whose values are the full entity payloads we have for that core class.
 2. `instances_core_<core_filename>.csv` and `instances_core_<core_filename>.parquet` are deprecated legacy artifacts and must not be produced by Phase 20 materialization.
-3. `not_relevant_instance_core_<core_filename>.json` contains core-class instances that are not relevant and therefore excluded from `instances_core_<core_filename>.json`.
+3. `not_relevant_core_<core_filename>.json` contains core-class entities that are not relevant and therefore excluded from `core_<core_filename>.json`.
 4. Duplicate top-level class JSON outputs (for example `persons.json`, `episodes.json`, `organizations.json`, `series.json`, `topics.json`, `broadcasting_programs.json`) are deprecated and must not be produced by Phase 20 materialization.
 
 Lazy sidecar note:

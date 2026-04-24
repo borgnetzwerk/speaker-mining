@@ -40,8 +40,8 @@ def test_empty_target_bootstraps_required_tree(tmp_path: Path) -> None:
     assert paths.fallback_stage_ineligible_csv.exists()
     assert paths.instances_leftovers_csv.exists()
     assert paths.instances_leftovers_csv.with_suffix(".parquet").exists()
-    assert json.loads((paths.projections_dir / "instances_core_persons.json").read_text(encoding="utf-8")) == {}
-    assert json.loads((paths.projections_dir / "instances_core_episodes.json").read_text(encoding="utf-8")) == {}
+    assert json.loads((paths.projections_dir / "core_persons.json").read_text(encoding="utf-8")) == {}
+    assert json.loads((paths.projections_dir / "core_episodes.json").read_text(encoding="utf-8")) == {}
     assert not (paths.projections_dir / "persons.json").exists()
     assert not (paths.projections_dir / "episodes.json").exists()
     assert not paths.entities_json.exists()

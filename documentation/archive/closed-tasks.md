@@ -11,6 +11,59 @@
 
 ## Solved
 
+### TODO-031: Fix unresolved QID labels in analysis output and visualizations
+
+- Priority: medium
+- Status: solved (2026-04-24)
+- Area: analysis
+- Summary: `top_occupations` in `analysis_summary.json` was showing bare QIDs (e.g. `Q1238570`, `Q40348`) because occupation QIDs appeared as P106 object values in triples but were either `inactive_guarded` or entirely absent from the entity store.
+- Root cause: Two sub-problems: (A) occupation QIDs were `inactive_guarded` — discovered during top-down P279 subclass expansion but never activated because Pass 2 only seeded from P31 evidence, not P106/P102/P108 values. (B) Some occupation QIDs were completely absent, appearing only as property-value objects in triples.
+- Fix: **Step 2.4.2** (`run_property_value_hydration`) added to `21_candidate_generation_wikidata.ipynb` — batch-hydrates P106/P102/P108/P21/P527/P17 object QIDs from cache/network. **Step 2.4.3** (second `crawl_subclass_expansion` call with `additional_active_class_predicates`) added to connect hydrated occupation nodes upward to core classes via branch discovery. Both steps implemented in `materializer.py` and wired into Notebook 21 cells `d3e154db` (2.4.2) and `b74d12d7` (2.4.3).
+- Verification (2026-04-24): `data/40_analysis/analysis_summary.json` `top_occupations` = ["Journalist", "Politiker", ...] — all German labels, 0 bare QIDs. `data/40_analysis/guest_catalogue.csv` has 0 bare QIDs across all 1,395 occupation labels.
+- Notes: `instances_core_roles.json` is correctly empty — all role-type entities in Wikidata have P279 (subclass-of), making them class nodes filtered from instance projections. The `atomic_write_text` idempotency guard skips writing when content is unchanged (`{}`), so the file mtime stays at its last meaningful write date. Architectural follow-up: TODO-034 (instances.csv dual-write conflict between materializer and InstancesHandler).
+
+### TODO-026: Unify ToDo structure
+
+- Priority: medium
+- Status: solved (2026-04-23)
+- Area: workflow
+- Summary: `documentation/task-principles.md` created covering: where tasks live, raising, progressing, resolving (immediate move to archive), archiving, intake from `open_additional_input.md`, and execution planning. Repository-wide scan found inline TODOs in `11_mention_detection.ipynb` (cells `d4f55fab`, `93cf17bc`) and `21_wikidata_vizualization.ipynb` (cell `e35e0aa1`); all replaced with tracker references or implementation-status notes. `ToDo/open_additional_input.md` cleared. New task TODO-035 raised for pipeline scope expansion. `ToDo/TASK_EXECUTION_PLAN.md` created for dependency-ordered agent execution.
+
+### TODO-024: Visualization principles document
+
+- Priority: high
+- Status: solved (2026-04-23)
+- Area: docs
+- Summary: `documentation/visualization-principles.md` created covering: Okabe-Ito colorblind-safe palette with named constants, configurable font family, mandatory PDF+PNG export (`save_fig()` helper), figure dimensions, title/subtitle rules, and chart-type-specific rules (bar, histogram, box, hierarchy, sunburst/sankey, node graph). Compliance gaps in `51_visualization.ipynb` documented in the principles file as a follow-up table.
+
+### TODO-016: Formalize normalization-timing policy across phases
+
+- Priority: medium
+- Status: solved (2026-04-23)
+- Area: architecture
+- Summary: Two normalization categories formalized — display normalization (stored, Phase 1 only) and match-time normalization (derived, never stored, symmetric-both-sides). Policy document written at `documentation/normalization-policy.md`; `workflow.md` updated with reference.
+
+### TODO-028: Document title disambiguation finding
+
+- Priority: low
+- Status: solved (2026-04-23)
+- Area: docs
+- Summary: Titles (Prof., Prof. Dr., Dr.) in names do not hinder deduplication — `normalize_name_for_matching` strips them. Finding added as F-018 in `documentation/findings.md`.
+
+### TODO-029: Document Wikidata birthdate bias finding
+
+- Priority: low
+- Status: solved (2026-04-23)
+- Area: docs
+- Summary: Wikidata birth-date statistics skew age upward due to notability and data-protection gaps for younger persons. Cannot be corrected, only acknowledged. Finding added as F-019 in `documentation/findings.md`.
+
+### TODO-034: Document and evaluate phase equivalence of candidate discovery sources
+
+- Priority: low
+- Status: solved (2026-04-23)
+- Area: architecture
+- Summary: PDF extraction, Wikidata discovery, and fernsehserien.de scraping are peer candidate-discovery steps. Note added to `documentation/workflow.md` Phase 2 section and recorded as F-017 in `documentation/findings.md`.
+
 ### TODO-902: Enforce v2 raw-event emission semantics
 
 - Priority: high

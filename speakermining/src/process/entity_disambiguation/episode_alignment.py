@@ -16,6 +16,7 @@ from .utils import (
     prefixed_row_values,
     read_json_dict,
     stable_id,
+    trim_to_top_columns,
 )
 
 
@@ -335,5 +336,7 @@ def build_aligned_episodes(normalized: dict[str, pd.DataFrame]) -> tuple[pd.Data
                 aligned[column] = ""
 
     aligned = ensure_columns(aligned, COMMON_BASE_COLUMNS + [c for c in aligned.columns if c not in COMMON_BASE_COLUMNS])
+    _excl = {c for c in aligned.columns if "_norm_" in c} | {"raw_json_wikidata"}
+    aligned = trim_to_top_columns(aligned, COMMON_BASE_COLUMNS, exclude=_excl)
     aligned = aligned.sort_values(by=["publikationsdatum_zdf", "canonical_label", "alignment_unit_id"], na_position="last")
     return aligned.reset_index(drop=True), evidence_rows

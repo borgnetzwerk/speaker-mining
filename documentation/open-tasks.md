@@ -22,18 +22,44 @@ Copy this block when adding a new item.
 
 ## High Priority
 
-### TODO-018: Integrate authoritative 6-column reconciliation CSV into Phase 32
+### TODO-036: Fix Phase 31/32 notebook orchestration drift
 
 - Priority: high
 - Status: open
 - Area: workflow
+- Summary: `run_phase31` in `entity_disambiguation/orchestrator.py` and `run_phase32` in `entity_deduplication/orchestrator.py` wrap all logic in single functions, violating the notebook-first principle in `documentation/coding-principles.md`. Notebooks should be the orchestrators with step-by-step cells and intermediate output; modules should expose granular functions.
+- Evidence: `speakermining/src/process/entity_disambiguation/orchestrator.py`, `speakermining/src/process/entity_deduplication/orchestrator.py`, `documentation/coding-principles.md`; TODO-017 column trimming was implemented in `run_phase31` instead of in the notebook (see `ToDo/archive/additional_input.md` batch 5).
+- Definition of done:
+  1. Audit Notebooks 31 and 32 to identify all steps currently delegated to `run_phase31`/`run_phase32` and not represented as notebook cells.
+  2. Each logical step becomes a notebook cell calling a granular module function, with visible output after each step. The `run_phase3x` wrappers are removed or deprecated.
+  3. ✓ TODO-017 column trimming is applied inside `build_aligned_*` functions, not inside `run_phase31` (done 2026-04-24).
+  4. Notebooks 31 and 32 can be run cell-by-cell with intermediate results visible.
+- Notes: Likely introduced when Claude Code generated code without following notebook-first conventions. Fix before any further Phase 31/32 work. See also TODO-037.
+
+### TODO-037: Create AGENT.md and CLAUDE.md with project coding principles
+
+- Priority: high
+- Status: open
+- Area: workflow
+- Summary: No AGENT.md or CLAUDE.md exists to communicate notebook-first orchestration and coding conventions to AI assistants. This is the root cause of the orchestration drift in TODO-036.
+- Evidence: `documentation/coding-principles.md`; `ToDo/archive/additional_input.md` batch 5.
+- Definition of done:
+  1. `CLAUDE.md` created at the repository root summarizing: notebook-first orchestration, no `run_phase*` wrapper functions, intermediate output in cells, module/test boundaries.
+  2. Explicitly warns against `run_phase*` wrappers; instructs placing logic in notebook cells instead.
+  3. References `documentation/coding-principles.md` rather than duplicating it.
+
+### TODO-018: Integrate authoritative 6-column reconciliation CSV into Phase 32
+
+- Priority: high
+- Status: in-progress
+- Area: workflow
 - Summary: The OpenRefine reconciliation team is producing a 6-column CSV (`alignment_unit_id`, `wikibase_id`, `wikidata_id`, `fernsehserien_de_id`, `mention_id`, `canonical_label`) as the authoritative output of manual Phase 31 reconciliation. This CSV must be integrated into Phase 32 as the highest-confidence deduplication tier, superseding automated strategies where present. Our task is to be ready to receive and integrate it — the CSV itself is produced externally.
-- Evidence: `documentation/31_entitiy_disambiguation/post-processing.md` (workflow + deadlines), `ToDo/2026-05-03_Speaker_Mining_Paper/`.
+- Evidence: `documentation/31_entity_disambiguation/post-processing.md` (workflow + deadlines), `ToDo/2026-05-03_Speaker_Mining_Paper/`.
 - Definition of done:
   1. The integration contract is documented in `contracts.md`: where the incoming CSV is placed, what Phase 32 does with it, and how it overrides automated clustering.
   2. Phase 32 logic (`orchestrator.py` or a new step) reads the incoming CSV and promotes its entries to a new `manual_reconciliation` cluster strategy with confidence = `authoritative`.
   3. The 6-column CSV is received from the reconciliation team and ingested — deadline 2026-05-03.
-- Notes: The CSV is produced externally (manual OpenRefine reconciliation); deadline for receiving it is 2026-04-29. We must not block on it — implement integration logic now so it is ready to run as soon as the file arrives.
+- Notes: The CSV is produced externally (manual OpenRefine reconciliation); deadline for receiving it is 2026-04-29. Integration logic is implemented (2026-04-23): `_apply_manual_reconciliation_tier()` in `person_deduplication.py`, loaded by `orchestrator.py` when `data/31_entity_disambiguation/reconciliation_export.csv` exists. Drop the CSV at that path and re-run Phase 32 to ingest. Tests: `speakermining/test/process/entity_deduplication/test_manual_reconciliation.py` (9 cases). Remaining: receive CSV and do a live ingest run (item 3).
 
 ### TODO-019: Complete guest catalogue — add unmatched canonical entities
 
@@ -47,50 +73,21 @@ Copy this block when adding a new item.
   2. `41_analysis.ipynb` is updated to produce both files and to display the split (matched vs. unmatched counts).
   3. At least a sample of unmatched entities is inspected to confirm whether any can still be resolved (e.g. common names with missing Wikidata link).
 
-### TODO-024: Visualization principles document
-
-- Priority: high
-- Status: open
-- Area: docs
-- Summary: Formalize the principles underlying existing visualizations. Core universal rules (colorblind-friendly palette, scaling, PDF+PNG export, configurable font family) must be documented first; then chart-type-specific rules (bar width, node graph label thresholds, etc.) can be added.
-- Evidence: `ToDo/archive/additional_input.md` (Visualization principles section), `ToDo/visualization_references/`, `documentation/visualizations/`.
-- Definition of done:
-  1. A `documentation/visualization-principles.md` file is created with at minimum: color palette rule, scale/DPI rule, required export formats (PDF + PNG; HTML optional), and font-family guidance.
-  2. Existing `ToDo/visualization_references/` examples are reviewed and the principles document is refined with concrete examples from them (being careful to extract signal from noise).
-  3. All existing `51_visualization.ipynb` charts are verified to comply with the documented principles; gaps are noted as follow-up items.
-- Notes: Hierarchy layout visualizations (horizontal, radial) should minimize line overlap by co-locating subclasses that share the same set of superclasses. Nodes whose edges do not interact with a dense cluster should be placed at the cluster perimeter, not its interior. This edge-overlap-minimization principle applies to all hierarchical layout types.
-
 ## Medium Priority
-
-### TODO-016: Formalize normalization-timing policy across phases
-
-- Priority: medium
-- Status: open
-- Area: architecture
-- Summary: Two categories of normalization exist in the codebase with different properties. The guiding principle and per-phase policy must be documented to prevent future ad-hoc decisions.
-- Evidence: `ToDo/archive/additional_input.md`, `mention_detection/guest.py` (`_expand_abbreviations`), `candidate_generation/person.py` (`normalize_name_for_matching`).
-- Decision basis (captured here for the definition-of-done author):
-  - **Display normalization** (abbreviation expansion in `beschreibung`) — applied in Phase 1. Acceptable because `source_text` preserves the original; the transformation is cosmetic, not semantic. Does NOT affect Phase 31 matching since matching uses `name`, not `beschreibung`. Keep in Phase 1.
-  - **Match-time normalization** (`normalize_name_for_matching`) — applied as a derived key at comparison time, never stored. This is the correct pattern for all cross-source name matching. Phase 31 and Phase 32 must use this (or an equivalent function applied symmetrically to both sides) rather than comparing stored name strings directly.
-  - **The risk**: normalizing only one side (e.g. expanding ZDF abbreviations but not fernsehserien.de abbreviations) creates asymmetry that silently breaks matching. The cure: always normalize both sides with the same function at comparison time.
-- Definition of done:
-  1. A `normalization-policy.md` document is added to `documentation/` with explicit rules: what is stored vs. what is derived, which phase owns each normalization, and the symmetric-both-sides requirement for match keys.
-  2. `workflow.md` references the normalization policy document.
-  3. Phase 32 deduplication design uses `normalize_name_for_matching` (or equivalent) symmetrically when comparing candidates.
 
 ### TODO-017: Reduce aligned_*.csv column footprint
 
 - Priority: medium
-- Status: open
+- Status: in-progress
 - Area: contracts
 - Summary: `aligned_persons.csv` has 2,531 columns — a symptom of two issues: (1) `raw_json_wikidata` column containing full JSON payload is redundant alongside the individual property columns, and (2) both raw `*_wikidata` and `*_norm_wikidata` variants of every Wikidata property column are propagated, doubling the column count. The bloated count also makes OpenRefine reconciliation projects slow to load, but some context columns are genuinely useful for manual reconciliation.
-- Evidence: `data/31_entity_disambiguation/aligned/aligned_persons.csv` header (2,531 cols); `documentation/31_entitiy_disambiguation/archive/todo_tracker.md` (archived notes).
+- Evidence: `data/31_entity_disambiguation/aligned/aligned_persons.csv` header (2,531 cols); `documentation/31_entity_disambiguation/archive/todo_tracker.md` (archived notes).
 - Definition of done:
-  1. `raw_json_wikidata` column is removed from Phase 31 output schema (full payloads live in `instances_core_persons.json`).
+  1. `raw_json_wikidata` column is removed from Phase 31 output schema (full payloads live in `core_persons.json`).
   2. Either the raw or the `_norm_` variant of each Wikidata property column is removed; the surviving column is documented in `contracts.md`.
   3. Column selection prioritizes: core IDs, label, description, aliases, source links, and the most commonly populated properties (e.g. occupation for persons). Columns that are ≥ 99% empty or offer no value to a human reviewer are cut first.
   4. `aligned_persons.csv` column count drops to approximately 40 after re-run (hard ceiling: 50).
-- Notes: The ~40-column target is driven by OpenRefine usability — a reconciliation project with thousands of columns is difficult to load and review. Preserve enough columns for a human reviewer to confidently match or reject an entity without leaving OpenRefine.
+- Notes: The ~40-column target is driven by OpenRefine usability — a reconciliation project with thousands of columns is difficult to load and review. Preserve enough columns for a human reviewer to confidently match or reject an entity without leaving OpenRefine. Implementation (2026-04-24): `trim_to_top_columns` added to `utils.py`; applied at end of every `build_aligned_*` function (persons, episodes, roles, organizations, topics, seasons, broadcasting_programs). Selection is data-driven per entity type: COMMON_BASE_COLUMNS always kept, `_norm_*` variants and `raw_json_wikidata` always excluded, remaining 25 slots filled by highest-population-rate columns in that entity's actual data. Remaining: re-run Notebook 31 to regenerate all aligned CSVs and verify column counts ≤ 50.
 
 ### TODO-020: Extended gender distribution analysis
 
@@ -116,7 +113,7 @@ Copy this block when adding a new item.
   1. A high-level summary table (methodology, scope, data volume, key findings) comparing this project against all three prior works is written and saved to `documentation/`.
   2. An analysis notebook or section ingests each prior dataset and computes comparable statistics (guest count, gender distribution, time range) to enable direct comparison.
   3. Key differences and improvements over prior work are documented.
-- Notes: Omar's approach file path in `additional_input.md` is incomplete
+- Notes: All analysis must exclude the moderator (Markus Lanz, Q43773) — see TODO-039. Age distribution should also add a second overlay counting every appearance (not just first), so a person appearing over multiple seasons is counted at each appearance age. Omar's approach file path in `additional_input.md` is incomplete
   - clarification: Here is the entire codebase of that approach: `ToDo/2026-05-03_Speaker_Mining_Paper/First Approach Codebase`. Keep in mind that there are three different works in total: 1) Arrrrrmin 2) Spiegel 3) This Work (being created in two iterations: One is Omar's first approach, Lanz Mining but Fair, and then this second iteration, Speaker Mining. Both are part of "This Work"). So in total, there are three different major works, and Omar's analysis may be omitted from the final comparison. It can however be presented as a "V0" of this approach.
 
 ### TODO-023: Dataset overview and pipeline statistics
@@ -146,29 +143,21 @@ Copy this block when adding a new item.
   5. All diagrams are written as PNG + PDF to `data/output/visualization`.
 - Notes: Sunburst and Sankey diagrams assume tree-like hierarchy; subclasses with multiple superclasses break this assumption. Implementation must define a multi-parent strategy (e.g. primary-parent assignment or proportional count split) before items 3 and 4 can be completed.
 
-### TODO-026: Unify ToDo structure
+
+### TODO-034: Resolve instances.csv dual-write architectural conflict
 
 - Priority: medium
 - Status: open
-- Area: workflow
-- Summary: Open TODOs are scattered across notebooks, documentation files, and `additional_input.md`. A task-principles document should be written and all scattered tasks should be moved to the proper tracker. The principles should cover: task scope, format, progress documentation, archiving resolved tasks, and prohibiting tasks from living in notebook files.
-- Evidence: `ToDo/archive/additional_input.md` (Unify ToDo structure section), open task items still in `21_wikidata_vizualization.ipynb`.
+- Area: architecture
+- Summary: `_materialize` writes `instances.csv` (materializer format, `id` column, 36,890 rows) at line 2419, then `run_handlers` overwrites it with InstancesHandler format (`qid` column, 20,836 rows). The parquet sidecar (`instances.parquet`) is only written by the materializer and is therefore the reliable comprehensive source. This violates event-sourcing principles: `instances.csv` is owned by InstancesHandler, and `_materialize` should not write to it.
+- Evidence: `materializer.py` line 2419 (`_write_tabular_artifact(paths.instances_csv, instances_df)`); `handlers/instances_handler.py` `materialize()` — writes qid-format CSV only; `instances.parquet` (36,890 rows, `id`/`label_en`/`label_de` columns) vs `instances.csv` (20,836 rows, `qid`/`label`/`labels_de` columns).
 - Definition of done:
-  1. A `documentation/task-principles.md` file is created documenting the task lifecycle: raising, describing, progressing, resolving, and archiving tasks.
-  2. A repository-wide search for open TODO comments and task blocks in notebooks and code files is performed; all actionable items are moved to `documentation/open-tasks.md`.
-  3. All task files (`archive/additional_input.md`, phase analysis files) conform to the same principles.
+  1. `_materialize` no longer writes to `paths.instances_csv`; it writes to a separate file (e.g. `instances_materialized.csv`) or relies solely on the parquet sidecar.
+  2. All consumers that need the comprehensive entity view (e.g. Notebook 41's `qid_label` lookup) read from `instances.parquet` or the renamed file.
+  3. `contracts.md` is updated to document which file is owned by which component.
+- Notes: The current state is functional — Notebook 41's `qid_label` comes from `instances.csv` (handler format) and resolves all occupation labels correctly via the 20,836 entities in the handler file. The 16,054-row gap is entities added through node-store paths (property-value hydration, subclass expansion) rather than entity_fetch events. Fix this before the next time the label lookup breaks.
 
-### TODO-031: Fix unresolved QID labels in analysis output and visualizations
 
-- Priority: medium
-- Status: open
-- Area: analysis
-- Summary: Several analysis outputs display raw QIDs instead of human-readable labels — for example `top_occupations` shows `Q1238570` (political scientist / Politikwissenschaftler) and `Q40348` (lawyer / Rechtsanwalt). Both entities carry German and English labels on Wikidata, so the failure to resolve them points to a gap in the label-lookup path.
-- Evidence: `ToDo/archive/additional_input.md` (QID label section), `data/40_analysis/guest_catalogue.csv`, `speakermining/src/process/notebooks/41_analysis.ipynb`.
-- Definition of done:
-  1. The label-lookup gap is identified: which phase or notebook step fails to resolve the QID to a label.
-  2. The fix is applied so that all occupation/property values in analysis output use labels, not QIDs.
-  3. The `top_occupations` list and any other summary fields are re-generated and verified to contain no bare QIDs.
 
 ### TODO-032: Fix page rank visualization — replace bar chart with node graph
 
@@ -181,6 +170,57 @@ Copy this block when adding a new item.
   1. The bar-chart page rank visualization is removed from `51_visualization.ipynb`.
   2. A node-graph visualization of page rank is implemented, showing nodes sized or colored by their rank score.
   3. The new visualization is exported as PNG + PDF to `data/output/visualization`.
+
+### TODO-038: Investigate Wikidata Node Integrity Pass performance
+
+- Priority: medium
+- Status: open
+- Area: ingestion
+- Summary: The Wikidata Node Integrity Pass step in Notebook 21 took 1648 seconds on first run and over 6726 seconds on a second run without completing. This is likely a performance or loop issue that needs investigation before the step can be relied upon.
+- Evidence: `ToDo/21_wikidata_6_5_run_Node_integrity_pass_context.md`, `ToDo/21_wikidata_6_5_run_Node_integrity_pass_context_second.md`, `documentation/context/node_integrity/node_integrity_20260424T140800Z.md`, `documentation/context/node_integrity/node_integrity_20260424T105030Z.md`.
+- Definition of done:
+  1. Root cause of the excessive runtime is identified and documented.
+  2. Either the step is optimized to complete in a reasonable time (< 5 minutes), or a principled decision is made to skip/replace it with an explanation.
+  3. If a bug is found, it is fixed and the fix is documented in `documentation/findings.md`.
+
+### TODO-039: Exclude moderator (e.g. Markus Lanz) from all analysis outputs
+
+- Priority: medium
+- Status: open
+- Area: analysis
+- Summary: Moderators, such as Markus Lanz, appear in every episode and would skew all statistics (gender distribution, age, occupation frequency, page rank). They must be excluded from all analysis outputs. Currently unknown whether they are already excluded.
+- Evidence: `ToDo/archive/additional_input.md` batch 5; `data/40_analysis/guest_catalogue.csv`, `speakermining/src/process/notebooks/51_visualization.ipynb`.
+- Definition of done:
+  1. Check whether Markus Lanz (Q43773) currently appears in `guest_catalogue.csv`, gender distribution, occupation counts.
+  2. If present: When person classification happens, we already classify into "guest" and "topic" etc. - we should have a dedicated category for "moderator"
+  3. When creating any guest related statistics, this should only count guests. Not Moderators, not topics, not other related persons. See TODO-040 for additional details.
+  4. Analysis outputs are re-run with the rules above applied.
+
+### TODO-040: Audit guest classification accuracy with random sample tracing
+
+- Priority: medium
+- Status: open
+- Area: analysis
+- Summary: Elon Musk appears in `guest_catalogue.csv` but was (as far as known) never a guest — he appeared only in a topic description. This suggests systematic misclassification of topic-mentioned persons as guests. A random-sample audit is needed.
+- Evidence: `data/40_analysis/guest_catalogue.csv` (Elon Musk present); `ToDo/archive/additional_input.md` batch 5.
+- Definition of done:
+  1. Trace Elon Musk's entry back to its source (which Phase 1 row, which episode, which parsing rule).
+  2. Take a random sample of ≥ 20 entries from `guest_catalogue.csv` and trace each back to its Phase 1 source row to verify correct classification.
+  3. If systematic misclassification is found, raise a new TODO with the specific root cause and fix.
+  4. Results (sample + classification verdict) are documented in `documentation/findings.md`.
+
+### TODO-041: Respect time-sensitive Wikidata claims using episode date
+
+- Priority: medium
+- Status: open
+- Area: analysis
+- Summary: Wikidata claims for party affiliation (P102), occupation (P106), position held (P39), employer (P108) etc. may have start/end qualifiers. A statement true in 2015 may be false today. Guest properties should be evaluated against the date of the episode they appeared in, not the current Wikidata snapshot.
+- Evidence: `ToDo/archive/additional_input.md` batch 5; `data/40_analysis/guest_catalogue.csv`; `data/10_mention_detection/episodes.csv` (contains episode dates).
+- Definition of done:
+  1. Identify which Wikidata properties in the guest catalogue have start/end date qualifiers in the raw claim data (`core_persons.json`).
+  2. For each such property, filter to only claims whose date range covers the guest's first (or any) appearance date.
+  3. Updated analysis reflects time-contextual properties; discrepancies (e.g. former party member shown as current) are reduced.
+  4. The filtering logic is documented in `contracts.md` or `documentation/findings.md`.
 
 ### TODO-027: Propagate mention_category through pipeline to produce guest/other split
 
@@ -209,26 +249,6 @@ Copy this block when adding a new item.
   3. Results are presented neutrally, without presuppositions, and documented in `documentation/`.
 - No machine learning or "training", just deterministic calculations. We have no time for AI training, and generally, any black box introduction would not be aligned with our principles.
 
-### TODO-028: Document title disambiguation finding
-
-- Priority: low
-- Status: open
-- Area: docs
-- Summary: Titles (Prof., Prof. Dr., Dr., Professor) in front of names can hinder deduplication if not stripped. Investigation confirmed this is a non-issue in practice (Karl Lauterbach is correctly deduplicated despite variant title forms), but the finding and the reason should be documented for future reference.
-- Evidence: `ToDo/archive/additional_input.md` (Titles may hinder deduplication section), `data/31_entity_disambiguation/aligned/aligned_persons.csv` (example rows with Prof. Dr. variants).
-- Definition of done:
-  1. A finding entry is added to `documentation/findings.md` explaining the title prefix issue, why it is a non-issue (normalization strips titles), and the example evidence.
-
-### TODO-029: Document Wikidata birthdate bias finding
-
-- Priority: low
-- Status: open
-- Area: docs
-- Summary: Age statistics computed from Wikidata birth dates are systematically skewed upward: underage persons are underrepresented on Wikidata for data-protection and notability reasons. This bias cannot be corrected, only acknowledged.
-- Evidence: `ToDo/archive/additional_input.md` (Wikidata bias introduction section), `data/40_analysis/guest_catalogue.csv` (birthyear distribution).
-- Definition of done:
-  1. A findings entry is added to `documentation/findings.md` explaining the upward age-skew bias, its cause (Wikidata notability/data-protection), and that it is a known limitation acknowledged but not corrected.
-
 ### TODO-030: Compile interesting pipeline findings for talk/paper
 
 - Priority: low
@@ -252,18 +272,6 @@ Copy this block when adding a new item.
   1. A caveat section is added to the gender analysis output (notebook or documentation) explaining that bias metrics describe the sample set only, not the total population.
   2. Example framing is provided: "X% of teachers in our sample are male" — not "X% of all teachers are male".
   3. The caveat is referenced from `documentation/findings.md` as a known limitation.
-
-### TODO-034: Document and evaluate phase equivalence of candidate discovery sources
-
-- Priority: low
-- Status: open
-- Area: architecture
-- Summary: PDF archive extraction, Wikidata graph discovery, and fernsehserien.de scraping are treated asymmetrically despite being conceptually equivalent self-contained candidate discovery steps. Documenting this equivalence simplifies the phase model: Wikidata string-based candidate generation becomes a substep of disambiguation (3.1), not a major phase, dropping the total phase count by one.
-- Evidence: `ToDo/archive/additional_input.md` (Learnings / PDF Extraction section), `documentation/workflow.md`.
-- Definition of done:
-  1. `documentation/workflow.md` is updated with a note explaining the conceptual equivalence of the three discovery sources and the rationale for a simplified phase numbering.
-  2. A proposed simplified phase map is documented: Phase 1 (all candidate discovery) → Phase 2.0 (normalization) → Phase 2.1 (reconciliation) → Phase 2.2 (deduplication) → Phase 3 (link prediction).
-  3. Any concrete pipeline refactoring required to align with the new model is captured as follow-up items in the phase-structure documentation.
 
 ### TODO-005: Clarify institution extraction responsibility by phase
 
@@ -300,3 +308,52 @@ Copy this block when adding a new item.
   1. merge semantics are defined.
   2. required schema or pipeline changes are identified.
   3. implementation plan is documented.
+
+### TODO-042: Fix roles projection — use subclasses (P279) not instances (P31)
+
+- Priority: high
+- Status: in-progress
+- Area: modeling
+- Summary: Role-type Wikidata entities (journalist, politician, etc.) are defined via P279 (subclass-of), making them class nodes. The pipeline filtered ALL class nodes out of `core_roles.json`, producing an empty file. Fix: `core_classes.csv` now has a `projection_mode` column; roles has `projection_mode=subclasses`, which causes `_write_core_instance_projections` to build the roles projection from class nodes (filtered by `resolved_core_class_id`) rather than instance nodes.
+- Evidence: `data/20_candidate_generation/wikidata/projections/core_roles.json` (currently `{}`); `data/00_setup/core_classes.csv`; `speakermining/src/process/candidate_generation/wikidata/materializer.py` `_write_core_instance_projections`; `speakermining/src/process/candidate_generation/wikidata/bootstrap.py` `_load_class_setup_rows`.
+- Definition of done:
+  1. `core_roles.json` contains role entities (e.g. journalist Q1930187, politician Q82955) after re-running Phase 2 materialization.
+  2. Phase 31 `aligned_roles.csv` contains Wikidata-matched role rows (currently 0 Wikidata matches).
+  3. Finding documented in `documentation/findings.md`: role class uses P279 subclass mode.
+- Notes: Implementation (2026-04-24): `projection_mode` column added to `core_classes.csv` and `bootstrap.py`; `class_nodes_df` built alongside `non_class_instances_df` in materializer and used when `projection_mode=subclasses`. All `instances_core_*.json` files renamed to `core_*.json` (and `not_relevant_instance_core_*` → `not_relevant_core_*`) throughout codebase and on disk (2026-04-24). Remaining: re-run Phase 2 materialization (Notebook 21) to regenerate `core_roles.json`, then re-run Phase 31.
+
+### TODO-043: Align property hydration config with relevancy propagation config structure
+
+- Priority: low
+- Status: open
+- Area: architecture
+- Summary: Property-based hydration (whitelisting P106, P102, etc.) and relevancy propagation both use "if subject meets criteria, follow this property to hydrate/expand the object" logic. They should use parallel config structures — two independent but similarly-shaped config files — rather than ad-hoc code.
+- Evidence: `ToDo/archive/additional_input.md` batch 5; `relevancy_relation_contexts.csv` (relevancy config); Phase 2.1 hydration whitelist (currently hardcoded).
+- Definition of done:
+  1. A dedicated config file for property hydration (e.g. `hydration_properties.csv`) mirrors the structure of the relevancy propagation config.
+  2. Both configs are documented side-by-side in `documentation/workflow.md` explaining the distinction: relevancy targets core-class-instance subjects; hydration can target any subject.
+  3. Hardcoded hydration predicate lists in Phase 2.1 are replaced by the config file.
+
+### TODO-044: Wikidata v4 conceptual rework (deferred, out of scope)
+
+- Priority: low
+- Status: open
+- Area: architecture
+- Summary: Phase 2.1 is currently a patchwork of modules mending each other's shortcomings. The ideal is a single rule-driven graph expansion engine: find core node → apply rules → hydrate or expand linked objects → repeat. This is explicitly out of scope now but worth tracking as a long-term architectural goal.
+- Evidence: `ToDo/archive/additional_input.md` batch 5.
+- Definition of done:
+  1. Conceptual design for the rule-driven graph expansion engine is documented in `documentation/workflow.md` (future state section).
+  2. No implementation is required — this is a design reference for a future major version.
+- Notes: Do not implement. Document only. Revisit after the current pipeline is stable and published.
+
+### TODO-035: Extend pipeline scope beyond Markus Lanz to other shows
+
+- Priority: low
+- Status: open
+- Area: ingestion
+- Summary: The current pipeline is scoped to Markus Lanz archive files only; `DEFAULT_PDF_TXT_INPUTS` and `ZDF_ARCHIVE_DIR` hardcode that path. Extending to other shows would require parameterized input discovery and show-specific parsing configuration.
+- Evidence: `speakermining/src/process/notebooks/11_mention_detection.ipynb` cell `d4f55fab`, `speakermining/src/process/mention_detection/config.py`.
+- Definition of done:
+  1. Input discovery is parameterized so that a different show can be processed by changing a config value, not code.
+  2. At least one additional show archive is processed successfully end-to-end through Phase 1.
+  3. Show identity is propagated as a column in all Phase 1 output CSVs.

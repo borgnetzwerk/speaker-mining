@@ -220,19 +220,18 @@ def test_revert_mode_restores_eventlog_to_previous_checkpoint(tmp_path: Path) ->
     assert "Q1" in restored_keys
     assert "Q2" not in restored_keys
 
-def test_checkpoint_snapshot_restores_dynamic_core_instance_projections(tmp_path: Path) -> None:
-    import pandas as pd
+def test_checkpoint_snapshot_restores_dynamic_core_projections(tmp_path: Path) -> None:
+    import json as _json
 
     paths = build_artifact_paths(tmp_path)
     paths.projections_dir.mkdir(parents=True, exist_ok=True)
-    core_projection = paths.projections_dir / "instances_core_persons.csv"
-    core_projection_parquet = paths.projections_dir / "instances_core_persons.parquet"
+    core_projection_json = paths.projections_dir / "core_persons.json"
     leftovers_projection = paths.instances_leftovers_csv
     leftovers_projection_parquet = leftovers_projection.with_suffix(".parquet")
 
-    core_projection.write_text("id\nQ100\n", encoding="utf-8")
+    import pandas as pd
+    core_projection_json.write_text('{"Q100": {"id": "Q100"}}', encoding="utf-8")
     leftovers_projection.write_text("id\nQ999\n", encoding="utf-8")
-    pd.DataFrame([{"id": "Q100"}]).to_parquet(core_projection_parquet, index=False)
     pd.DataFrame([{"id": "Q999"}]).to_parquet(leftovers_projection_parquet, index=False)
 
     checkpoint_path = write_checkpoint_manifest(
@@ -253,18 +252,16 @@ def test_checkpoint_snapshot_restores_dynamic_core_instance_projections(tmp_path
     )
 
     # Simulate drift after checkpoint.
-    core_projection.unlink(missing_ok=True)
+    core_projection_json.unlink(missing_ok=True)
     leftovers_projection.write_text("id\nQ888\n", encoding="utf-8")
-    core_projection_parquet.unlink(missing_ok=True)
     leftovers_projection_parquet.unlink(missing_ok=True)
 
     restore_checkpoint_snapshot(tmp_path, checkpoint_path)
 
-    assert core_projection.exists()
+    assert core_projection_json.exists()
     assert leftovers_projection.exists()
-    assert core_projection_parquet.exists()
     assert leftovers_projection_parquet.exists()
-    assert "Q100" in core_projection.read_text(encoding="utf-8")
+    assert "Q100" in _json.loads(core_projection_json.read_text(encoding="utf-8"))
     assert "Q999" in leftovers_projection.read_text(encoding="utf-8")
 
 
