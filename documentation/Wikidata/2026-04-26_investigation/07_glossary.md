@@ -30,6 +30,7 @@ The `event_type` field on each event. Currently known types include:
 ### EventHandler ✓
 A class that reads events from the event store in order, reacts to relevant event types, maintains derived state, and writes a projection file. Every EventHandler persists at least its `last_processed_sequence` so it can resume from where it left off on the next run.
   * **Clarification:** Question: Who writes / creates the events?
+  * **Resolution (C1.9):** Two classes of emitter exist. (a) The **traversal engine** writes primary observation events as it fetches data: `entity_discovered`, `triple_discovered`, `entity_expanded`, `query_response`. (b) **Derivation handlers** may also write computed conclusion events: `relevance_assigned`, `class_membership_resolved`. Both are valid emitters; the distinction matters for understanding which events are facts vs which are inferences.
 
 ### Projection ✓
 A derived artifact (CSV, JSON, parquet) written by an EventHandler. A projection is never the source of truth — it is always rebuildable from the event store by re-running the EventHandler from sequence 0. Projections are the interface between Notebook 21 and downstream phases.
@@ -72,11 +73,20 @@ A Wikidata entity that participates in a P279 (subclass-of) chain rather than (o
 ### Class Resolution ✓
 The process of following P279 chains from a class node upward until a core class is reached. The result is stored in `class_resolution_map.csv`. A class node is "resolved" when its parent chain reaches a core class.
 
-### Active Class ❓
+### Active Class ⚠ (term to be renamed — concept resolved)
 Currently used in the preflight step to mean "a class QID that appears in at least one P31 or P279 claim of any known entity". Used to seed the P279 upward walk.
 
-**Is this concept needed in the redesign? If handlers drive class resolution, what triggers the upward walk?**
-  * **Clarification:** Active classes are classes that are part of the graph we care about - inactive classes are not that, yet. We maybe should try to find a new term for this. We have plenty of classes that are never used - we still need to know about them, since maybe some future discovery tries to connect to them and then we'll be happy to remember when we last used them and how they are connected to our core classes - but until then, we don't care for them. They should not be part of our analysis, not part of our visualizations, they are just in cache waiting to be useful one day. They are just classes we know to maybe be useful, but currently, they are not yet.
+**Concept resolution (C7.5):** The ClassHierarchyHandler owns this concept. A class becomes "active" (referenced by our graph) when the handler observes it in a P31 or P279 claim on any discovered entity. The handler is responsible for maintaining the full class hierarchy, recording which classes are currently referenced vs merely cached-but-unused.
+
+**Naming status:** The term "active class" is imprecise and needs replacement. The distinction is:
+- A class that has been **referenced** in at least one triple of a discovered entity — the ClassHierarchyHandler should walk its P279 chain
+- A class that is merely **known** (appeared in a cache entry or a prior walk) but not yet referenced — tracked but not part of active analysis
+
+The replacement term has not yet been decided. See the naming decisions document.
+
+  * **Clarification (original):** Active classes are classes that are part of the graph we care about - inactive classes are not that, yet. We maybe should try to find a new term for this.
+  * **Clarification (original):** Question: Why can't a derivative Event handler trigger the upward walk? This EventHandler may be the "Class Hierarchy Handler" that then also is responsible for maintaining the memory of where this class fits in the larger tree, if it's active or not, etc. We currently have this logic already, we just need to hand it over to a (new) event handler (or multiple).
+  * **Resolution:** ClassHierarchyHandler is the answer. See C7.5. Naming still pending.
 
 ### Projection Mode ❓
 Currently `projection_mode` in `core_classes.csv` is either `instances` (use P31-based lookup) or `subclasses` (use P279-based lookup) when writing `core_*.json`. This binary may be insufficient.
@@ -92,52 +102,73 @@ Currently `projection_mode` in `core_classes.csv` is either `instances` (use P31
 ### Seed ✓
 A starting QID for graph traversal. Seeds are defined in `data/00_setup/broadcasting_programs.csv`. Traversal begins from seeds and expands outward through discovered triples.
 
-### Expansion ❓
-Currently overloaded to mean two things:
-(a) **Entity fetch**: fetching a QID's Wikidata claims and storing them as events.
-  * **Clarification:** Yes - we should mean this, a node is expanded from being one single node to having retrieved ALL the claims there are on this node, incoming and outgoing. If we need to find a new word for that, we should do that.
-(b) **Link traversal**: following the discovered claims to find new QIDs to fetch.
+### Expansion ✓ (retired — split into full_fetch + fetch_decision)
+Was overloaded to mean two things; both have been renamed:
+(a) **Entity fetch** → **`full_fetch`**: retrieve all Wikidata claims for a QID and store them as events. See `full_fetch` entry.
+(b) **Traversal decision** → **`fetch_decision`**: inspect a `full_fetch`ed entity's triples and decide which referenced QIDs to queue for `full_fetch` next. See `fetch_decision` entry.
 
-**Should these be two distinct named operations? If so, what are the new names?**
+The term "expansion" and all derived forms ("expand", "expanded", "expansion engine") are **retired from v4 vocabulary**. The engine is the **`fetch_engine`**.
 
-Candidate names:
-- **Fetch** — retrieve entity data for a QID from Wikidata (or cache), emit entity events
-- **Traverse** — follow the links on a fetched entity to discover new QIDs eligible for fetching
+  * **Clarification (original):** Yes - we should mean this, a node is expanded from being one single node to having retrieved ALL the claims there are on this node, incoming and outgoing. If we need to find a new word for that, we should do that.
+  * **Resolution:** Split into `full_fetch` (a) and `fetch_decision` (b). See `11_naming_decisions.md` §1.
 
-### Hydration ❓
-Currently means: fetch entity data for a QID that was first encountered as an *object* of a triple (not as a subject), when that QID has not been fetched yet. Similar to expansion, but triggered by property link rather than by graph traversal.
+### basic_fetch ✓
+*(old name: `hydration` — retired)*
 
-**Is "hydration" a distinct concept in the redesign, or is it subsumed by the general "fetch" operation under a rule?**
+A minimalistic, structured, mass-capable fetch that retrieves only:
+- label + description + aliases (all configured languages + Wikidata default language)
+- P31 (instance-of) + P279 (subclass-of) claims
 
-### Relevancy ❓
-An entity is "relevant" if it should appear in the Phase 2 output. Currently determined by two conditions:
-1. It is an instance/subclass of a core class.
-2. It is reachable from the seed set via an approved relevancy propagation path.
+Enough to know *what a node is* without knowing everything it links to. Because the payload is fixed and predictable, `basic_fetch` can be issued for many nodes in a single batch call, minimizing Wikidata API burden. Distinct from `full_fetch` (which retrieves all claims for one node) and from `fetch_decision` (which is the decision layer that queues QIDs for `full_fetch`).
 
-**Is this definition complete? What makes a seed itself relevant? Is relevancy binary or could it have confidence levels?**
+  * **Clarification (original):** hydrate is a very minimalistic fetch: label, description and aliases in a selected set of languages (+ the "default for all languages" always, a wikidata concept that every item has), + the "instance of" and "subclass of" claims. This is a very minimalistic fetch to understand what the node is about - it's much less than a full fetch (with an unknown number of claims), and 100 % structured. This also means it can have potential to mass hydrate any number of nodes at a time, since we know the payload structure. This advantage can be used to lower the burden on wikidata services. We should try to always find a way that is most suitable to get just exactly the data we need from wikidata with the way that puts the lowest burden on the wikidata service
+  * **Resolution:** Term renamed from `hydration` to `basic_fetch`. See C14.1 and `11_naming_decisions.md` §2.
+
+### Relevancy ✓
+An entity is relevant if it should appear in the Phase 2 output. Relevancy is determined as follows:
+
+1. **Seeds are authoritatively relevant** — no propagation rule required.
+2. **Propagation via approved triples** — an entity connected to a relevant entity via an approved relevancy rule also becomes relevant.
+   1. **Example:** Guests of relevant episodes are relevant. Topic/subject mention does NOT confer relevancy — if a relevant episode lists "topic: Barack Obama", Obama is not relevant; he was referenced, not present as a speaker.
+3. **Relevancy is binary and monotonically increasing** — once relevant, always relevant; relevancy cannot be lost.
+
+  * **Clarification (original):** The seed entities are authoritatively relevant - they are the objects of interest. Then - relevancy is propagated. A concrete example: We want to learn about speakers in a talk show. So we look up the talk show on wikidata and store it in our setup file. Everything else must be done by our relevancy propagation: The talk show is relevant, so every season that is part of that talk show must be relevant, too. Also every episode belonging to that show's seasons - and also every episode that directly says it belongs to the talk-show, but is not listed in any of its seasons. Then - we look into each of those episodes, and find guests. Guests are very relevant, since ever guest is a speaker, for our purposes. Naturally, the host is also a speaker, so they are also relevant. HOWEVER: If the episode has "topic: barack obama", then barack obama is not a speaker - he was not even there, we was just talked about. He is thus not relevant. That does not mean he is never relevant - if he ever is invited as a guest, he will be relevant. Thus: Relevancy can only be gained, not lost.
+  * **Resolution:** Relevancy is binary. Seeds are authoritative. See C15.1–C15.5.
 
 ### Relevancy Propagation ✓
 The process of marking an entity as relevant because it is connected to an already-relevant entity via an approved triple. Governed by `relevancy_relation_contexts.csv`. Propagation can be forward (subject → object) or backward (object → subject).
 
 ### Relevancy Rule ✓
 A row in `relevancy_relation_contexts.csv` specifying `(subject_core_class, property, object_core_class, can_inherit)`. When a triple matches a rule and the subject is relevant, the object also becomes relevant (or vice versa for backward rules).
+  * **Clarification:** We need to closely monitor these rules. We need to be able to later amend those rules, "overruling" their verdicts, etc. For example, if we find that not "part of series" sometimes also targets "Top 1000 Talk show episodes streamed in canada", we must prevent that all those talk show episodes suddenly become relevant just because they were mistaken for a "talk show season". We must keep a close eye on the rules, what decisions they result in, and how we need to modify them.
 
 ### Hydration Rule ❓
 The equivalent of a relevancy rule, but for the hydration operation. Currently implemented as a hardcoded predicate whitelist (P106, P102, P108, P21, P527, P17). Per TODO-043, this should become a config file with parallel structure to `relevancy_relation_contexts.csv`.
 
 **What is the correct structure for hydration rules? What columns are needed?**
+  * **Clarification:** Currently unknown. Part of our design plan to specify this. 
 
 ---
 
 ## Operational Concepts
 
-### Relevant ❓
-See "Relevancy" above. Used as an adjective: a "relevant entity" is one that has been marked as relevant.
+### Relevant ✓
+A "relevant entity" is one that has been marked as relevant (see Relevancy above). The binary distinction between "relevant" and "not relevant" is meaningful data: "not relevant" means the entity is known but does not currently satisfy any propagation path from any seed. Not-relevant entities appear in `not_relevant_core_<class>.json` and may become relevant in future runs.
 
-### Fully Expanded ❓
-A QID is "fully expanded" if all of its Wikidata links have been fetched and stored as events. Currently this is tracked as a `seed_fully_expanded` event (or similar). But "fully expanded" is ambiguous if the expansion rules change — an entity expanded under old rules may not be fully expanded under new rules.
+  * **Clarification (original):** Yes. we must differentiate between "relevant" (meaning: we want to know more about this, we must be able to talk about this, we must be able to analyze this) and "not relevant" (meaning: yes, we know it's there, but it matters not for our analysis. We're doing speaker mining, we know there are 8.3 billion people on the world, but we need to narrow this down to the few that spoke in one of our 15 broadcasting programs).
+  * **Resolution:** Relevancy is binary. See C15.4–C15.5.
 
-**How does the redesign define "fully expanded" in a way that is sensitive to rule changes?**
+### Fully Fetched ⚠ (partially resolved)
+*(old name: "fully expanded" — retired)*
+
+A QID is "fully fetched" if a `full_fetch` has been performed for it — all of its Wikidata claims (incoming and outgoing) have been retrieved and stored as events.
+
+**Resolution so far (C7.3):** Fetch rules govern *which* nodes are `full_fetch`ed; the `full_fetch` itself is always a complete link retrieval (all incoming + outgoing claims). So "fully fetched" simply means "a `full_fetch` has been performed for this QID at least once under the current config version".
+
+**Still open (C7.4):** The overlap between fetch rules and relevancy rules needs explicit design. If fetch rules say "full_fetch nodes reachable via approved predicates" and relevancy rules also govern predicate traversal, these may conflict or duplicate. The design must clarify whether these are the same rule set or separate.
+
+  * **Clarification (original):** Fully expanded means "we have all links (in and out) to this node. expansion rules should only specify what nodes should be expanded - the expansion itself is always just a "fetch all links with this node as subject/object".
+  * **Clarification (original):** We must think about the overlap in "Expansion rules" and "relevancy rules".
 
 ### Resume ✓
 On re-run, the system continues from where each EventHandler last left off. There is no separate checkpoint mechanism — EventHandler progress is the resume state.
@@ -155,10 +186,13 @@ A configurable limit on the number of network calls a run may make. `max_queries
 ### Core Output File ✓
 A `core_<class>.json` file in the projections directory. One file per core class. Contains all entities belonging to that core class that are both discovered and relevant. Written by an EventHandler at the end of the run (output-only, not read back by Phase 2).
 
-### Handover Projection ❓
-A projection that is written for downstream consumption (Phase 31). These include the `core_*.json` files and the `projections/*.csv` files that Phase 31 reads.
+### Handover Projection ✓
+A projection written for downstream consumption (Phase 31+). Phase 2 sets the output contract; downstream phases adapt to it, not the other way around. Phase 2 should produce the richest correctly-structured output it can. Downstream notebooks select what they need from a richer structure.
 
-**What is the complete list of files that Phase 31 reads from Phase 2? This defines the minimal output contract.**
+The minimal output contract is therefore defined by what Phase 2 *can* produce, not by what Phase 3 *currently* reads.
+
+  * **Clarification (original):** We won't know because the old Phase 3 design is build on the old Phase 2 design. So generally: We make the rules here. Whatever structures we can provide, we should. Then, in a future rework, we rework Phase 3 to be able to better use our data. For now: Think about the fact that Phase 3 needs our data, but don't think about how it expects our data. We can update phase 3 later.
+  * **Resolution:** See C16.1–C16.2.
 
 ### Entity Lookup Index ✓
 A CSV/parquet file mapping QIDs to labels, used by downstream notebooks to resolve QID strings to human-readable labels. Currently `entity_lookup_index.csv`. Must be comprehensive enough that no QID in any output file is label-less.
@@ -167,31 +201,30 @@ A CSV/parquet file mapping QIDs to labels, used by downstream notebooks to resol
 
 ## Terms to Consider Renaming or Retiring
 
-| Current Term | Issue | Candidate Replacement |
-|---|---|---|
-| `materializer` / `_materialize` | Deprecated per C1.6; implies a monolithic rebuild | (no replacement — this concept is removed) |
-| `node store` | Conflates "entity document cache" with "projection" | `entity cache`, `entity document store` |
-| `hydration` | Overloaded; unclear how it differs from expansion | `property-link fetch`? Needs decision. |
-| `expansion` | Overloaded (fetch + traverse) | `fetch` + `traverse`? Needs decision. |
-| `active class` | Unclear in context of handler-driven resolution | Possibly replaced by handler-driven concept |
-| `checkpoint` | Deprecated per C2; was overloaded with "backup" | (no replacement — concept is removed; backup is the correct term for event store copies) |
-| `core class entity` | Unstable per C3.4 | May need to be split into `core instance`, `core class node`, `core output entity` |
-| `preflight` | Steps 2.4–2.5 collectively | Needs a name in the redesigned step sequence |
+| Old Term | Issue | **Final name** |
+|----------|-------|----------------|
+| `materializer` / `_materialize` | Deprecated per C1.6 | **(removed)** |
+| `node store` | Conflates entity cache with projection layer | **entity_store** |
+| `hydration` | Jargon; no universally agreed meaning | **basic_fetch** |
+| `expansion` (retrieve claims) | Overloaded (conflated retrieval + traversal) | **full_fetch** |
+| `expansion` (decide next QIDs) | Overloaded; "expansion" retired from v4 | **fetch_decision** |
+| `active class` | "Active" is relative and imprecise | **referenced_class** (+ **known_class** for walked-but-unused) |
+| `checkpoint` | Deprecated per C2; was overloaded with "backup" | **(removed)** |
+| `core class entity` | Conflates instance and subclass relationships | **CoreClassInstance** / **CoreClassSubclass** |
+| `preflight` | Steps 2.4–2.5 collectively; no longer a named phase | **(removed — subsumed by ClassHierarchyHandler)** |
 
 ---
 
-## Open Questions Requiring Decisions
+## Open Questions Status
 
-The following questions must be answered before the design document can be written:
-
-| # | Question | Section |
-|---|----------|---------|
-| Q1 | What are the final event types? Are new types needed? | Event Type |
-| Q2 | Is "expansion" split into "fetch" + "traverse"? If so, what are the final names? | Expansion |
-| Q3 | Is "hydration" a distinct concept or subsumed by the general fetch-under-rule operation? | Hydration |
-| Q4 | Is relevancy binary, or does it have confidence levels? | Relevancy |
-| Q5 | What triggers the P279 upward class resolution walk in a handler-driven system? | Active Class |
-| Q6 | What is the column structure for `hydration_rules.csv`? | Hydration Rule |
-| Q7 | How does the redesign define "fully expanded" in a way sensitive to rule changes? | Fully Expanded |
-| Q8 | What is the complete list of files that Phase 31 reads from Phase 2? | Handover Projection |
-| Q9 | Does `projection_mode` (instances vs subclasses) survive, or is it replaced by per-class rules? | Projection Mode |
+| # | Status | Question | Resolution |
+|---|--------|----------|------------|
+| Q1 | ✓ RESOLVED | What are the final event types? Are new types needed? | See `12_event_catalogue.md`. `entity_basic_fetched` added as new v4 event. |
+| Q2 | ✓ RESOLVED | Is "expansion" split? Final names? | `full_fetch` (retrieve claims) + `fetch_decision` (queue next fetches). "Expansion" retired from v4. |
+| Q3 | ✓ RESOLVED | Is "hydration" distinct from general fetch? | Yes — minimalistic, structured, mass-capable. See C14.1–C14.4. |
+| Q4 | ✓ RESOLVED | Is relevancy binary or confidence-level? | Binary and monotonic. See C15.4. |
+| Q5 | ✓ RESOLVED | What triggers P279 class resolution walk in a handler-driven system? | ClassHierarchyHandler: reacts to entity/triple events, walks P279 incrementally. See C7.5. |
+| Q6 | ❓ OPEN | Column structure for `hydration_rules.csv`? | Deliberately deferred to design phase. |
+| Q7 | ⚠ PARTIAL | How is "fully fetched" defined with rule sensitivity? | `full_fetch` = complete link retrieval; fetch rules govern which nodes. Fetch/relevancy rule overlap still unresolved (C7.4). |
+| Q8 | ✓ RESOLVED | Complete file list Phase 31 reads from Phase 2? | Phase 2 sets the contract; Phase 3 adapts. See C16.1–C16.2. |
+| Q9 | ⚠ PARTIAL | Does `projection_mode` survive or is it replaced? | Needs twofold abstraction (instances + subclasses) + optional sub-projections. Naming TBD. |

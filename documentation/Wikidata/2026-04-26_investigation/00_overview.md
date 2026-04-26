@@ -106,3 +106,7 @@ Steps go 2.4 → 2.4.1 → 2.4.2 → 2.4.3 → 2.5 → 3 → 4 → 5 → 6 → 6
 | `06_old_code_strategy.md` | Options for handling existing code; decision required before implementation |
 | `07_glossary.md` | Vocabulary definitions; open questions marked ❓ require decisions before design |
 | `08_known_rules.md` | All known rules in plain language; retired rules explicitly listed |
+| `09_last_run_reference.md` | Final v3 notebook run (2026-04-26, 5000-call budget) — output preserved as design reference |
+| `10_redesign_roadmap.md` | Stage-wise plan: what's done, what's next, what's blocked — authoritative progress tracker |
+| `11_naming_decisions.md` | Final names for every ambiguous concept; one name per concept, with reasoning |
+| `12_event_catalogue.md` | All event types: emitters, readers, payload fields, v3→v4 name decisions, backward-compat status |

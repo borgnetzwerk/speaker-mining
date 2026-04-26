@@ -87,13 +87,16 @@ Relevancy can travel from object to subject. Example: a season that "has part" (
 **C3.4 — "Core-class instance" is an unstable concept; class expansion requires extra care.**  
 The distinction between "instance of a core class" and "subclass of a core class" is not a clean binary. What we want varies per class: for roles, we want subclasses; for persons, we want instances that satisfy additional conditions (e.g. appeared as a guest). The concept of "core-class instance" is not a sufficient predicate for inclusion.
 
-Furthermore, class node expansion must be treated with extreme caution. A class node like "journalist" has potentially thousands of P31 instances across all of Wikidata. Expanding a class node as if it were an instance would be catastrophically expensive. Rules that govern when a class node is traversed must be designed conservatively and explicitly — not as a default fallthrough.
+Furthermore, class node expansion must be treated with extreme caution. A class node like "journalist" has potentially thousands of P31 instances across all of Wikidata. Fully fetching a class node as if it were an instance would be catastrophically expensive. Rules that govern when a class node is traversed must be designed conservatively and explicitly — not as a default fallthrough.
 
 **C3.5 — "Core Class Instance" and "Core Class Subclass" are distinct, and both are always needed.**  
 An entity that is an instance of a core class is a **Core Class Instance**. An entity that is a subclass of a core class (via P279 chain) is a **Core Class Subclass**. These are two different things and must always be tracked separately. Which one is relevant for a given use case depends on context: person analysis cares about instances; role analysis cares about subclasses; episode analysis cares about instances but may use subclasses for categorization. The system must maintain both and expose both with full context. Conflating them into a single "core class entity" concept is what produced the roles bug.
 
 **C3.6 — Sub-projections within a core class are valid.**  
 Within a core class, further distinctions may be needed. For persons, we may need a "guest" sub-projection (persons who appeared as guests), a "host" sub-projection, or others. These are not new core classes — they are filtered views within an existing core class. The output handler for persons may produce multiple sub-projections if the rules and context support it. These sub-projections are output-only artifacts.
+
+**C3.7 — Relevancy rules require active monitoring and amendment capability.**  
+As the graph grows, approved rules can produce unexpected matches. For example, a "part of series" rule might correctly propagate to relevant seasons but also incorrectly mark "Top 1000 Streamed Episodes in Canada" as relevant because it coincidentally uses the same property. The rule system must provide visibility into which rules caused which relevancy assignments, and must support adding exclusion conditions or priority overrides without breaking correct existing propagations.
 
 ---
 
@@ -136,7 +139,16 @@ It is fine to have a concluding cell that checks all invariants and reports any 
 The current expansion engine marks a seed as complete and skips it in subsequent runs. But what does "complete" mean if the expansion logic has changed? If new predicates were added to the traversal config, or if new entities became reachable that weren't before, a previously "complete" seed may be incomplete under the new rules.
 
 **C7.2 — Event sourcing should handle this naturally.**  
-In a correct event-sourced design, the expansion engine emits events for every discovery. On re-run, the engine checks whether a seed has a `seed_fully_expanded` event (or equivalent) and whether the config that was current at that time matches the current config. If they differ, re-expansion is needed.
+In a correct event-sourced design, the `fetch_engine` emits events for every discovery. On re-run, the engine checks whether a seed has a `seed_fully_fetched` event (or equivalent) and whether the config that was current at that time matches the current config. If they differ, re-fetching is needed.
+
+**C7.3 — Fetch rules govern which nodes are full_fetched; the full_fetch itself is always a complete link retrieval.**  
+"Fetch rules" control the decision of *whether* to `full_fetch` a node. Once that decision is made (`fetch_decision`), the `full_fetch` always retrieves all incoming and outgoing claims for the node. Selectivity belongs in the `fetch_decision` layer, not in the fetch itself.
+
+**C7.4 — The boundary between fetch rules and relevancy rules must be explicitly designed.**  
+There is potential overlap: if `fetch_decision` is governed by fetch rules, and relevancy propagation is also governed by relevancy rules, we must be explicit about whether these are the same rule set or separate ones. A preliminary separation: fetch rules say "full_fetch this QID"; relevancy rules say "this entity is relevant". These are different concerns that may reference each other but must remain separate configurations.
+
+**C7.5 — The ClassHierarchyHandler answers Q5 (class resolution trigger).**  
+A dedicated derivation handler — the ClassHierarchyHandler — reads `entity_discovered` and `triple_discovered` events. Whenever it sees a new class QID referenced in a P31 or P279 claim, it triggers the P279 upward walk for that class if not already resolved. It owns `class_resolution_map.csv` and the full class hierarchy projection. It tracks which classes are referenced by the current graph ("active") vs known but not yet used. Class resolution is thereby continuous and incremental — O(new class QIDs per run), not O(all active classes at startup). Most of the required BFS algorithm already exists in `class_resolver.py`; the change is making it reactive rather than upfront-exhaustive.
 
 ---
 
@@ -211,11 +223,58 @@ It is acceptable to have a rule catalogue that looks verbose or over-specified. 
 
 ## 13 — Performance Is a Symptom, Not a Goal
 
-**C11.1 — The goal is correct event-sourced design.**  
+**C13.1 — The goal is correct event-sourced design.**  
 Runtime speed is an indicator of design quality, not the primary objective. A correct design where all EventHandlers track their progress and only process new events will naturally produce fast runs — not because we optimized for speed, but because correct incremental processing is inherently efficient.
 
-**C11.2 — The 20-minute runtime is a symptom of full-scan-on-every-run.**  
+**C13.2 — The 20-minute runtime is a symptom of full-scan-on-every-run.**  
 The root cause is not "the event store is too big" — it is that handlers re-scan from the beginning instead of continuing from where they left off. Fix the design; the runtime fixes itself.
+
+---
+
+## 14 — basic_fetch, full_fetch, and fetch_decision Are Three Distinct Operations
+
+From the glossary clarifications and naming decisions (`11_naming_decisions.md`), "expansion" is decomposed into three named operations:
+
+**C14.1 — `basic_fetch` is the minimalistic, structured, mass-capable fetch.**  
+`basic_fetch` retrieves: label, description, aliases (configured languages + Wikidata default) + P31 (instance-of) + P279 (subclass-of) claims only. Enough to know *what a node is* without knowing everything it links to. Because the payload is fixed and predictable, `basic_fetch` can be issued for many nodes in a single batch call, significantly reducing Wikidata API burden. The old term "hydration" is retired and replaced by `basic_fetch`.
+
+**C14.2 — `full_fetch` retrieves all claims for a single node.**  
+When a node is `full_fetch`ed, all outgoing and incoming Wikidata claims are retrieved and stored as events. This is unbounded — the number of claims is unknown in advance. `full_fetch` is triggered by the `fetch_engine` for nodes that have been queued by a `fetch_decision`. The pair `basic_fetch` / `full_fetch` is intentional: basic retrieves the fixed identity payload; full retrieves everything.
+
+**C14.3 — `fetch_decision` is the decision layer, distinct from both fetch operations.**  
+After a node is `full_fetch`ed, `fetch_decision` inspects the newly stored triples and decides which referenced QIDs should be `full_fetch`ed next. This is governed by fetch rules. The cycle is: `full_fetch` → `fetch_decision` → `full_fetch` → ... The engine that orchestrates this cycle is the `fetch_engine`. "Expand"/"expansion" are retired from v4 vocabulary.
+
+**C14.4 — Minimizing Wikidata API burden is a design constraint, not an optimization.**  
+Per `Wikidata.md`, responsible API access is required. `basic_fetch`'s mass-batch capability is architecturally valuable precisely because it reduces API calls while still providing the identity data needed for class resolution and relevancy decisions.
+
+---
+
+## 15 — Relevancy Semantics: What Makes an Entity Relevant
+
+**C15.1 — Seeds are authoritatively relevant by definition.**  
+A seed entity (broadcasting program in `broadcasting_programs.csv`) is relevant because we designated it as a target of interest. No propagation rule, no class membership, no graph distance is required. Seed relevancy is axiomatic.
+
+**C15.2 — Relevancy propagates via approved triples following participation semantics.**  
+Concrete example: Markus Lanz (talk show) is a seed → seasons "part of" it become relevant → episodes belonging to relevant seasons become relevant → guests appearing in relevant episodes are relevant speakers → hosts of relevant episodes are relevant speakers.
+
+**C15.3 — Topic mention does NOT propagate relevancy.**  
+If an episode has "topic: Barack Obama", Obama is not a speaker — he was referenced, not present. This triple must not trigger relevancy propagation. He becomes relevant only if he later appears as a guest. Relevancy rules must be designed to propagate through *participation* relationships only, not through subject/topic references. This is a critical correctness constraint.
+
+**C15.4 — Relevancy is binary and monotonically increasing.**  
+An entity is either relevant or not. Once relevant, it cannot become not-relevant. Nothing in the system reduces relevancy. The propagation model is strictly additive. Confidence levels are not needed.
+
+**C15.5 — The output separation "relevant" / "not-relevant" must be preserved.**  
+Entities resolved to a core class but not yet reachable via any propagation path are "not relevant" and appear in `not_relevant_core_<class>.json`. This distinction is data, not a design failure — not-relevant entities may become relevant in future runs as more seeds are processed.
+
+---
+
+## 16 — Phase 3 Output Contract
+
+**C16.1 — Phase 2 sets the output contract; Phase 3 adapts.**  
+Phase 3 (entity disambiguation) was originally designed to consume Phase 2's old output format. In the redesign, we should not constrain Phase 2's output structure to match Phase 3's current input expectations. The new Phase 2 should produce the richest, most correctly-structured output it can. Phase 3 will be updated separately to consume it.
+
+**C16.2 — Provide maximum context; let downstream consumers select what they need.**  
+Rather than producing the minimum required by the current Phase 3, Phase 2 should produce output that includes instances, subclasses, sub-projections, qualifier context, and lookup indices — enough that any reasonable downstream consumer can work with it. Downstream notebooks can select the view they need from a richer structure, but they cannot reconstruct context that was never stored.
 
 ---
 
@@ -230,13 +289,19 @@ The root cause is not "the event store is too big" — it is that handlers re-sc
 | Events catalogue | Every event type documented; old events backward-compatible forever |
 | Config externalization | Config in a file, not a cell; file is self-documenting |
 | Relevancy engine | Generic rule-based, configurable subject/property/object requirements, bidirectional |
-| Class node caution | Class expansion rules must be explicit and conservative; class nodes are not instances |
+| Relevancy semantics | Seeds authoritative; propagates via participation; topic mentions excluded; binary, monotonic |
+| Rules monitoring | Rule verdicts must be visible and amendable; exclusion overrides must be possible |
+| Class node caution | Fetch rules for class nodes must be explicit and conservative; class nodes are not instances |
 | Instance + Subclass both | Both Core Class Instances and Core Class Subclasses tracked; conflating them was the roles bug |
 | Triple qualifiers | Triple events preserve qualifier PIDs; enables time-sensitive filtering without re-fetch |
+| Three operations | `basic_fetch` (fixed identity payload, mass-batchable), `full_fetch` (all claims), `fetch_decision` (traversal decision layer) are distinct |
+| Wikidata API burden | Design for minimum API calls; `basic_fetch`'s mass-batch capability is a first-class design tool |
 | No artificial checkpoints | Event store continuity is the resume mechanism |
 | Event store backup | Backing up chunk files is critical; projection snapshots are not |
 | Phase 2 scope | Wikidata graph traversal only; no string matching |
-| Integrity correctness | Expansion must produce consistent state; no post-hoc repair required |
+| Phase 3 contract | Phase 2 sets the output contract; Phase 3 adapts to it, not vice versa |
+| Integrity correctness | `full_fetch` + `fetch_decision` must produce consistent state; no post-hoc repair required |
+| Fetch rules vs relevancy rules | Distinct rule sets: fetch rules = `fetch_decision` inputs; relevancy rules = classification decisions |
 | Output projections | Written once at end; internal state flows through event log |
 | Graceful stop + heartbeat | Universal; every production cell, not just Step 6 |
 | Glossary first | All key terms defined and agreed before any module is designed |
