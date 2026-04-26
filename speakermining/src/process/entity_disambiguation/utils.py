@@ -109,6 +109,39 @@ def first_non_empty(values: list[Any]) -> str:
     return ""
 
 
+def trim_to_top_columns(
+    df: pd.DataFrame,
+    always_keep: list[str],
+    *,
+    exclude: set[str] | None = None,
+    max_cols: int = 50,
+) -> pd.DataFrame:
+    """Keep always_keep columns + the most-populated remaining columns, total ≤ max_cols.
+
+    Columns in always_keep that are absent from df are silently skipped.
+    Columns in exclude are never selected regardless of population rate.
+    Population rate = fraction of rows that are non-null and non-empty-string.
+    """
+    excluded = exclude or set()
+    keep_ordered = [c for c in always_keep if c in df.columns]
+    keep_set = set(keep_ordered)
+
+    candidates = [c for c in df.columns if c not in keep_set and c not in excluded]
+
+    def _non_empty_rate(col: str) -> float:
+        s = df[col]
+        if s.dtype == object:
+            return float((s.notna() & (s != "")).mean())
+        return float(s.notna().mean())
+
+    ranked = sorted(candidates, key=_non_empty_rate, reverse=True)
+    remaining_slots = max(0, max_cols - len(keep_ordered))
+    selected = set(ranked[:remaining_slots])
+
+    final_cols = [c for c in df.columns if c in keep_set or c in selected]
+    return df[final_cols]
+
+
 def prefixed_row_values(
     row: dict[str, Any] | pd.Series,
     *,

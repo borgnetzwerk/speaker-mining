@@ -16,37 +16,8 @@ from .utils import (
     read_json_dict,
     safe_column_name,
     stable_id,
+    trim_to_top_columns,
 )
-
-# Whitelists for prefixed_row_values — only these base-name columns are carried into aligned_persons.csv.
-# Keeps the output to ~47 columns (hard ceiling: 50). See TODO-017.
-_ZDF_INCLUDE: set[str] = {
-    "mention_category",
-    "source_text",
-}
-_FS_INCLUDE: set[str] = {
-    "episode_url",
-    "guest_role",
-    "guest_url",
-}
-_WIKIDATA_INCLUDE: set[str] = {
-    "entity_id",
-    "entity_type",
-    "claim_property_count",
-    "sex_or_gender_(P21)",
-    "date_of_birth_(P569)_1",
-    "date_of_death_(P570)_1",
-    "place_of_birth_(P19)_1",
-    "occupation_(P106)_1",
-    "occupation_(P106)_2",
-    "occupation_(P106)_3",
-    "member_of_political_party_(P102)_1",
-    "country_of_citizenship_(P27)_1",
-    "given_name_(P735)_1",
-    "family_name_(P734)_1",
-    "GND_ID_(P227)_1",
-    "VIAF_cluster_ID_(P214)_1",
-}
 
 
 def _indexed_wikidata_persons() -> tuple[dict[str, dict[str, str]], dict[str, list[str]]]:
@@ -171,11 +142,11 @@ def build_aligned_persons(
             "alias_zdf": "",
             "episode_id_zdf": episode_id,
         }
-        row.update(prefixed_row_values(person, suffix="zdf", include=_ZDF_INCLUDE))
+        row.update(prefixed_row_values(person, suffix="zdf"))
         if fs_match_row is not None:
-            row.update(prefixed_row_values(fs_match_row, suffix="fernsehserien_de", include=_FS_INCLUDE))
+            row.update(prefixed_row_values(fs_match_row, suffix="fernsehserien_de"))
         if wd_id and wd_id in wd_norm_by_id:
-            row.update(prefixed_row_values(wd_norm_by_id[wd_id], suffix="wikidata", include=_WIKIDATA_INCLUDE))
+            row.update(prefixed_row_values(wd_norm_by_id[wd_id], suffix="wikidata"))
 
         rows.append(row)
         evidence_rows.append(
@@ -227,7 +198,7 @@ def build_aligned_persons(
             "alias_zdf": "",
             "episode_id_zdf": "",
         }
-        row.update(prefixed_row_values(guest, suffix="fernsehserien_de", include=_FS_INCLUDE))
+        row.update(prefixed_row_values(guest, suffix="fernsehserien_de"))
         rows.append(row)
         evidence_rows.append(
             {
@@ -276,7 +247,7 @@ def build_aligned_persons(
             "episode_id_zdf": "",
         }
         if wd_id in wd_norm_by_id:
-            row.update(prefixed_row_values(wd_norm_by_id[wd_id], suffix="wikidata", include=_WIKIDATA_INCLUDE))
+            row.update(prefixed_row_values(wd_norm_by_id[wd_id], suffix="wikidata"))
         rows.append(row)
         evidence_rows.append(
             {
@@ -292,5 +263,7 @@ def build_aligned_persons(
 
     aligned = pd.DataFrame(rows)
     aligned = ensure_columns(aligned, COMMON_BASE_COLUMNS + [c for c in aligned.columns if c not in COMMON_BASE_COLUMNS])
+    _excl = {c for c in aligned.columns if "_norm_" in c} | {"raw_json_wikidata"}
+    aligned = trim_to_top_columns(aligned, COMMON_BASE_COLUMNS, exclude=_excl)
     aligned = aligned.sort_values(by=["canonical_label", "episode_id_zdf", "alignment_unit_id"]).reset_index(drop=True)
     return aligned, evidence_rows

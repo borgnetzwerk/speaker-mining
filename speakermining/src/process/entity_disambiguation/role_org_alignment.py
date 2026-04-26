@@ -5,7 +5,7 @@ from typing import Any
 import pandas as pd
 
 from .contracts import COMMON_BASE_COLUMNS, INPUT_FILES, UNRESOLVED_TIER
-from .utils import aliases_from_wikidata_item, description_from_wikidata_item, ensure_columns, label_from_wikidata_item, prefixed_row_values, read_json_dict, stable_id
+from .utils import aliases_from_wikidata_item, description_from_wikidata_item, ensure_columns, label_from_wikidata_item, prefixed_row_values, read_json_dict, stable_id, trim_to_top_columns
 
 
 def build_aligned_roles(normalized: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
@@ -117,6 +117,8 @@ def build_aligned_roles(normalized: dict[str, pd.DataFrame]) -> tuple[pd.DataFra
 
     aligned = pd.DataFrame(rows)
     aligned = ensure_columns(aligned, COMMON_BASE_COLUMNS + [c for c in aligned.columns if c not in COMMON_BASE_COLUMNS])
+    _excl = {c for c in aligned.columns if "_norm_" in c} | {"raw_json_wikidata"}
+    aligned = trim_to_top_columns(aligned, COMMON_BASE_COLUMNS, exclude=_excl)
     aligned = aligned.sort_values(by=["canonical_label", "alignment_unit_id"]).reset_index(drop=True)
     return aligned, evidence_rows
 
@@ -180,5 +182,7 @@ def build_aligned_organizations(normalized: dict[str, pd.DataFrame] | None = Non
 
     aligned = pd.DataFrame(rows)
     aligned = ensure_columns(aligned, COMMON_BASE_COLUMNS + [c for c in aligned.columns if c not in COMMON_BASE_COLUMNS])
+    _excl = {c for c in aligned.columns if "_norm_" in c} | {"raw_json_wikidata"}
+    aligned = trim_to_top_columns(aligned, COMMON_BASE_COLUMNS, exclude=_excl)
     aligned = aligned.sort_values(by=["canonical_label", "alignment_unit_id"]).reset_index(drop=True)
     return aligned, evidence_rows

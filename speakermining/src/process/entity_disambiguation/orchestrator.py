@@ -43,7 +43,17 @@ from .utils import (
     prefixed_row_values,
     read_json_dict,
     stable_id,
+    trim_to_top_columns,
 )
+
+# Columns that must never appear in output regardless of population rate.
+_TRIM_EXCLUDE: set[str] = {"raw_json_wikidata"}
+
+# Normalised-variant columns contribute no new information over their plain counterparts.
+# Exclude all *_norm_* columns from selection so they never crowd out real properties.
+def _build_trim_exclude(df: pd.DataFrame) -> set[str]:
+    norm_cols = {c for c in df.columns if "_norm_" in c}
+    return _TRIM_EXCLUDE | norm_cols
 
 
 def _write_example(df: pd.DataFrame, out_path: Path) -> None:
@@ -334,6 +344,8 @@ def _build_aligned_broadcasting_programs(normalized: dict[str, pd.DataFrame] | N
 
     aligned = pd.DataFrame(rows)
     aligned = ensure_columns(aligned, COMMON_BASE_COLUMNS + [c for c in aligned.columns if c not in COMMON_BASE_COLUMNS])
+    _excl = {c for c in aligned.columns if "_norm_" in c} | {"raw_json_wikidata"}
+    aligned = trim_to_top_columns(aligned, COMMON_BASE_COLUMNS, exclude=_excl)
     return aligned.sort_values(by=["canonical_label", "alignment_unit_id"]).reset_index(drop=True)
 
 
@@ -467,6 +479,8 @@ def _build_aligned_seasons(normalized: dict[str, pd.DataFrame]) -> pd.DataFrame:
 
     aligned = pd.DataFrame(rows)
     aligned = ensure_columns(aligned, COMMON_BASE_COLUMNS + [c for c in aligned.columns if c not in COMMON_BASE_COLUMNS])
+    _excl = {c for c in aligned.columns if "_norm_" in c} | {"raw_json_wikidata"}
+    aligned = trim_to_top_columns(aligned, COMMON_BASE_COLUMNS, exclude=_excl)
     return aligned.sort_values(by=["canonical_label", "alignment_unit_id"]).reset_index(drop=True)
 
 
@@ -498,6 +512,17 @@ def run_phase31(*, overwrite_outputs: bool = False, write_examples: bool = True,
     aligned_topics, topic_evidence = build_aligned_topics(normalized)
     aligned_roles, role_evidence = build_aligned_roles(normalized)
     aligned_organizations, organization_evidence = build_aligned_organizations(normalized)
+
+    # Trim each aligned DataFrame to ≤50 columns: always keep COMMON_BASE_COLUMNS,
+    # fill remaining slots with the most-populated columns for that entity type.
+    # Norm variants and raw JSON blobs are excluded regardless of population rate.
+    aligned_broadcasting_programs = trim_to_top_columns(aligned_broadcasting_programs, COMMON_BASE_COLUMNS, exclude=_build_trim_exclude(aligned_broadcasting_programs))
+    aligned_seasons = trim_to_top_columns(aligned_seasons, COMMON_BASE_COLUMNS, exclude=_build_trim_exclude(aligned_seasons))
+    aligned_episodes = trim_to_top_columns(aligned_episodes, COMMON_BASE_COLUMNS, exclude=_build_trim_exclude(aligned_episodes))
+    aligned_persons = trim_to_top_columns(aligned_persons, COMMON_BASE_COLUMNS, exclude=_build_trim_exclude(aligned_persons))
+    aligned_topics = trim_to_top_columns(aligned_topics, COMMON_BASE_COLUMNS, exclude=_build_trim_exclude(aligned_topics))
+    aligned_roles = trim_to_top_columns(aligned_roles, COMMON_BASE_COLUMNS, exclude=_build_trim_exclude(aligned_roles))
+    aligned_organizations = trim_to_top_columns(aligned_organizations, COMMON_BASE_COLUMNS, exclude=_build_trim_exclude(aligned_organizations))
 
     atomic_write_csv(OUTPUT_FILES["aligned_broadcasting_programs"], aligned_broadcasting_programs, index=False)
     atomic_write_csv(OUTPUT_FILES["aligned_seasons"], aligned_seasons, index=False)
