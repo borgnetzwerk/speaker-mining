@@ -320,7 +320,7 @@ Copy this block when adding a new item.
   1. `core_roles.json` contains role entities (e.g. journalist Q1930187, politician Q82955) after re-running Phase 2 materialization.
   2. Phase 31 `aligned_roles.csv` contains Wikidata-matched role rows (currently 0 Wikidata matches).
   3. Finding documented in `documentation/findings.md`: role class uses P279 subclass mode.
-- Notes: Implementation (2026-04-24): `projection_mode` column added to `core_classes.csv` and `bootstrap.py`; `class_nodes_df` built alongside `non_class_instances_df` in materializer and used when `projection_mode=subclasses`. All `instances_core_*.json` files renamed to `core_*.json` (and `not_relevant_instance_core_*` → `not_relevant_core_*`) throughout codebase and on disk (2026-04-24). Remaining: re-run Phase 2 materialization (Notebook 21) to regenerate `core_roles.json`, then re-run Phase 31.
+- Notes: Implementation (2026-04-24): `projection_mode` column added to `core_classes.csv` and `bootstrap.py`; `class_nodes_df` built alongside `non_class_instances_df` in materializer and used when `projection_mode=subclasses`. All `instances_core_*.json` files renamed to `core_*.json` (and `not_relevant_instance_core_*` → `not_relevant_core_*`) throughout codebase and on disk (2026-04-24). **Finding (2026-04-24):** After re-running Phase 2, `core_roles.json` is still empty — all role class nodes ended up in `not_relevant_core_roles.json`. Root cause: relevancy propagation only operates on instance-instance relationships; it never marks class nodes as relevant because the propagation logic and `relevancy_relation_contexts.csv` are built exclusively around P31 instance-of chains. The `occupation` property (P106, which would link persons → roles) is entirely absent from `relevancy_relation_contexts.csv`. **Redesign implemented (2026-04-26):** `bootstrap_relevancy_events` in `relevancy.py` now builds a parallel `class_qid_to_core_class` dict from `class_hierarchy_df` (mapping role subclass QIDs → Q214339, etc.). Triple scanning uses this as a fallback for both subject and object lookups, so `(person, P106, journalist_class_node)` triples now produce the context `(Q215627, P106, Q214339)`. BFS propagation accepts class nodes as targets (`class_node_ids` guard replaces the `qid_to_core_class`-only check) and emits `is_core_class_instance=False` for them. The approved context `(Q215627, P106, Q214339)` is added to `data/00_setup/relevancy_relation_contexts.csv` with `can_inherit=TRUE`. Phase 2 re-run required to verify `core_roles.json` is populated.
 
 ### TODO-043: Align property hydration config with relevancy propagation config structure
 
@@ -334,17 +334,18 @@ Copy this block when adding a new item.
   2. Both configs are documented side-by-side in `documentation/workflow.md` explaining the distinction: relevancy targets core-class-instance subjects; hydration can target any subject.
   3. Hardcoded hydration predicate lists in Phase 2.1 are replaced by the config file.
 
-### TODO-044: Wikidata v4 conceptual rework (deferred, out of scope)
+### TODO-044: Wikidata v4 conceptual rework
 
-- Priority: low
-- Status: open
+- Priority: medium
+- Status: in-progress
 - Area: architecture
-- Summary: Phase 2.1 is currently a patchwork of modules mending each other's shortcomings. The ideal is a single rule-driven graph expansion engine: find core node → apply rules → hydrate or expand linked objects → repeat. This is explicitly out of scope now but worth tracking as a long-term architectural goal.
-- Evidence: `ToDo/archive/additional_input.md` batch 5.
+- Summary: Phase 2.1 is currently a patchwork of modules mending each other's shortcomings. The ideal is a single rule-driven graph expansion engine: find core node → apply rules → hydrate or expand linked objects → repeat. Active investigation and redesign underway.
+- Evidence: `ToDo/archive/additional_input.md` batch 5; `documentation/Wikidata/2026-04-26_investigation/` (full investigation + clarifications).
 - Definition of done:
   1. Conceptual design for the rule-driven graph expansion engine is documented in `documentation/workflow.md` (future state section).
-  2. No implementation is required — this is a design reference for a future major version.
-- Notes: Do not implement. Document only. Revisit after the current pipeline is stable and published.
+  2. Clarification.md and 05_related_tasks.md in the investigation folder establish the agreed baseline.
+  3. Redesigned Notebook 21 implements the event-sourced, handler-driven, single-pass architecture with generic rule-driven relevancy propagation and no post-hoc repair step.
+- Notes: Investigation complete (2026-04-26). Clarifications aggregated. Related tasks wired in: TODO-042, TODO-034, TODO-038, TODO-043, TODO-041. Implementation phase next.
 
 ### TODO-035: Extend pipeline scope beyond Markus Lanz to other shows
 

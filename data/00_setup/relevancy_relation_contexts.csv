@@ -42,6 +42,7 @@ Q215627,person,P26,spouse,Q215627,person,,
 Q215627,person,P40,child,Q215627,person,,
 Q215627,person,P451,unmarried partner,Q215627,person,,
 Q215627,person,P7604,supervised by,Q215627,person,,
+Q215627,person,P106,occupation,Q214339,role,2026-04-26T00:00:00Z,TRUE
 Q215627,person,P101,field of work,Q43229,organization,2026-04-13T10:18:00Z,
 Q215627,person,P102,member of political party,Q43229,organization,2026-04-13T10:18:00Z,
 Q215627,person,P1037,director / manager,Q43229,organization,2026-04-13T10:18:00Z,

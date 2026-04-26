@@ -92,7 +92,7 @@ Prerequisite: TODO-018 logic implemented, TODO-036 fixed, TODO-039 applied.
 
 | TODO | Title | Prerequisites |
 |------|-------|---------------|
-| **TODO-042** | **Re-run Phase 2 to verify `core_roles.json` (code done 2026-04-24)** | Re-run Notebook 21 then Notebook 31 |
+| **TODO-042** | **Fix roles relevancy propagation — class nodes never marked relevant (blocked, needs redesign)** | Extend relevancy propagation to class-node space; `relevancy_relation_contexts.csv` currently has no instance→class rules (e.g. P106 occupation is missing) |
 | TODO-027 | Propagate mention_category through pipeline | None strictly, but do this before re-running analysis notebooks |
 | TODO-040 | Audit guest classification accuracy | TODO-027 (category split helps verify) |
 | TODO-041 | Respect time-sensitive Wikidata claims | Phase 31 stable (TODO-036 done) |
