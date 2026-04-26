@@ -39,6 +39,16 @@ If we need `existing_relevant_qids`, we ask the RelevancyHandler. The handler wi
 **C1.6 — The "materializer" concept is deprecated.**  
 In a correct EventHandler-based system, a separate `_materialize` function that rebuilds all projections from scratch is fully irrelevant. If we need a projection, we add an EventHandler. If we need it updated, we ask the EventHandler. There is no scenario in this design where a monolithic rebuild function is needed. The `materializer.py` module and its `_materialize` function are not carried forward into the redesign.
 
+**C1.7 — Every event type requires a catalogue entry.**  
+Each event type must be documented with: who emits it, who reads it, what state change it represents, required fields, and backward-compatibility notes. The catalogue should also include rough statistics (e.g., "56,000+ `query_response` events in the store — this type is stable and must not be renamed"). Event type names should be reviewed against the glossary — if the name of a type is on the "to rename" list, that affects the catalogue entry.
+
+**C1.8 — All existing events must remain interpretable forever.**  
+The event store already contains ~56,000 events written by v3 code. The redesign cannot assume a clean event store. Every EventHandler in v4 must be able to correctly read and interpret every event that was written by v3, even if v4 introduces new event types or restructures how state is modelled. Backward compatibility with the existing event log is a hard constraint.
+
+**C1.9 — Two classes of event emitter exist.**  
+(a) The **traversal engine** emits primary discovery events: it fetches data from Wikidata (or cache) and records what it finds — entity_discovered, triple_discovered, entity_expanded, query_response. These are factual records of observations.  
+(b) **Derivation handlers** may also emit events representing computed conclusions: relevance_assigned, class_membership_resolved. These are not observations but inferences, and they are emitted by an EventHandler as a way to persist a computed conclusion in the event log so other handlers can react to it. An EventHandler that emits events is a derivation handler; an EventHandler that only reads events and writes a projection file is a pure projection handler. Both are valid.
+
 ---
 
 ## 2 — The Checkpoint System Must Be Replaced
@@ -78,6 +88,12 @@ Relevancy can travel from object to subject. Example: a season that "has part" (
 The distinction between "instance of a core class" and "subclass of a core class" is not a clean binary. What we want varies per class: for roles, we want subclasses; for persons, we want instances that satisfy additional conditions (e.g. appeared as a guest). The concept of "core-class instance" is not a sufficient predicate for inclusion.
 
 Furthermore, class node expansion must be treated with extreme caution. A class node like "journalist" has potentially thousands of P31 instances across all of Wikidata. Expanding a class node as if it were an instance would be catastrophically expensive. Rules that govern when a class node is traversed must be designed conservatively and explicitly — not as a default fallthrough.
+
+**C3.5 — "Core Class Instance" and "Core Class Subclass" are distinct, and both are always needed.**  
+An entity that is an instance of a core class is a **Core Class Instance**. An entity that is a subclass of a core class (via P279 chain) is a **Core Class Subclass**. These are two different things and must always be tracked separately. Which one is relevant for a given use case depends on context: person analysis cares about instances; role analysis cares about subclasses; episode analysis cares about instances but may use subclasses for categorization. The system must maintain both and expose both with full context. Conflating them into a single "core class entity" concept is what produced the roles bug.
+
+**C3.6 — Sub-projections within a core class are valid.**  
+Within a core class, further distinctions may be needed. For persons, we may need a "guest" sub-projection (persons who appeared as guests), a "host" sub-projection, or others. These are not new core classes — they are filtered views within an existing core class. The output handler for persons may produce multiple sub-projections if the rules and context support it. These sub-projections are output-only artifacts.
 
 ---
 
@@ -131,6 +147,9 @@ CSV projections that are only used as output (consumed by downstream notebooks b
 
 **C8.2 — Internal state must flow through the event log.**  
 Any state that needs to survive across cells or runs — entity documents, class hierarchies, relevancy assignments — must be represented as events or as EventHandler projections. It must not be written to CSV and then read back from that CSV as if the CSV were the source of truth.
+
+**C8.3 — Triple events must preserve qualifier and reference context.**  
+When a triple is stored as an event, the event must include qualifier context alongside the core `(subject, predicate, object)`. At minimum, qualifier property PIDs should be stored (pipe-separated) so that a consumer can determine whether a qualifier exists and what kind it is without needing to re-read the full entity document. This preserves the ability to implement time-sensitive claim filtering (TODO-041) without requiring a full entity re-fetch per triple.
 
 ---
 
@@ -207,9 +226,13 @@ The root cause is not "the event store is too big" — it is that handlers re-sc
 | Event immutability | No code may delete or overwrite events; only append |
 | Handler progress tracking | Every handler persists its last-processed sequence; restarts from there |
 | Projection ownership | Only EventHandlers write projections; no materializer |
+| Two emitter types | Traversal engine emits primary events; derivation handlers emit computed events |
+| Events catalogue | Every event type documented; old events backward-compatible forever |
 | Config externalization | Config in a file, not a cell; file is self-documenting |
 | Relevancy engine | Generic rule-based, configurable subject/property/object requirements, bidirectional |
 | Class node caution | Class expansion rules must be explicit and conservative; class nodes are not instances |
+| Instance + Subclass both | Both Core Class Instances and Core Class Subclasses tracked; conflating them was the roles bug |
+| Triple qualifiers | Triple events preserve qualifier PIDs; enables time-sensitive filtering without re-fetch |
 | No artificial checkpoints | Event store continuity is the resume mechanism |
 | Event store backup | Backing up chunk files is critical; projection snapshots are not |
 | Phase 2 scope | Wikidata graph traversal only; no string matching |

@@ -103,3 +103,6 @@ Steps go 2.4 → 2.4.1 → 2.4.2 → 2.4.3 → 2.5 → 3 → 4 → 5 → 6 → 6
 | `04_redesign_goals.md` | Goals, rules, and design principles for a redesign |
 | `Clarification.md` | Aggregated user clarifications establishing the conceptual baseline |
 | `05_related_tasks.md` | All open tasks and findings that must be considered in the redesign |
+| `06_old_code_strategy.md` | Options for handling existing code; decision required before implementation |
+| `07_glossary.md` | Vocabulary definitions; open questions marked ❓ require decisions before design |
+| `08_known_rules.md` | All known rules in plain language; retired rules explicitly listed |

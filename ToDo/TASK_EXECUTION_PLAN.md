@@ -92,7 +92,7 @@ Prerequisite: TODO-018 logic implemented, TODO-036 fixed, TODO-039 applied.
 
 | TODO | Title | Prerequisites |
 |------|-------|---------------|
-| **TODO-042** | **Fix roles relevancy propagation — class nodes never marked relevant (blocked, needs redesign)** | Extend relevancy propagation to class-node space; `relevancy_relation_contexts.csv` currently has no instance→class rules (e.g. P106 occupation is missing) |
+| **TODO-042** | **Fix roles relevancy propagation — redesign implemented 2026-04-26; Phase 2 re-run needed** | `class_qid_to_core_class` dict added to `relevancy.py`; BFS now accepts class-node targets; `(Q215627, P106, Q214339)` approved in `relevancy_relation_contexts.csv` |
 | TODO-027 | Propagate mention_category through pipeline | None strictly, but do this before re-running analysis notebooks |
 | TODO-040 | Audit guest classification accuracy | TODO-027 (category split helps verify) |
 | TODO-041 | Respect time-sensitive Wikidata claims | Phase 31 stable (TODO-036 done) |
@@ -125,15 +125,27 @@ Prerequisite: TODO-019, TODO-020, TODO-023, TODO-025 done.
 
 ---
 
+### Wave 2b — Wikidata Architecture Redesign (TODO-044 active; runs parallel to Wave 2)
+
+Investigation complete (2026-04-26). Clarification.md + 05_related_tasks.md establish the baseline. Implementation phase follows.
+
+| TODO | Title | Notes |
+|------|-------|-------|
+| **TODO-044** | **Wikidata v4 conceptual rework — in-progress** | Investigation + clarifications done; redesign of Notebook 21 next |
+| TODO-042 | Fix roles relevancy propagation | Patch applied; superseded by v4 redesign which handles this by construction |
+| TODO-034 | Resolve instances.csv dual-write conflict | Handler owns its file; materializer must not write it |
+| TODO-038 | Node Integrity Pass performance | Eliminated by correct-by-construction expansion in redesign |
+| TODO-043 | Align hydration config with relevancy propagation config | Parallel config files required by redesign |
+| TODO-041 | Respect time-sensitive Wikidata claims | Triple events must preserve qualifier data |
+
+---
+
 ### Wave 5 — Deferred / Low Priority
 
 These have no hard upstream dependencies and no active downstream blockers. Tackle when higher waves are clear.
 
 | TODO | Title |
 |------|-------|
-| **TODO-042** | **Fix roles projection (subclasses not instances) — in-progress; code done, needs Phase 2 re-run** |
-| TODO-043 | Align property hydration config with relevancy propagation config |
-| TODO-044 | Wikidata v4 conceptual rework (document only, no implementation) |
 | TODO-005 | Clarify institution extraction responsibility |
 | TODO-006 | Define gender-framing analysis methodology |
 | TODO-007 | Define merge strategy for role/occupation/position/institution |

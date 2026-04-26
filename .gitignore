@@ -220,6 +220,8 @@ documentation/context/*
 # ToDo
 ToDo/*/*
 !ToDo/DOC/*
+documentation/visualizations/*
+
 
 # Ignore for now
 speakermining/src/process/candidate_generation/INSTITUTION_EXTRACTION_DEFERRED.md
