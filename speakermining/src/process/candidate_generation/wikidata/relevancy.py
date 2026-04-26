@@ -292,6 +292,27 @@ def bootstrap_relevancy_events(
         if resolved_core:
             qid_to_core_class[qid] = resolved_core
 
+    # Build a parallel lookup for class nodes (P279 hierarchy items) → their resolved
+    # core class.  Mirrors qid_to_core_class but covers class-space QIDs such as role
+    # subclasses (journalist Q1930187 → Q214339/role) that are filtered out of base_df.
+    class_qid_to_core_class: dict[str, str] = {}
+    core_set = set(core_qid_to_label.keys())
+    if not class_hierarchy_df.empty:
+        for row in class_hierarchy_df.to_dict(orient="records"):
+            cid = canonical_qid(str(row.get("class_id", "") or ""))
+            if not cid:
+                continue
+            # Core-class nodes map to themselves.
+            if str(row.get("is_core_class", "")).strip().lower() in {"true", "1", "yes"}:
+                if cid in core_set:
+                    class_qid_to_core_class[cid] = cid
+                continue
+            path = str(row.get("path_to_core_class", "") or "")
+            tokens = [canonical_qid(tok) for tok in path.split("|") if canonical_qid(tok)]
+            resolved = next((tok for tok in reversed(tokens) if tok in core_set), "")
+            if resolved:
+                class_qid_to_core_class[cid] = resolved
+
     detected_context_rows: list[dict] = []
     outgoing_by_source: dict[str, list[dict]] = {}
 
@@ -303,8 +324,8 @@ def bootstrap_relevancy_events(
             if not subject or not obj or not pid:
                 continue
 
-            subject_core = qid_to_core_class.get(subject, "")
-            object_core = qid_to_core_class.get(obj, "")
+            subject_core = qid_to_core_class.get(subject, "") or class_qid_to_core_class.get(subject, "")
+            object_core = qid_to_core_class.get(obj, "") or class_qid_to_core_class.get(obj, "")
             if not subject_core or not object_core:
                 continue
 
@@ -426,7 +447,8 @@ def bootstrap_relevancy_events(
             direction = str(edge.get("direction", "") or "")
             if not target_qid or not property_qid or target_qid in relevant_qids:
                 continue
-            if target_qid not in qid_to_core_class:
+            target_is_class_node = target_qid in class_node_ids
+            if target_qid not in qid_to_core_class and not target_is_class_node:
                 continue
 
             write_relevance_assigned_event(
@@ -439,7 +461,7 @@ def bootstrap_relevancy_events(
                 relevance_inherited_from_qid=source_qid,
                 relevance_inherited_via_property_qid=property_qid,
                 relevance_inherited_via_direction=direction,
-                is_core_class_instance=True,
+                is_core_class_instance=not target_is_class_node,
             )
             mark_item_relevant(
                 repo_root,
