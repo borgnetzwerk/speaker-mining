@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 from pathlib import Path
 
 from . import V4Handler
@@ -30,12 +29,8 @@ class SeedHandler(V4Handler):
             self._seeds.setdefault(qid, label)
 
     def _write(self, proj_dir: Path) -> None:
-        out = proj_dir / "seeds.csv"
-        with out.open("w", newline="", encoding="utf-8") as fh:
-            writer = csv.writer(fh)
-            writer.writerow(["qid", "label"])
-            for qid, label in sorted(self._seeds.items()):
-                writer.writerow([qid, label])
+        rows = [[qid, label] for qid, label in sorted(self._seeds.items())]
+        self._atomic_write_csv_rows(proj_dir / "seeds.csv", ["qid", "label"], rows)
 
     def seeds(self) -> dict[str, str]:
         return dict(self._seeds)

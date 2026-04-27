@@ -16,13 +16,15 @@ class SeedReader(ExternalEventReader):
         source = setup_csv if setup_csv.exists() else paths.broadcasting_programs_csv
 
         rows = self._read_csv(source)
-        registered = self._get_registered_qids("seed_registered")
+        # F7: read projection CSV written by SeedHandler instead of scanning event log
+        fast = self._registered_qids_from_projection_csv(paths.projections_dir / "seeds.csv")
+        registered = fast if fast is not None else self._get_registered_qids("seed_registered")
         emitted = 0
         for row in rows:
-            qid = str(row.get("qid") or row.get("QID") or "").strip()
+            qid = str(row.get("wikidata_id") or row.get("qid") or row.get("QID") or "").strip()
             if not qid or qid in registered:
                 continue
-            label = str(row.get("label") or row.get("Label") or "").strip()
+            label = str(row.get("label") or row.get("label_de") or row.get("filename") or "").strip()
             self._emit(build_seed_registered_event(qid=qid, label=label))
             registered.add(qid)
             emitted += 1

@@ -23,6 +23,11 @@ class FullFetchRuleReader(ExternalEventReader):
         projections_csv = paths.projections_dir / _SETUP_FILENAME
         source = setup_csv if setup_csv.exists() else projections_csv
 
+        if not source.exists():
+            raise FileNotFoundError(
+                f"{_SETUP_FILENAME} not found at {setup_csv} or {projections_csv}.\n"
+                "Create it with at least a permit rule before running."
+            )
         rows = self._read_csv(source)
         registered = self._get_registered_rule_keys()
         emitted = 0

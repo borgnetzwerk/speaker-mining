@@ -70,6 +70,12 @@ class CoreClassOutputHandler(V4Handler):
             label = str(payload.get("label", "") or "")
             if qid and label:
                 self._labels[qid] = label
+            desc = str(payload.get("description", "") or "")
+            if qid and desc:
+                self._descriptions[qid] = desc
+            al = list(payload.get("aliases", []) or [])
+            if qid and al:
+                self._aliases[qid] = al
             p31 = payload.get("p31_qids", [])
             if qid and p31:
                 self._p31_map[qid] = list(p31)
@@ -116,6 +122,10 @@ class CoreClassOutputHandler(V4Handler):
         }
 
     def _write(self, proj_dir: Path) -> None:
+        # Write core class registry CSV (F7: readers use this instead of scanning event log)
+        registry_rows = [[qid, label] for qid, label in sorted(self._core_classes.items())]
+        self._atomic_write_csv_rows(proj_dir / "core_class_registry.csv", ["qid", "label"], registry_rows)
+
         # Bucket entities by core class
         relevant_by_core: dict[str, list[dict]] = {qid: [] for qid in self._core_classes}
         not_relevant_by_core: dict[str, list[dict]] = {qid: [] for qid in self._core_classes}
@@ -147,11 +157,5 @@ class CoreClassOutputHandler(V4Handler):
             rel_out = proj_dir / f"core_{filename}.json"
             not_rel_out = proj_dir / f"not_relevant_core_{filename}.json"
 
-            rel_out.write_text(
-                json.dumps(relevant_by_core.get(core_qid, []), ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            not_rel_out.write_text(
-                json.dumps(not_relevant_by_core.get(core_qid, []), ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            self._atomic_write_json(rel_out, relevant_by_core.get(core_qid, []))
+            self._atomic_write_json(not_rel_out, not_relevant_by_core.get(core_qid, []))

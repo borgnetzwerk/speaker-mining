@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 from pathlib import Path
 
 from . import V4Handler
@@ -20,6 +19,9 @@ class ClassHierarchyHandler(V4Handler):
     Emits: class_resolved
     Writes: class_resolution_map.csv (class_qid, parent_qids_csv, depth, core_class_ancestor)
     """
+
+    # D3: explicit walk terminators — Q35120 (entity) and Q1 (universe of discourse)
+    _ROOT_CLASSES: frozenset[str] = frozenset({"Q35120", "Q1"})
 
     def name(self) -> str:
         return "ClassHierarchyHandler"
@@ -114,7 +116,7 @@ class ClassHierarchyHandler(V4Handler):
 
                 if depth < self._depth_limit and not core:
                     for parent in parent_qids:
-                        if parent not in self._resolved:
+                        if parent not in self._resolved and parent not in self._ROOT_CLASSES:
                             to_resolve.append(parent)
 
             depth += 1
@@ -141,14 +143,8 @@ class ClassHierarchyHandler(V4Handler):
         return qid in self._resolved
 
     def _write(self, proj_dir: Path) -> None:
-        out = proj_dir / "class_resolution_map.csv"
-        with out.open("w", newline="", encoding="utf-8") as fh:
-            writer = csv.writer(fh)
-            writer.writerow(["class_qid", "parent_qids", "depth", "core_class_ancestor"])
-            for class_qid, info in sorted(self._resolved.items()):
-                writer.writerow([
-                    class_qid,
-                    "|".join(info.get("parent_qids", [])),
-                    info.get("depth", 0),
-                    info.get("core_class_ancestor", ""),
-                ])
+        rows = [
+            [class_qid, "|".join(info.get("parent_qids", [])), info.get("depth", 0), info.get("core_class_ancestor", "")]
+            for class_qid, info in sorted(self._resolved.items())
+        ]
+        self._atomic_write_csv_rows(proj_dir / "class_resolution_map.csv", ["class_qid", "parent_qids", "depth", "core_class_ancestor"], rows)

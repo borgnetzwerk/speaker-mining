@@ -101,6 +101,7 @@ def full_fetch(
     depth: int,
     languages: list[str] | None = None,
     event_store=None,
+    max_cache_age_days: int = 365,
 ) -> dict | None:
     """Fetch all claims for a single entity and emit domain events.
 
@@ -119,8 +120,12 @@ def full_fetch(
 
     store = event_store or get_event_store(repo_root)
 
-    # Check entity cache first
+    # Check entity cache first (B2: skip cache if older than max_cache_age_days)
     cached = _latest_cached_record(repo_root, "entity", qid)
+    if cached is not None:
+        record, age_days = cached
+        if age_days is not None and age_days > max_cache_age_days:
+            cached = None
     if cached is not None:
         record, _age = cached
         response_data = get_query_event_response_data(record)
@@ -160,10 +165,27 @@ def full_fetch(
     label = pick_entity_label(entity_doc)
     triples = list(_iter_triples(entity_doc, qid))
 
+    # Extract description (first available language)
+    description = ""
+    for lang in languages:
+        desc = entity_doc.get("descriptions", {}).get(lang, {})
+        if isinstance(desc, dict) and desc.get("value"):
+            description = desc["value"]
+            break
+
+    # Extract aliases for all requested languages
+    aliases: list[str] = []
+    for lang in languages:
+        for entry in entity_doc.get("aliases", {}).get(lang, []):
+            if isinstance(entry, dict) and entry.get("value"):
+                aliases.append(entry["value"])
+
     # Emit entity_fetched
     store.append_event(build_entity_fetched_event(
         qid=qid,
         label=label,
+        description=description,
+        aliases=aliases,
         depth=depth,
         triple_count=len(triples),
     ))

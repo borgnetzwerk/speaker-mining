@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 from pathlib import Path
 
 from . import V4Handler
@@ -43,9 +42,5 @@ class EntityLookupIndexHandler(V4Handler):
         return self._index.get(qid, {}).get("label", "")
 
     def _write(self, proj_dir: Path) -> None:
-        out = proj_dir / "entity_lookup_index.csv"
-        with out.open("w", newline="", encoding="utf-8") as fh:
-            writer = csv.writer(fh)
-            writer.writerow(["qid", "label", "last_updated_at"])
-            for qid, info in sorted(self._index.items()):
-                writer.writerow([qid, info.get("label", ""), info.get("last_updated_at", "")])
+        rows = [[qid, info.get("label", ""), info.get("last_updated_at", "")] for qid, info in sorted(self._index.items())]
+        self._atomic_write_csv_rows(proj_dir / "entity_lookup_index.csv", ["qid", "label", "last_updated_at"], rows)

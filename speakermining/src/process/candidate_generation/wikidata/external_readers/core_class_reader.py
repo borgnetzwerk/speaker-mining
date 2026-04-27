@@ -16,13 +16,16 @@ class CoreClassReader(ExternalEventReader):
         source = setup_csv if setup_csv.exists() else paths.core_classes_csv
 
         rows = self._read_csv(source)
-        registered = self._get_registered_qids("core_class_registered")
+        # F7: read projection CSV written by CoreClassOutputHandler instead of scanning event log
+        fast = self._registered_qids_from_projection_csv(paths.projections_dir / "core_class_registry.csv")
+        registered = fast if fast is not None else self._get_registered_qids("core_class_registered")
         emitted = 0
         for row in rows:
-            qid = str(row.get("qid") or row.get("QID") or "").strip()
+            qid = str(row.get("wikidata_id") or row.get("qid") or row.get("QID") or "").strip()
             if not qid or qid in registered:
                 continue
-            label = str(row.get("label") or row.get("Label") or "").strip()
+            # Use filename column for output file naming (e.g. "persons"), not label ("person")
+            label = str(row.get("filename") or row.get("label") or "").strip()
             self._emit(build_core_class_registered_event(qid=qid, label=label))
             registered.add(qid)
             emitted += 1

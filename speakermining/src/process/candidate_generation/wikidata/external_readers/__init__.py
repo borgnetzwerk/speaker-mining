@@ -36,6 +36,14 @@ class ExternalEventReader:
                     registered.add(qid)
         return registered
 
+    def _registered_qids_from_projection_csv(self, csv_path: Path, col: str = "qid") -> set[str] | None:
+        """Read QIDs from a handler-written projection CSV. Returns None if the file doesn't exist
+        (caller should fall back to event-log scan). F7: avoids full log scan on startup."""
+        if not csv_path.exists():
+            return None
+        rows = self._read_csv(csv_path)
+        return {str(r.get(col, "") or "").strip() for r in rows if r.get(col)}
+
     def _emit(self, event: dict) -> int:
         from ..event_log import _iso_now
         event.setdefault("timestamp_utc", _iso_now())

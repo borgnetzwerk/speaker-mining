@@ -42,7 +42,8 @@ class RelevancyHandler(V4Handler):
                 self._mark_relevant(qid, ts, source_seed_qid=qid, inherited_from="", via_pid="", direction="")
 
         elif etype == "rule_changed":
-            self._reload_rules_from_events()
+            rule_file = str(payload.get("rule_file", "") or "")
+            self._reload_rules_from_csv_direct(rule_file)
 
         elif etype == "entity_marked_relevant":
             qid = canonical_qid(str(payload.get("qid", "") or ""))
@@ -51,7 +52,7 @@ class RelevancyHandler(V4Handler):
                     "first_marked_at": ts,
                     "source_seed_qid": str(payload.get("source_seed_qid", "") or ""),
                     "inherited_from_qid": str(payload.get("inherited_from_qid", "") or ""),
-                    "inherited_via_pid": str(payload.get("via_pid", "") or ""),
+                    "inherited_via_pid": str(payload.get("inherited_via_pid", "") or ""),
                     "direction": str(payload.get("direction", "") or ""),
                 }
 
@@ -76,20 +77,18 @@ class RelevancyHandler(V4Handler):
         }
         self._emit(build_entity_marked_relevant_event(
             qid=qid,
-            core_class_qid="",
-            via_rule=via_pid,
+            source_seed_qid=source_seed_qid,
+            inherited_from_qid=inherited_from,
+            inherited_via_pid=via_pid,
+            direction=direction,
         ))
 
-    def _reload_rules_from_events(self) -> None:
-        from ..event_log import iter_all_events
-        rules = []
+    def _reload_rules_from_csv_direct(self, rule_file: str) -> None:
+        """Reload rules from CSV without scanning the event log (F6 fix)."""
+        if rule_file != "relevancy_relation_contexts.csv":
+            return
+        rules = self._load_rules_from_csv()
         pids: set[str] = set()
-        for event in iter_all_events(self._root):
-            if event.get("event_type") != "rule_changed":
-                continue
-            p = event.get("payload", {}) or {}
-            if str(p.get("rule_file", "")) == "relevancy_relation_contexts.csv":
-                rules = self._load_rules_from_csv()
         for rule in rules:
             pid = canonical_pid(str(rule.get("predicate_pid", "") or ""))
             if pid:
@@ -111,17 +110,10 @@ class RelevancyHandler(V4Handler):
         return qid in self._relevant
 
     def _write(self, proj_dir: Path) -> None:
-        out = proj_dir / "relevancy_map.csv"
-        with out.open("w", newline="", encoding="utf-8") as fh:
-            writer = csv.writer(fh)
-            writer.writerow(["entity_qid", "relevant", "first_marked_at", "source_seed_qid", "inherited_from_qid", "inherited_via_pid", "direction"])
-            for qid, info in sorted(self._relevant.items()):
-                writer.writerow([
-                    qid,
-                    "true",
-                    info.get("first_marked_at", ""),
-                    info.get("source_seed_qid", ""),
-                    info.get("inherited_from_qid", ""),
-                    info.get("inherited_via_pid", ""),
-                    info.get("direction", ""),
-                ])
+        header = ["entity_qid", "relevant", "first_marked_at", "source_seed_qid", "inherited_from_qid", "inherited_via_pid", "direction"]
+        rows = [
+            [qid, "true", info.get("first_marked_at", ""), info.get("source_seed_qid", ""),
+             info.get("inherited_from_qid", ""), info.get("inherited_via_pid", ""), info.get("direction", "")]
+            for qid, info in sorted(self._relevant.items())
+        ]
+        self._atomic_write_csv_rows(proj_dir / "relevancy_map.csv", header, rows)

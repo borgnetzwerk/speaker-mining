@@ -23,14 +23,29 @@ class RelevancyRuleReader(ExternalEventReader):
 
         current_hash = self._file_hash(source)
         last_emitted_hash = self._last_emitted_hash()
-        if current_hash == last_emitted_hash:
-            return 0
+        emitted = 0
+        if current_hash != last_emitted_hash:
+            self._emit(build_rule_changed_event(
+                rule_file=_SETUP_FILENAME,
+                rule_hash=current_hash,
+            ))
+            emitted = 1
 
-        self._emit(build_rule_changed_event(
-            rule_file=_SETUP_FILENAME,
-            rule_hash=current_hash,
-        ))
-        return 1
+        self._validate_core_class_refs(source, paths)
+        return emitted
+
+    def _validate_core_class_refs(self, rules_csv: Path, paths) -> None:
+        """F18: warn if rules reference core class QIDs not in core_class_registry.csv."""
+        registry_csv = paths.projections_dir / "core_class_registry.csv"
+        known = self._registered_qids_from_projection_csv(registry_csv)
+        if known is None:
+            return  # first run — registry not written yet, skip validation
+        rows = self._read_csv(rules_csv)
+        for row in rows:
+            for col in ("subject_core_class_qid", "object_core_class_qid"):
+                qid = str(row.get(col, "") or "").strip()
+                if qid and qid not in known:
+                    print(f"[F18 WARNING] relevancy rule references unknown core class {qid!r} (column {col!r})")
 
     def _last_emitted_hash(self) -> str:
         last = ""

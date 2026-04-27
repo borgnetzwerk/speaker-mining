@@ -342,6 +342,8 @@ def build_entity_fetched_event(
     label: str,
     depth: int,
     triple_count: int = 0,
+    description: str = "",
+    aliases: list | None = None,
     timestamp_utc: str | None = None,
 ) -> dict:
     return {
@@ -351,6 +353,8 @@ def build_entity_fetched_event(
         "payload": {
             "qid": str(qid or ""),
             "label": str(label or ""),
+            "description": str(description or ""),
+            "aliases": list(aliases or []),
             "depth": int(depth),
             "triple_count": int(triple_count),
         },
@@ -402,8 +406,12 @@ def build_class_resolved_event(
 def build_entity_marked_relevant_event(
     *,
     qid: str,
-    core_class_qid: str,
+    core_class_qid: str = "",
     via_rule: str = "",
+    source_seed_qid: str = "",
+    inherited_from_qid: str = "",
+    inherited_via_pid: str = "",
+    direction: str = "",
     timestamp_utc: str | None = None,
 ) -> dict:
     return {
@@ -414,6 +422,10 @@ def build_entity_marked_relevant_event(
             "qid": str(qid or ""),
             "core_class_qid": str(core_class_qid or ""),
             "via_rule": str(via_rule or ""),
+            "source_seed_qid": str(source_seed_qid or ""),
+            "inherited_from_qid": str(inherited_from_qid or ""),
+            "inherited_via_pid": str(inherited_via_pid or ""),
+            "direction": str(direction or ""),
         },
     }
 

@@ -36,6 +36,7 @@ class FetchDecisionHandler(V4Handler):
 
         if etype == "rule_changed":
             self._reload_rule_pids()
+            self._reevaluate_deferred()
 
         elif etype == "entity_fetched":
             qid = canonical_qid(str(payload.get("qid", "") or ""))
@@ -101,6 +102,21 @@ class FetchDecisionHandler(V4Handler):
             "basic_fetch_status": "pending",
         }
 
+    def _reevaluate_deferred(self) -> None:
+        """Promote unlikely_relevant entries whose predicate now matches updated rules (F14)."""
+        for obj_qid, info in self._decisions.items():
+            if info.get("classification") != "unlikely_relevant":
+                continue
+            if info.get("basic_fetch_status") == "complete":
+                continue
+            if canonical_pid(str(info.get("predicate_pid", "") or "")) in self._rule_pids:
+                info["classification"] = "potentially_relevant"
+                self._emit(build_fetch_decision_event(
+                    qid=obj_qid,
+                    decision="potentially_relevant",
+                    reason="rule_changed_promotion",
+                ))
+
     def _reload_rule_pids(self) -> None:
         from ..schemas import build_artifact_paths
         paths = build_artifact_paths(self._root)
@@ -129,15 +145,10 @@ class FetchDecisionHandler(V4Handler):
         ]
 
     def _write(self, proj_dir: Path) -> None:
-        out = proj_dir / "discovery_classification.csv"
-        with out.open("w", newline="", encoding="utf-8") as fh:
-            writer = csv.writer(fh)
-            writer.writerow(["object_qid", "subject_qid", "predicate_pid", "classification", "basic_fetch_status"])
-            for obj_qid, info in sorted(self._decisions.items()):
-                writer.writerow([
-                    obj_qid,
-                    info.get("subject_qid", ""),
-                    info.get("predicate_pid", ""),
-                    info.get("classification", ""),
-                    info.get("basic_fetch_status", "pending"),
-                ])
+        header = ["object_qid", "subject_qid", "predicate_pid", "classification", "basic_fetch_status"]
+        rows = [
+            [obj_qid, info.get("subject_qid", ""), info.get("predicate_pid", ""),
+             info.get("classification", ""), info.get("basic_fetch_status", "pending")]
+            for obj_qid, info in sorted(self._decisions.items())
+        ]
+        self._atomic_write_csv_rows(proj_dir / "discovery_classification.csv", header, rows)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 from pathlib import Path
 
 from . import V4Handler
@@ -87,13 +86,7 @@ class BasicFetchHandler(V4Handler):
         return emitted
 
     def _write(self, proj_dir: Path) -> None:
-        out = proj_dir / "basic_fetch_state.csv"
-        with out.open("w", newline="", encoding="utf-8") as fh:
-            writer = csv.writer(fh)
-            writer.writerow(["qid", "status"])
-            for qid in sorted(self._done):
-                writer.writerow([qid, "complete"])
-            for qid in self._pending_immediate:
-                writer.writerow([qid, "pending_immediate"])
-            for qid in self._pending_deferred:
-                writer.writerow([qid, "pending_deferred"])
+        rows = [[qid, "complete"] for qid in sorted(self._done)]
+        rows += [[qid, "pending_immediate"] for qid in self._pending_immediate]
+        rows += [[qid, "pending_deferred"] for qid in self._pending_deferred]
+        self._atomic_write_csv_rows(proj_dir / "basic_fetch_state.csv", ["qid", "status"], rows)

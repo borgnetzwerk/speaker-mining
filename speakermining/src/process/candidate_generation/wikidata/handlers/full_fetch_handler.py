@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import csv
 from pathlib import Path
 
 from . import V4Handler
 from ..common import canonical_pid, canonical_qid
+from ..event_log import build_entity_discovered_event
 from ..full_fetch import full_fetch
 
 
@@ -137,6 +137,13 @@ class FullFetchHandler(V4Handler):
         qid, depth = self._queue.pop(0)
         if qid in self._done:
             return 0
+        # F5: emit entity_discovered before full_fetch (architecture §6.1 step 1)
+        self._emit(build_entity_discovered_event(
+            qid=qid,
+            label="",
+            source_step="entity_fetch",
+            discovery_method="full_fetch",
+        ))
         full_fetch(
             qid,
             repo_root=self._root,
@@ -147,11 +154,6 @@ class FullFetchHandler(V4Handler):
         return 1
 
     def _write(self, proj_dir: Path) -> None:
-        out = proj_dir / "full_fetch_state.csv"
-        with out.open("w", newline="", encoding="utf-8") as fh:
-            writer = csv.writer(fh)
-            writer.writerow(["qid", "status", "depth"])
-            for qid in sorted(self._done):
-                writer.writerow([qid, "complete", ""])
-            for qid, depth in self._queue:
-                writer.writerow([qid, "pending", depth])
+        rows = [[qid, "complete", ""] for qid in sorted(self._done)]
+        rows += [[qid, "pending", depth] for qid, depth in self._queue]
+        self._atomic_write_csv_rows(proj_dir / "full_fetch_state.csv", ["qid", "status", "depth"], rows)

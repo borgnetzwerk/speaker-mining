@@ -128,21 +128,21 @@ Each stage lists its **exit condition** — the answer to "how do we know this s
 
 | Item | Status | Notes |
 |------|--------|-------|
-| TODO-042: `core_roles.json` populated after kernel restart | ❌ | Must run with v4 code |
-| TODO-043: `basic_fetch` trigger classification derived from `relevancy_relation_contexts.csv` (no hardcoded predicate list) | ❌ | Design resolved in Stage 2; must confirm in implementation |
-| TODO-034: materializer no longer writes `instances.csv` | ❌ | Handler-owned now |
-| TODO-038: node integrity pass eliminated | ❌ | Integrity-by-construction |
-| Budget test: preflight uses O(new classes) not O(all) | ❌ | Step 2.4.3 equivalent must not re-walk known classes |
-| Cache-only run: produces identical output to network run | ❌ | |
-| Budget test: Step 6 (main expansion) gets the majority of budget | ❌ | Preflight must not dominate |
+| TODO-042: `core_roles.json` populated after kernel restart | ⚠ | Bug fixed (CSV column `wikidata_id`; `full_fetch_rules.csv` created); needs re-run to confirm output |
+| TODO-043: `basic_fetch` trigger classification derived from `relevancy_relation_contexts.csv` (no hardcoded predicate list) | ✅ | Confirmed by code: `FetchDecisionHandler._reload_rule_pids()` reads only the CSV; no hardcoded PIDs |
+| TODO-034: materializer no longer writes `instances.csv` | ✅ | Confirmed: `materializer.py` absent from `wikidata/`; no code writes `instances.csv` |
+| TODO-038: node integrity pass eliminated | ✅ | Confirmed: `node_integrity.py` absent from `wikidata/`; no equivalent pass exists |
+| Budget test: preflight uses O(new classes) not O(all) | ✅ | Confirmed by code: `ClassHierarchyHandler` only queues class QIDs not already in `_resolved` |
+| Cache-only run: produces identical output to network run | ❌ | Requires actual run with `max_queries_per_run: 0` after first full run |
+| Budget test: Step 6 (main expansion) gets the majority of budget | ❌ | Requires actual run with budget tracking; no preflight step exists at all in v4 |
 
 ---
 
 ## Current Position
 
-**Stage 5 complete. Ready for Stage 6 verification.**
+**Stage 6 in progress. See `14_stage6_findings.md` for full issue tracker.**
 
-All 13 implementation items done. New modules: `config.py`, `basic_fetch.py`, `full_fetch.py`, `external_readers/` (4 readers), `handlers/` (7 handlers). Notebook fully populated with steps 1–7. All imports verified clean. Next: run against real data to verify TODO-042, TODO-043, TODO-034, TODO-038.
+Confirmed ✅: TODO-043, TODO-034, TODO-038, O(new classes) budget claim. Bugs fixed: CSV column name (`wikidata_id`), missing `full_fetch_rules.csv`, F1, F2, F4, F5, F6, F8, F17. Open issues: F3 (`iter_events_from` O(total) scan), F7 (reader log scans), F9–F16, F18 (rule violations catalogued, not yet implemented). Re-run needed to confirm TODO-042 and cache-only behavior.
 
 ### Stage 2 Progress (complete)
 
