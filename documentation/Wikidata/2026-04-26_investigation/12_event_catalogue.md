@@ -93,7 +93,7 @@ The current event store (as of the last run 2026-04-26) holds 56,466 events acro
 
 | Field | Value |
 |-------|-------|
-| **Emitter** | `expansion_engine.py` — `run_seed_expansion()` |
+| **Emitter** | `expansion_engine.py` (v4: `fetch_engine`) — `run_seed_expansion()` |
 | **Readers** | `materializer.py` — `_build_instances_df()` scans for all entity state; `bootstrap_relevancy_events()` |
 | **v4 status** | ✓ Keep as-is — "discovered" is clear and consistent with `triple_discovered` |
 | **v4 name** | ✓ **`entity_discovered`** (no change) |
@@ -115,7 +115,7 @@ The current event store (as of the last run 2026-04-26) holds 56,466 events acro
 
 | Field | Value |
 |-------|-------|
-| **Emitter** | `expansion_engine.py` — `run_seed_expansion()` |
+| **Emitter** | `expansion_engine.py` (v4: `fetch_engine`) — `run_seed_expansion()` |
 | **Readers** | `materializer.py`; `event_handler.py` derivation handlers |
 | **v4 status** | ⚠ Rename — "expanded" is the old conflated term; see decision below |
 | **v4 name** | ✓ **`entity_fetched`** — see §2 below |
@@ -124,7 +124,7 @@ The current event store (as of the last run 2026-04-26) holds 56,466 events acro
 **Payload fields:**
 - `qid` — the Wikidata QID
 - `label` — entity label
-- `expansion_type` — type of expansion performed (e.g. `"neighbors"`)
+- `expansion_type` (v4: retired — `full_fetch` always fetches all claims; no type distinction needed) — type of expansion performed (e.g. `"neighbors"`)
 - `inlink_count` — number of inlinks fetched
 - `outlink_count` — number of outlinks fetched
 
@@ -149,6 +149,12 @@ The current event store (as of the last run 2026-04-26) holds 56,466 events acro
 - `predicate_pid` — Wikidata property ID (e.g. `P31`, `P106`)
 - `object_qid` — object entity QID
 - `source_step` — where triple was derived from (e.g. `outlinks_build`, `inlinks_fetch`)
+- `has_qualifier` — boolean; true if the claim carrying this triple has one or more qualifier statements
+- `qualifier_pids` — list of PID strings for each qualifier property present (empty list if `has_qualifier` is false)
+- `has_reference` — boolean; true if the claim has one or more reference blocks
+- `reference_pids` — list of PID strings for each reference property present (empty list if `has_reference` is false)
+
+**v4 note (OD5):** The four qualifier/reference fields are new in v4. They carry metadata about the richness of the underlying claim without bloating the event with the full qualifier/reference data. Consumers that need the full detail read the raw `query_response` for the entity. The `qualifier_pids` and `reference_pids` lists record *which* properties are present, not the values — sufficient for filtering and completeness checks.
 
 ---
 
@@ -158,7 +164,7 @@ The current event store (as of the last run 2026-04-26) holds 56,466 events acro
 
 | Field | Value |
 |-------|-------|
-| **Emitter** | `expansion_engine.py` — `_filter_seed_instances_by_broadcasting_program()` via `resolve_class_path(on_resolved=...)` |
+| **Emitter** | `expansion_engine.py` (v4: `fetch_engine`) — `_filter_seed_instances_by_broadcasting_program()` via `resolve_class_path(on_resolved=...)` |
 | **Readers** | Not systematically read in v3 — primarily a diagnostic event |
 | **v4 status** | ⚠ Rename + semantic change — in v4 this becomes the ClassHierarchyHandler's per-class-QID output event |
 | **v4 name** | ✓ **`class_resolved`** — see §4 below |
@@ -171,7 +177,7 @@ The current event store (as of the last run 2026-04-26) holds 56,466 events acro
 - `subclass_of_core_class` — boolean
 - `is_class_node` — boolean
 
-**v4 semantic change:** In v3, `class_membership_resolved` records "entity X's class resolved to core class Y." In v4, the ClassHierarchyHandler emits `class_resolved` once per *class QID* when its P279 walk is complete — recording the class QID's own position in the hierarchy. Per-entity class assignment is then derived by joining entity P31 values against the class_resolution_map, not from per-entity events.
+**v4 semantic change:** In v3, `class_membership_resolved` records "entity X's class resolved to core class Y." In v4, the ClassHierarchyHandler emits `class_resolved` once per *class QID* when its class_hierarchy_resolution is complete — recording the class QID's own position in the hierarchy. Per-entity class assignment is then derived by joining entity P31 values against the class_resolution_map, not from per-entity events.
 
 ---
 
@@ -273,7 +279,76 @@ The current event store (as of the last run 2026-04-26) holds 56,466 events acro
 - `p279_qids` — list of P279 values (subclass-of targets; non-empty means this QID is a class node)
 - `source` — `"network"` | `"cache"`
 
-**Why this event matters:** Before v4, there was no distinction between basic_fetch and full_fetch. This event lets the ClassHierarchyHandler react specifically to the identity payload arriving, rather than waiting for full_fetch. This is what enables incremental P279 walking without the two-pass preflight.
+**Why this event matters:** Before v4, there was no distinction between basic_fetch and full_fetch. This event lets the ClassHierarchyHandler react specifically to the identity payload arriving, rather than waiting for full_fetch. This is what enables incremental class_hierarchy_resolution without the two-pass preflight.
+
+---
+
+### `seed_registered`
+
+**What it is:** Emitted once per seed QID at startup by `SeedReader` when it reads `broadcasting_programs.csv` and that QID has not already been registered in the event store. Idempotent: `SeedReader` checks existing `seed_registered` events before emitting.
+
+| Field | Value |
+|-------|-------|
+| **Emitter** | `SeedReader` (ExternalEventReader) — runs once at notebook startup |
+| **Readers** | `SeedHandler` — adds QID to `seeds.csv` projection and queues it for `full_fetch` |
+| **v4 status** | ✓ **New in v4** |
+
+**Payload fields:**
+- `qid` — the seed QID (broadcasting program)
+- `source_file` — `"broadcasting_programs.csv"` (for audit trail)
+
+---
+
+### `core_class_registered`
+
+**What it is:** Emitted once per core class QID at startup by `CoreClassReader` when it reads `core_classes.csv` and that class has not already been registered. Idempotent.
+
+| Field | Value |
+|-------|-------|
+| **Emitter** | `CoreClassReader` (ExternalEventReader) — runs once at notebook startup |
+| **Readers** | `ClassHierarchyHandler` — knows which QIDs are terminal core class targets; `RelevancyHandler` — knows which core classes exist for rule validation |
+| **v4 status** | ✓ **New in v4** |
+
+**Payload fields:**
+- `qid` — the core class QID
+- `label` — human-readable class name from the CSV
+- `source_file` — `"core_classes.csv"`
+
+---
+
+### `full_fetch_rule_registered`
+
+**What it is:** Emitted once per rule row at startup by `FullFetchRuleReader` when it reads `full_fetch_rules.csv` and that rule has not already been registered. Idempotent.
+
+| Field | Value |
+|-------|-------|
+| **Emitter** | `FullFetchRuleReader` (ExternalEventReader) — runs once at notebook startup |
+| **Readers** | `FetchDecisionHandler` — uses these rules to decide which discovered QIDs qualify for `full_fetch` |
+| **v4 status** | ✓ **New in v4** |
+
+**Payload fields:**
+- `rule_id` — stable identifier for the rule (row number or explicit ID from CSV)
+- `core_class_qid` — which core class triggers full_fetch eligibility
+- `source_file` — `"full_fetch_rules.csv"`
+
+---
+
+### `rule_changed`
+
+**What it is:** Emitted when a rule configuration file changes — specifically when `relevancy_relation_contexts.csv` is updated. Signals to handlers that they must re-evaluate any work they deferred under the previous rules.
+
+| Field | Value |
+|-------|-------|
+| **Emitter** | Config loader / notebook startup (v4, not yet implemented) |
+| **Readers** | `basic_fetch` handler (to promote `unlikely_relevant` QIDs whose predicate is now whitelisted); ClassHierarchyHandler (to check if new class QIDs need walking) |
+| **v4 status** | ✓ **New in v4** |
+
+**Payload fields (proposed):**
+- `rule_file` — which config file changed (e.g. `"relevancy_relation_contexts.csv"`)
+- `previous_version_hash` — hash or timestamp of the previous rule file
+- `current_version_hash` — hash or timestamp of the new rule file
+
+**Why this event matters:** The `basic_fetch` handler tracks the rule version it last applied to its deferred (`unlikely_relevant`) queue. On observing `rule_changed`, it re-evaluates deferred QIDs — any whose connecting predicate is now in the updated rules is promoted to `potentially_relevant` and queued for immediate `basic_fetch`. Without this event, rule changes would silently leave stale deferred data.
 
 ---
 
@@ -293,6 +368,10 @@ The current event store (as of the last run 2026-04-26) holds 56,466 events acro
 | `eventstore_opened` | `eventstore_opened` | ✓ Keep | Infrastructure; no rename |
 | `eventstore_closed` | `eventstore_closed` | ✓ Keep | Infrastructure; no rename |
 | *(none)* | `entity_basic_fetched` | ✓ New in v4 | basic_fetch completion signal |
+| *(none)* | `rule_changed` | ✓ New in v4 | Rule config file changed; triggers re-evaluation of deferred `unlikely_relevant` QIDs |
+| *(none)* | `seed_registered` | ✓ New in v4 | SeedReader translates `broadcasting_programs.csv` into events; idempotent |
+| *(none)* | `core_class_registered` | ✓ New in v4 | CoreClassReader translates `core_classes.csv` into events; idempotent |
+| *(none)* | `full_fetch_rule_registered` | ✓ New in v4 | FullFetchRuleReader translates `full_fetch_rules.csv` into events; idempotent |
 
 **On `class_resolved` semantic change:** The v3 event records per-entity class resolution (entity X maps to core class Y). The v4 event records per-class P279 walk completion (class QID Z resolves to core class Y via path P). These are structurally different. v4 handlers that need per-entity class assignment read the `class_resolution_map.csv` projection, not per-entity events.
 

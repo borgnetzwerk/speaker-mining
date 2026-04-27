@@ -49,7 +49,7 @@ These modules implement the high-level concepts that are being replaced. They co
 | Module | Why it is redesigned |
 |--------|---------------------|
 | `materializer.py` | Deprecated per C1.6 — replaced by EventHandlers |
-| `expansion_engine.py` | Redesigned around event-sourced, rule-driven traversal |
+| `expansion_engine.py` (v4: `fetch_engine`) | Redesigned around event-sourced, rule-driven traversal |
 | `relevancy.py` | Redesigned as a proper EventHandler with progress tracking |
 | `bootstrap.py` | Redesigned; initialization logic moves into notebook cells |
 | `node_store.py` | Redesigned; entity state flows through events and handlers |

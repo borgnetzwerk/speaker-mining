@@ -23,7 +23,9 @@ Rules are organized by the concern they govern. Rules within a group are individ
 
 **A4** — The seed list must be configurable without code changes.
 
-❓ **A5** — A seed is "fully processed" when all of its links have been traversed to the configured depth. The system must be able to determine whether a seed was processed under the current config version — if the config changed, the seed may need reprocessing.
+✓ **A5** — A seed is "fully fetched" when its derived fetch queue is fully processed — every entity the seed's traversal generated has been `full_fetch`ed or deferred by budget. The system does not need to track per-seed config-version history; config changes only trigger projection rebuilds, not re-fetches.
+  * **Clarification:** A seed can only be "full_fetched" that's about it. A seed being fully progressed means that every entity it was linked to (and every consequentally fetched node) is completely resolved. So the concept of "fully fetched" just means "fetching list it generated is completely resolved". If a new config changes, all that does is rules processing these fetched nodes again. Since this requires a projection updating again, we don't need to consider this further. 
+  * **Resolution:** Simplified: "fully fetched" = fetch queue empty. No per-seed config-version tracking needed.
 
 ---
 
@@ -41,7 +43,10 @@ Rules are organized by the concern they govern. Rules within a group are individ
 
 **B6** — Entity data must be stored as events in the event store, not only in a local cache file.
 
-❓ **B7** — If an entity's claims reference QIDs that are not yet fetched, those QIDs are eligible for fetching under the hydration rules. The order of fetching is not specified — what determines priority?
+✓ **B7** — When a `full_fetch`ed entity's claims reference new QIDs, each is classified as `potentially_relevant` (connecting predicate appears in `relevancy_relation_contexts.csv`) or `unlikely_relevant` (predicate not in the relevancy rules). `potentially_relevant` QIDs are queued for immediate `basic_fetch`; `unlikely_relevant` QIDs are deferred per `deferred_basic_fetch_mode`. Queue ordering within either group is irrelevant — correctness does not depend on processing order.
+  * **Clarification:** a) naming conventions changed, this must be applied here too. hydration is now called "basic_fetching". Regarding order: It does not matter. So long as our fetching queue is not empty, we still have work to do. It matters not in what order we progress through them.
+  * **Resolution:** Classification via `potentially_relevant` / `unlikely_relevant`. Immediate vs deferred basic_fetch. Queue order irrelevant.
+
 
 ---
 
@@ -51,7 +56,9 @@ Rules are organized by the concern they govern. Rules within a group are individ
 
 **C2** — From a relevant entity, follow all links (outgoing and incoming) that are configured for traversal.
 
-❓ **C3** — Which predicates are traversed? Is this configurable (like hydration rules) or fixed? The current system follows all links from expanded entities. Is that correct?
+✓ **C3** — All predicates are traversed by default from a `full_fetch`ed entity; no whitelist is required. An optional predicate blacklist may be configured for known-irrelevant predicates. Relevancy propagation is separately governed by `relevancy_relation_contexts.csv` and does not restrict traversal coverage.
+  * **Clarification:** again, naming updated. Currently, I see no reason to regulate predicate traversal. If we know for certain a property is irrelevant, we can add it to a blacklist, but generally, I currently don't see a reason why we should stop basic_fetch for any property object of a relevant subject. And for relevancy propagation, other rules apply, so this is regulated already. Unless reasons can be mentioned not to traverse all properties, this can be kept as is. 
+  * **Resolution:** Traverse-all by default; optional blacklist for exclusions. No whitelist needed.
 
 **C4** — Traversal respects the configured depth limit. Entities beyond the depth limit are discovered but not traversed further.
 
@@ -59,7 +66,9 @@ Rules are organized by the concern they govern. Rules within a group are individ
 
 **C6** — An entity is traversed at most once per run, even if reached via multiple paths.
 
-❓ **C7** — When a new entity is discovered via traversal, is it immediately fetched, or is it queued? If queued, what is the queue ordering?
+✓ **C7** — When a new entity appears as an object in a `triple_discovered` event from a `full_fetch`ed entity, it is classified as `potentially_relevant` (connecting predicate in `relevancy_relation_contexts.csv`) or `unlikely_relevant` (predicate not in the relevancy rules). `potentially_relevant` entities are queued for immediate `basic_fetch`; `unlikely_relevant` entities are deferred per `deferred_basic_fetch_mode` config. Within the immediate queue, ordering is implementation-defined — prefer batch-capable eager drainage.
+  * **Clarification:** There is little difference between "immediately fetched" and "queued". We'll get to them when we get to them. Fundamentally, it is propably wise to keep the basic_fetch queue as empty as possible, since they are needed kontext to understand the graph we have. However, if we find a good way to mass fetch them, the opposite may also be true: We accumulate X of them (e.g. 100) and then fetch 100 at a time, if there is a suitable format that bulk fetches X at a time. Basically: Whatever suits the system best. 
+  * **Resolution:** Classification at discovery: `potentially_relevant` → immediate basic_fetch; `unlikely_relevant` → deferred. Prefer eager, batch-capable drainage for the immediate queue.
 
 ---
 
@@ -69,7 +78,7 @@ Rules are organized by the concern they govern. Rules within a group are individ
 
 **D2** — The set of core class QIDs is defined in `data/00_setup/core_classes.csv` and is never hardcoded.
 
-**D3** — Root class QIDs (Q35120 = entity, Q1 = Universe) terminate the P279 walk. An entity whose P279 chain reaches a root class without passing through a core class is unclassified.
+**D3** — Root class QIDs (Q35120 = entity, Q1 = Universe) terminate the `class_hierarchy_resolution`. An entity whose P279 chain reaches a root class without passing through a core class is unclassified.
 
 **D4** — Manual override rules in `data/00_setup/rewiring_catalogue.csv` (formerly `rewiring.csv`) take precedence over the computed P279 resolution. If a QID has an override entry, that entry determines its core class.
 
@@ -101,27 +110,40 @@ Rules are organized by the concern they govern. Rules within a group are individ
 
 **E9** — An entity that is relevant but resolves to no core class is "unclassified" and is NOT included in the core output files, but may be logged.
 
-❓ **E10** — An entity can be relevant through multiple paths (e.g. a person who is both a guest and the object of a has-part triple). How is multi-path relevancy handled? Is it additive, or does any single path suffice?
+✓ **E10** — An entity that is reached via multiple relevancy paths is still simply "relevant." Multi-path relevancy is non-additive (no score or weight), non-conflicting, and monotonic — any single matching path suffices; being matched by many paths changes nothing.
+  * **Clarification:** relevancy is binary and can only be gained, not lost. Indivudals like show hosts will be made relevant a thousand times, once by every episode. For us, this does not matter: Relevant is relevant, now matter how frequent.
+  * **Resolution:** Binary: any single path suffices. Multiple paths are a no-op beyond the first.
 
-❓ **E11** — The current approved context `(Q215627=person, P106=occupation, Q214339=role)` propagates from a relevant person to a role class node. But "not every instance of human is a relevant guest" (Clarification C3.4). What additional condition is required for a person to be a valid *subject* of this propagation? Just "is relevant"? Or more specific criteria?
+✓ **E11** — The only prerequisite for a person to propagate relevancy to their occupation (via P106) is that the person is relevant. No additional condition is required. The propagation chain from seeds guarantees that only reachable, actually-relevant persons trigger this rule — the seed graph itself provides the necessary filtering.
+  * **Clarification:** Just "is relevant". They themselves somehow inherit this from our seed notes, who are the only ones that are relevant to begin with. This propagates, eventually reaches a person (e.g. guest of a relevant episode) and then propagates to their occupation.
+  * **Resolution:** Prerequisite is "is relevant" only. The relevancy propagation chain from seeds provides the necessary guard.
 
 ---
 
-## Group F — Hydration Rules (which property-links to follow for data completeness)
+## Group F — Discovery Classification and basic_fetch Scope
 
-**F1** — When a relevant entity has a claim with a QID object, that object QID may be fetched even if it was not reached by graph traversal.
+**F1** — When a `full_fetch`ed relevant entity produces a triple (S, P, O) where P appears in `relevancy_relation_contexts.csv`, O is classified as `potentially_relevant` and queued for immediate `basic_fetch`.
 
-**F2** — Hydration is governed by a configurable list of predicates (currently P106, P102, P108, P21, P527, P17).
+**F2** — The set of predicates that classify a discovered object as `potentially_relevant` is derived dynamically from `relevancy_relation_contexts.csv` — no separate rule config file is needed. When the relevancy rules change, the classification updates automatically via `rule_changed` event handling.
 
-**F3** — Hydration applies to objects of relevant entities, not to random graph neighbors.
+**F3** — `basic_fetch` (immediate or deferred) applies only to objects of `full_fetch`ed relevant entities. Objects whose subject entity has not been `full_fetch`ed are not classified or queued.
 
-**F4** — Hydrated entities are fetched under the same cache-first and budget rules as traversal-reached entities (B1–B5).
+**F4** — `basic_fetch`ed entities follow the same cache-first and budget rules as traversal-reached entities (B1–B5).
 
-**F5** — Hydration does NOT automatically make the hydrated entity relevant. It only ensures its data is available for classification and display.
+**F5** — `basic_fetch` does NOT automatically make the fetched entity relevant. It only ensures the entity's basic data is available for class resolution and relevancy evaluation.
 
-❓ **F6** — Should hydration rules also specify subject requirements (e.g., "only hydrate P106 objects when subject is an instance of human")? See Clarification C3.4 on class expansion cost.
+✓ **F6** — Objects of `full_fetch`ed relevant entities where the connecting predicate is NOT in `relevancy_relation_contexts.csv` are classified as `unlikely_relevant`. Their `basic_fetch` is deferred, controlled by `deferred_basic_fetch_mode`:
+- `"never"` (default): skip entirely unless rules later change
+- `"end_of_run"`: process after all `potentially_relevant` work is complete
+No class_hierarchy_resolution fires for `unlikely_relevant` nodes regardless of deferral setting.
+  * **Clarification:** naming conventions changed. basic_fetch is a basic necessity of virtually every leaf node in our graph. We always want to know at least basic information about the node, hence the name. Yet, basic_fetch also reveals new entities (via "instance of" and "subclass of" links). These must never be followed just because of that, since otherwise we may run an excessive amount of queries just to fetch some nieche superclass of a leaf node. Basically: basic_fetch leaf nodes of fully_fetched nodes. No further steps unless these leaf nodes meet full_fetch criteria (e.g. inheriting relevancy).
+  * **Resolution:** `unlikely_relevant` classification governs deferred `basic_fetch`. Default: never. No class_hierarchy_resolution for deferred nodes.
 
-❓ **F7** — Should hydration also trigger class resolution for the hydrated QID (so that occupation QIDs get their P279 chains walked)? Currently this is done in step 2.4.3 as a separate pass.
+✓ **F7** — The class_hierarchy_resolution fires as part of `basic_fetch` only for `potentially_relevant` nodes. It does not fire for `unlikely_relevant` nodes. The ClassHierarchyHandler governs a separate, independent class_hierarchy_resolution queue with its own logic; a non-empty ClassHierarchyHandler queue takes priority over other work.
+  * **Clarification:** There are no separate steps. The "n step upwards walk" is a fundamental principle of every basic_fetch (n is currently configured to 5). It is a 100 % basic requirement of the basic_fetch.
+  * **Resolution:** `class_hierarchy_resolution` fires for `potentially_relevant` nodes only. ClassHierarchyHandler's queue is separate and higher-priority.
+
+**F8** — When `relevancy_relation_contexts.csv` changes, a `rule_changed` event is emitted. The `basic_fetch` handler tracks the rule version it last applied. On observing `rule_changed`, it re-evaluates all deferred `unlikely_relevant` QIDs: any whose connecting predicate is now in the updated rules is promoted to `potentially_relevant` and queued for immediate `basic_fetch`.
 
 ---
 
@@ -133,7 +155,9 @@ Rules are organized by the concern they govern. Rules within a group are individ
 
 **G3** — The output files for roles use class nodes (P279 subclass chain), not instances (P31 chain).
 
-❓ **G4** — What is the per-entity data structure in `core_<class>.json`? Which fields are required? Which are optional? Does it include qualifier data (per TODO-041)?
+✓ **G4** — The per-entity data structure in `core_<class>.json` contains all data the system has for that entity: all claims and triples, qualifier PIDs and reference indicators, labels, descriptions, and aliases. Nothing is optional. The output must accommodate the full richness of Wikidata data including qualifiers (TODO-041).
+  * **Clarification:** ALL data we have on them. Nothing is optional. These outputs contain everything we have on those core class instances and core class subclasses.
+  * **Resolution:** Include all available data. No field omitted. Qualifiers (TODO-041) must be included.
 
 **G5** — The entity lookup index must contain a label for every QID that appears in any output file.
 
@@ -165,7 +189,7 @@ Rules are organized by the concern they govern. Rules within a group are individ
 
 ## Group I — Integrity Rules (correctness invariants)
 
-**I1** — Every QID referenced as the object of a stored triple must have entity data in the event store (either fetched or hydrated).
+**I1** — Every QID referenced as the object of a stored triple that is classified as `potentially_relevant` must have entity data in the event store (via `basic_fetch` or `full_fetch`). QIDs classified as `unlikely_relevant` are exempt — they may exist in stored triples without entity data; this is correct behavior under `deferred_basic_fetch_mode = "never"`.
 
 **I2** — Every QID in a core output file must have at least a label in the entity lookup index.
 

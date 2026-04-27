@@ -215,7 +215,7 @@ Each event type needs a final name. The constraint: the old event types in the e
 | `candidate_matched` | Fallback stage retired from Phase 2 scope | `candidate_matched` (kept, not emitted) | ✓ |
 | *(none)* | New in v4: basic_fetch completion signal | **`entity_basic_fetched`** | ✓ |
 
-All event names decided. Full rationale and payload specifications in `12_event_catalogue.md`. Key note: `class_resolved` has a **semantic change** from v3 — the v3 event records per-entity class membership; the v4 event records per-class-QID P279 walk completion (emitted by the ClassHierarchyHandler).
+All event names decided. Full rationale and payload specifications in `12_event_catalogue.md`. Key note: `class_resolved` has a **semantic change** from v3 — the v3 event records per-entity class membership; the v4 event records per-class-QID class_hierarchy_resolution completion (emitted by the ClassHierarchyHandler).
 
 ---
 
@@ -261,5 +261,10 @@ All event names decided. Full rationale and payload specifications in `12_event_
 | Event: entity marked relevant | relevance_assigned | **entity_marked_relevant** | ✓ |
 | Event: traversal eligibility decision for a candidate | expansion_decision | **fetch_decision** | ✓ |
 | Event: node integrity reclassification (retired) | eligibility_transition | *(retired with node_integrity_pass)* | ✓ |
+| Event: a rule config file changed | (none) | **rule_changed** | ✓ |
+| Discovered entity whose connecting predicate is in the relevancy rules | (unnamed) | **potentially_relevant** | ✓ |
+| Discovered entity whose connecting predicate is NOT in the relevancy rules | (unnamed) | **unlikely_relevant** | ✓ |
+| Config governing deferred basic_fetch behavior | (unnamed) | **deferred_basic_fetch_mode** (`"never"` \| `"end_of_run"`) | ✓ |
+| P279 upward walk operation | "P279 walk", "upwards walk", "upward walk" | **class_hierarchy_resolution** | ✓ |
 
-**All naming is complete.** Event names decided in `12_event_catalogue.md`.
+**All naming is complete.** Event names decided in `12_event_catalogue.md`. `potentially_relevant` / `unlikely_relevant` classification decided here.
