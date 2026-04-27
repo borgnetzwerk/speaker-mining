@@ -218,8 +218,8 @@ speakermining/src/config/main.json
 documentation/context/*
 # Local ToDo Folder
 # ToDo
-ToDo/*/*
-!ToDo/DOC/*
+documentation/ToDo/*/*
+!documentation/ToDo/DOC/*
 documentation/visualizations/*
 
 

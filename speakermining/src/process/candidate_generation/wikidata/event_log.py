@@ -10,15 +10,28 @@ from .schemas import SOURCE_STEPS
 
 
 _EVENT_TYPES = {
+    # Infrastructure
     "query_response",
     "candidate_matched",
-    "entity_discovered",
+    # v3 domain events (kept for backward-compatible log replay)
     "entity_expanded",
     "expansion_decision",
-    "triple_discovered",
     "class_membership_resolved",
     "eligibility_transition",
     "relevance_assigned",
+    # v4 domain events
+    "entity_discovered",
+    "triple_discovered",
+    "entity_fetched",
+    "entity_basic_fetched",
+    "class_resolved",
+    "entity_marked_relevant",
+    "fetch_decision",
+    "rule_changed",
+    # v4 external reader events
+    "seed_registered",
+    "core_class_registered",
+    "full_fetch_rule_registered",
 }
 _ENDPOINTS = {"wikidata_api", "wikidata_sparql", "derived_local"}
 _STATUSES = {"success", "cache_hit", "http_error", "timeout", "fallback_cache", "not_found", "skipped"}
@@ -323,6 +336,185 @@ def build_relevance_assigned_event(
     }
 
 
+def build_entity_fetched_event(
+    *,
+    qid: str,
+    label: str,
+    depth: int,
+    triple_count: int = 0,
+    timestamp_utc: str | None = None,
+) -> dict:
+    return {
+        "event_version": "v4",
+        "event_type": "entity_fetched",
+        "timestamp_utc": timestamp_utc or _iso_now(),
+        "payload": {
+            "qid": str(qid or ""),
+            "label": str(label or ""),
+            "depth": int(depth),
+            "triple_count": int(triple_count),
+        },
+    }
+
+
+def build_entity_basic_fetched_event(
+    *,
+    qid: str,
+    label: str,
+    p31_qids: list[str],
+    p279_qids: list[str],
+    source: str = "network",
+    timestamp_utc: str | None = None,
+) -> dict:
+    return {
+        "event_version": "v4",
+        "event_type": "entity_basic_fetched",
+        "timestamp_utc": timestamp_utc or _iso_now(),
+        "payload": {
+            "qid": str(qid or ""),
+            "label": str(label or ""),
+            "p31_qids": list(p31_qids or []),
+            "p279_qids": list(p279_qids or []),
+            "source": str(source),
+        },
+    }
+
+
+def build_class_resolved_event(
+    *,
+    class_qid: str,
+    parent_qids: list[str],
+    depth: int,
+    timestamp_utc: str | None = None,
+) -> dict:
+    return {
+        "event_version": "v4",
+        "event_type": "class_resolved",
+        "timestamp_utc": timestamp_utc or _iso_now(),
+        "payload": {
+            "class_qid": str(class_qid or ""),
+            "parent_qids": list(parent_qids or []),
+            "depth": int(depth),
+        },
+    }
+
+
+def build_entity_marked_relevant_event(
+    *,
+    qid: str,
+    core_class_qid: str,
+    via_rule: str = "",
+    timestamp_utc: str | None = None,
+) -> dict:
+    return {
+        "event_version": "v4",
+        "event_type": "entity_marked_relevant",
+        "timestamp_utc": timestamp_utc or _iso_now(),
+        "payload": {
+            "qid": str(qid or ""),
+            "core_class_qid": str(core_class_qid or ""),
+            "via_rule": str(via_rule or ""),
+        },
+    }
+
+
+def build_fetch_decision_event(
+    *,
+    qid: str,
+    decision: str,
+    reason: str = "",
+    depth: int = 0,
+    timestamp_utc: str | None = None,
+) -> dict:
+    return {
+        "event_version": "v4",
+        "event_type": "fetch_decision",
+        "timestamp_utc": timestamp_utc or _iso_now(),
+        "payload": {
+            "qid": str(qid or ""),
+            "decision": str(decision or ""),
+            "reason": str(reason or ""),
+            "depth": int(depth),
+        },
+    }
+
+
+def build_rule_changed_event(
+    *,
+    rule_file: str,
+    rule_hash: str,
+    timestamp_utc: str | None = None,
+) -> dict:
+    return {
+        "event_version": "v4",
+        "event_type": "rule_changed",
+        "timestamp_utc": timestamp_utc or _iso_now(),
+        "payload": {
+            "rule_file": str(rule_file or ""),
+            "rule_hash": str(rule_hash or ""),
+        },
+    }
+
+
+def build_seed_registered_event(
+    *,
+    qid: str,
+    label: str = "",
+    timestamp_utc: str | None = None,
+) -> dict:
+    return {
+        "event_version": "v4",
+        "event_type": "seed_registered",
+        "timestamp_utc": timestamp_utc or _iso_now(),
+        "payload": {
+            "qid": str(qid or ""),
+            "label": str(label or ""),
+        },
+    }
+
+
+def build_core_class_registered_event(
+    *,
+    qid: str,
+    label: str = "",
+    timestamp_utc: str | None = None,
+) -> dict:
+    return {
+        "event_version": "v4",
+        "event_type": "core_class_registered",
+        "timestamp_utc": timestamp_utc or _iso_now(),
+        "payload": {
+            "qid": str(qid or ""),
+            "label": str(label or ""),
+        },
+    }
+
+
+def build_full_fetch_rule_registered_event(
+    *,
+    rule_type: str,
+    group_id: int,
+    subject: str,
+    predicate: str,
+    object: str,
+    note: str = "",
+    timestamp_utc: str | None = None,
+) -> dict:
+    return {
+        "event_version": "v4",
+        "event_type": "full_fetch_rule_registered",
+        "timestamp_utc": timestamp_utc or _iso_now(),
+        "payload": {
+            "rule_type": str(rule_type or ""),
+            "group_id": int(group_id),
+            "subject": str(subject or ""),
+            "predicate": str(predicate or ""),
+            "object": str(object or ""),
+            "note": str(note or ""),
+        },
+    }
+
+
 def _query_payload(event: dict) -> dict:
     payload = event.get("payload", {}) if isinstance(event, dict) else {}
     return payload if isinstance(payload, dict) else {}
@@ -452,6 +644,14 @@ def _canonical_chunk_paths(repo_root: Path) -> list[Path]:
 def iter_all_events(repo_root: Path):
     for chunk_path in _canonical_chunk_paths(Path(repo_root)):
         for event in _iter_jsonl_events(chunk_path):
+            yield event
+
+
+def iter_events_from(repo_root: Path, from_sequence: int):
+    """Yield all events with sequence_num >= from_sequence, in log order."""
+    for event in iter_all_events(Path(repo_root)):
+        seq = event.get("sequence_num")
+        if isinstance(seq, int) and seq >= from_sequence:
             yield event
 
 

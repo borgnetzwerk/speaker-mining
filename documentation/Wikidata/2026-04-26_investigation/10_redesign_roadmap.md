@@ -106,14 +106,19 @@ Each stage lists its **exit condition** — the answer to "how do we know this s
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Implement new EventHandler base + derivation handlers | ❌ | Uses existing `event_handler.py` base |
-| Implement ClassHierarchyHandler (incremental) | ❌ | The central redesign target — O(new classes) per run |
-| Implement RelevancyHandler (rule-driven) | ❌ | Replaces `relevancy.py`; uses new rule config |
-| Implement `basic_fetch` operations (mass-capable) | ❌ | Structured fetch for label/P31/P279 in batches |
-| Implement traversal engine | ❌ | Fetch + traverse + emit events |
-| Implement output handlers (core_*.json writers) | ❌ | One per core class; instances + subclasses + sub-projections |
-| Write new notebook cells | ❌ | Clean step sequence; no step 6.5 analog |
-| Implement new config file + auto-create | ❌ | |
+| Implement new EventHandler base + derivation handlers | ✅ | `handlers/__init__.py` — V4Handler with replay(), _emit(), progress persistence |
+| Implement ClassHierarchyHandler (incremental) | ✅ | `handlers/class_hierarchy_handler.py` — O(new classes); iterative P279 walk via basic_fetch |
+| Implement RelevancyHandler (rule-driven) | ✅ | `handlers/relevancy_handler.py` — rule PID set from relevancy_relation_contexts.csv |
+| Implement `basic_fetch` operations (mass-capable) | ✅ | `basic_fetch.py` — batch wbgetentities; entity cache check; `basic_fetch_handler.py` |
+| Implement traversal engine | ✅ | `full_fetch.py` + `full_fetch_handler.py` — depth tracking; SPO rule evaluation |
+| Implement output handlers (core_*.json writers) | ✅ | `handlers/output_handler.py` — CoreClassOutputHandler; relevant + not-relevant files |
+| Write new notebook cells | ✅ | Steps 1–7; setup → readers → replay → request context → work loop → deferred → output |
+| Implement new config file + auto-create | ✅ | `config.py` — YAML load; auto-create with defaults; raises on first run |
+| Implement ExternalEventReaders | ✅ | `external_readers/` — SeedReader, CoreClassReader, RelevancyRuleReader, FullFetchRuleReader |
+| Implement EntityLookupIndexHandler | ✅ | `handlers/entity_lookup_handler.py` — QID → label index |
+| Update event_log.py with v4 event types + builders | ✅ | All v4 types in `_EVENT_TYPES`; builders for all 9 new event types; `iter_events_from()` |
+| Update cache.py `_latest_cached_record` | ✅ | Added `"basic_fetch": "basic_fetch"` mapping |
+| Update schemas.py SOURCE_STEPS | ✅ | Added `"basic_fetch"` |
 
 ---
 
@@ -135,9 +140,9 @@ Each stage lists its **exit condition** — the answer to "how do we know this s
 
 ## Current Position
 
-**Stage 5 ready to begin. All design questions resolved.**
+**Stage 5 complete. Ready for Stage 6 verification.**
 
-Stages 1–4 complete. All six open design questions (OD1–OD6) resolved. `wikidata/` contains only Category A infrastructure modules. `_v3_archive/` holds all v3 business logic for reference. New empty notebook created. No outstanding blockers for Stage 5.
+All 13 implementation items done. New modules: `config.py`, `basic_fetch.py`, `full_fetch.py`, `external_readers/` (4 readers), `handlers/` (7 handlers). Notebook fully populated with steps 1–7. All imports verified clean. Next: run against real data to verify TODO-042, TODO-043, TODO-034, TODO-038.
 
 ### Stage 2 Progress (complete)
 

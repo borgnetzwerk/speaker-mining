@@ -21,6 +21,7 @@ SOURCE_STEPS = {
     "outlinks_build",
     "property_fetch",
     "materialization_support",
+    "basic_fetch",
 }
 
 

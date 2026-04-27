@@ -724,6 +724,7 @@ def _latest_cached_record(root: Path, query_type: str, key: str) -> tuple[dict, 
 		"subclass_inlinks": "subclass_inlinks_fetch",
 		"outlinks": "outlinks_build",
 		"label_search": "entity_fetch",
+		"basic_fetch": "basic_fetch",
 	}
 	step = mapping.get(str(query_type or "").strip().lower(), "")
 	if not step:

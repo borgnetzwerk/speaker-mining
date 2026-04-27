@@ -108,10 +108,11 @@ Legacy note:
 
 ## Request Pacing And Load Shedding
 
-1. Keep at least 1 second delay between consecutive outbound queries to the same service.
-2. Do not run large query bursts without pacing.
-3. On 429/503 or similar load signals, back off exponentially with jitter.
-4. Prefer single-threaded request flows for heavy SPARQL workloads unless a stronger case is documented.
+1. Start with a configured `query_delay_seconds` (default 0.25s). The adaptive backoff system adjusts this at runtime: increasing on observed 429/503 pressure, decreasing on sustained quiet windows.
+2. The adaptive floor (`min_delay_seconds`, default 0.05s) is the lowest delay the system will use. Do not set it below 0.05s.
+3. Do not run large query bursts without pacing; always initialize a request context with an explicit budget before making network calls.
+4. On 429/503 or similar load signals, back off exponentially before retrying.
+5. Prefer single-threaded request flows for heavy SPARQL workloads unless a stronger case is documented.
 
 ## Query Reuse Policy
 
