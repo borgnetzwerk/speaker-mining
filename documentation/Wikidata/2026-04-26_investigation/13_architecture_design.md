@@ -186,7 +186,7 @@ Every ExternalEventReader:
 | **Events read** | `seed_registered` (seeds always queue for full_fetch); `entity_marked_relevant` (relevant entities evaluated for eligibility); `entity_fetched` (marks QID as done); `full_fetch_rule_registered` + `rule_changed` (reload eligibility criteria) |
 | **Events written** | `entity_discovered`, `triple_discovered`, `entity_fetched` |
 | **Projection** | `full_fetch_state.csv` |
-| **Eligibility** | Calls `full_fetch.py` for QIDs that are: (a) a seed, OR (b) `entity_marked_relevant` AND pass `full_fetch_rules.csv` criteria. Class-only nodes (entities that have P279 claims and no permit rule match) are excluded. |
+| **Eligibility** | Calls `full_fetch.py` for QIDs that are: (a) a seed (unconditional), OR (b) `entity_marked_relevant` AND pass `full_fetch_rules.csv` evaluation: no exclude group matches (absolute veto) AND at least one permit group matches (default deny). Each rule row is a `(subject, predicate, object)` triple pattern; `CANDIDATE` marks the candidate's position in the triple. See §8 for full schema and evaluation logic. |
 | **Budget** | Each network call decrements `max_queries_per_run`. Stops when budget is exhausted. |
 
 **`full_fetch_state.csv` columns:**
@@ -341,9 +341,7 @@ Every ExternalEventReader:
     {
       "predicate_pid": "P31",
       "object_qid": "Q5",
-      "has_qualifier": true,
       "qualifier_pids": ["P580", "P582"],
-      "has_reference": true,
       "reference_pids": ["P248", "P813"]
     }
   ]
@@ -364,7 +362,7 @@ Every ExternalEventReader:
 
 **Events emitted by FullFetchHandler (in order):**
 1. `entity_discovered` — if first time the QID is seen
-2. `triple_discovered` × N — one per claim; each with `has_qualifier`, `qualifier_pids`, `has_reference`, `reference_pids` fields
+2. `triple_discovered` × N — one per claim; each with `qualifier_pids` and `reference_pids` lists (empty list = none present)
 3. `entity_fetched` — signals completion
 
 ### 6.2 basic_fetch
@@ -513,22 +511,61 @@ Q12345,Q215627,"Wikidata models this as role but it is a person in our domain"
 
 ### `full_fetch_rules.csv` ❓ OD3
 
-Governs which relevant entities qualify for `full_fetch`. Permit rules take priority over exclude rules.
+Governs which relevant entities qualify for `full_fetch`.
+
+**Evaluation logic (two phases, order matters):**
+
+1. **Exclude phase — absolute veto.** Evaluate all exclude groups. If any exclude group fully matches → the entity is INELIGIBLE. No permit rule can override an exclude match.
+2. **Permit phase.** Evaluate all permit groups. If any permit group fully matches → ELIGIBLE. If none match → INELIGIBLE (default deny).
+
+**Group semantics:** Every row belongs to a `group_id`. All conditions within the same `group_id` must match simultaneously (AND logic). Groups of the same `rule_type` are OR'd — any one matching group triggers the outcome.
+
+**Implicit prerequisite:** FullFetchHandler only evaluates entities that have been `entity_marked_relevant`. "Is relevant" is always implicitly true and does not appear in the CSV.
+
+**Rule syntax — each row is a triple pattern:**
+
+Each condition row is a `(subject, predicate, object)` triple pattern. Use `CANDIDATE` in the position the candidate occupies; use `*` for "any value"; use a QID or PID for exact matches.
+
+| Position | `CANDIDATE` means | QID/PID means | `*` means |
+|----------|------------------|----------------|-----------|
+| `subject` | Candidate owns this claim (candidate is subject) | Discovering entity's resolved **core class** equals this QID | Any discovering entity |
+| `predicate` | *(not used)* | Exact PID match on the claim | Any predicate |
+| `object` | Candidate is the object of the discovering triple | Exact QID value in this claim | Any object value |
+
+Seeds have no discovering triple; FullFetchHandler queues them unconditionally without rule evaluation.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `rule_type` | string | `permit` \| `exclude` |
-| `condition_property` | string | P31 or P279 (which claim to check) |
-| `condition_value_qid` | string | Required claim value (`*` = any value) |
+| `group_id` | integer | Rows with the same `group_id` are AND'd; groups of the same `rule_type` are OR'd |
+| `subject` | string | `CANDIDATE`, a core-class QID, or `*` |
+| `predicate` | string | A PID or `*` |
+| `object` | string | `CANDIDATE`, a QID, or `*` |
 | `note` | string | Plain language description |
 
+Default rules:
 ```
-rule_type,condition_property,condition_value_qid,note
-permit,P31,Q5,Human instances — always full_fetch
-permit,P31,Q1983062,Episode instances — always full_fetch
-exclude,P279,*,Has any subclass-of claim without a permit match — hierarchy node only
+rule_type,group_id,subject,predicate,object,note
+permit,1,CANDIDATE,P31,Q5,Candidate is a human instance
+permit,2,CANDIDATE,P31,Q1983062,Candidate is an episode instance
+exclude,3,CANDIDATE,P279,*,Candidate has any subclass-of claim (class node) — absolute veto
 ```
 
+AND-group example — full_fetch only humans discovered via the director predicate:
+```
+rule_type,group_id,subject,predicate,object,note
+permit,10,CANDIDATE,P31,Q5,Candidate is a human (AND group 10)
+permit,10,*,P57,CANDIDATE,Candidate was found via P57 director-of link (AND group 10)
+```
+
+Row 10a: candidate is in subject position — checks the candidate's **own** P31 value.  
+Row 10b: candidate is in object position — checks the **predicate of the incoming link** pointing to the candidate. Group_id=10 requires both to be true simultaneously.
+
+Incoming-source condition example — any node discovered from an episode entity:
+```
+rule_type,group_id,subject,predicate,object,note
+permit,11,Q1983062,*,CANDIDATE,Candidate was discovered from any episode (source core class = Q1983062)
+```
 ---
 
 ## 9. Handover Projection Specification
@@ -556,8 +593,8 @@ All projections are stored under `paths.projections`. All are rebuildable from t
 | # | Question | Affects | Direction |
 |---|----------|---------|-----------|
 | ✓ OD1 | **RelevancyHandler pending evaluation:** In-memory pending set keyed by class_qid; rebuilt during startup replay. Resolved naturally by pure-handler model — no extra mechanism needed. | `relevancy_handler.py` | ✓ Resolved |
-| ❓ OD2 | **basic_fetch API endpoint:** `wbgetentities` is preferred over SPARQL (better for multi-valued claims/qualifiers/references). Confirm: (a) batch limit = 50 QIDs per call, (b) property filter `props=labels|descriptions|aliases|claims` with claim filter `P31|P279` works with the existing v3 cache layer. | `basic_fetch.py` | Direction: `wbgetentities`; batch 50; property filter |
-| ❓ OD3 | **full_fetch eligibility default rules:** `full_fetch_rules.csv` approach agreed (see §8). Default rule set needs finalization before Stage 5. Initial proposal in §8 is a starting point; real-world testing will refine it. | `full_fetch_rules.csv` | Approach resolved; defaults TBD |
+| ✓ OD2 | **basic_fetch API endpoint:** `wbgetentities` confirmed compatible with v3 cache layer — cache uses URL-hash keying (`query_hash = md5(endpoint|url_identity)`), already recognises `action=wbgetentities` (cache.py:137). Batch limit = 50 QIDs (Wikidata API constraint). Property filter is a URL parameter; cache is agnostic to it. `_latest_cached_record()` needs one new mapping entry `"basic_fetch" → "basic_fetch"` added (trivial). | `basic_fetch.py`, `cache.py` | ✓ Resolved |
+| ✓ OD3 | **full_fetch eligibility default rules:** Defaults decided — three rules in §8: permit humans (`CANDIDATE,P31,Q5`), permit episodes (`CANDIDATE,P31,Q1983062`), exclude class nodes (`CANDIDATE,P279,*`). Seeds bypass all rules unconditionally. Rule set extended during Stage 5 testing as needed. | `full_fetch_rules.csv` | ✓ Resolved |
 | ✓ OD4 | **rewiring_catalogue application point:** ClassHierarchyHandler applies overrides at projection write time. | `class_hierarchy_handler.py` | ✓ Resolved |
-| ❓ OD5 | **Qualifier AND reference data in events:** `triple_discovered` must be extended with both `has_qualifier: bool`, `qualifier_pids: list[str]` AND `has_reference: bool`, `reference_pids: list[str]`. The output schema already includes both (see §5 CoreClassOutputHandler). For full qualifier/reference VALUES (not just PIDs), a `TripleQualifierHandler` and `TripleReferenceHandler` are deferred to Stage 5 as non-blocking enhancements. The `12_event_catalogue.md` entry for `triple_discovered` must be updated to include all four new fields. | `12_event_catalogue.md`, `full_fetch.py` | Direction: extend `triple_discovered`; full data handlers deferred |
+| ✓ OD5 | **Qualifier and reference data in events:** `triple_discovered` extended with `qualifier_pids: list[str]` and `reference_pids: list[str]` (empty list = none present; boolean flags dropped as redundant). Output schema updated to match. For full qualifier/reference VALUES (not just PIDs), a `TripleQualifierHandler` and `TripleReferenceHandler` are deferred to Stage 5 as non-blocking enhancements. `12_event_catalogue.md` updated. | `12_event_catalogue.md`, `full_fetch.py` | ✓ Resolved |
 | ✓ OD6 | **fetch_engine vs fetch_handler architecture:** Resolved — Option (c). FullFetchHandler + BasicFetchHandler + SeedHandler replace `fetch_engine.py`. ExternalEventReaders handle CSV ingestion. No standalone active engine. | module layout | ✓ Resolved |

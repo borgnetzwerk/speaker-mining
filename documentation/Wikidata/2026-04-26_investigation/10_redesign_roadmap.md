@@ -135,9 +135,9 @@ Each stage lists its **exit condition** — the answer to "how do we know this s
 
 ## Current Position
 
-**Stage 5 ready to begin.**
+**Stage 5 ready to begin. All design questions resolved.**
 
-Stages 1–4 complete. `wikidata/` contains only Category A infrastructure modules. `_v3_archive/` holds all v3 business logic for reference. New empty notebook created. OD2, OD3, OD5 have decided directions; OD3 default `full_fetch_rules.csv` content must be confirmed before implementing `FullFetchRuleReader`.
+Stages 1–4 complete. All six open design questions (OD1–OD6) resolved. `wikidata/` contains only Category A infrastructure modules. `_v3_archive/` holds all v3 business logic for reference. New empty notebook created. No outstanding blockers for Stage 5.
 
 ### Stage 2 Progress (complete)
 

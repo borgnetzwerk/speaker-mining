@@ -248,6 +248,9 @@ Copy this block when adding a new item.
   2. Key predictors for gender, age, and party affiliation are identified and listed.
   3. Results are presented neutrally, without presuppositions, and documented in `documentation/`.
 - No machine learning or "training", just deterministic calculations. We have no time for AI training, and generally, any black box introduction would not be aligned with our principles.
+- Additional context and relevant concepts:
+  - frequent set mining (https://en.wikipedia.org/wiki/Frequent_pattern_discovery) 
+  - association rule mining (https://en.wikipedia.org/wiki/Association_rule_learning)
 
 ### TODO-030: Compile interesting pipeline findings for talk/paper
 

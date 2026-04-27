@@ -149,12 +149,10 @@ The current event store (as of the last run 2026-04-26) holds 56,466 events acro
 - `predicate_pid` — Wikidata property ID (e.g. `P31`, `P106`)
 - `object_qid` — object entity QID
 - `source_step` — where triple was derived from (e.g. `outlinks_build`, `inlinks_fetch`)
-- `has_qualifier` — boolean; true if the claim carrying this triple has one or more qualifier statements
-- `qualifier_pids` — list of PID strings for each qualifier property present (empty list if `has_qualifier` is false)
-- `has_reference` — boolean; true if the claim has one or more reference blocks
-- `reference_pids` — list of PID strings for each reference property present (empty list if `has_reference` is false)
+- `qualifier_pids` — list of PID strings for each qualifier property present on the claim; empty list if no qualifiers
+- `reference_pids` — list of PID strings for each reference property present on the claim; empty list if no references
 
-**v4 note (OD5):** The four qualifier/reference fields are new in v4. They carry metadata about the richness of the underlying claim without bloating the event with the full qualifier/reference data. Consumers that need the full detail read the raw `query_response` for the entity. The `qualifier_pids` and `reference_pids` lists record *which* properties are present, not the values — sufficient for filtering and completeness checks.
+**v4 note (OD5):** The two list fields are new in v4. An empty list means "none present" — no separate boolean flags are needed (they would be strictly redundant with `len(list) > 0`). The lists record *which* properties are present, not the values — sufficient for filtering and completeness checks without bloating the event with full qualifier/reference data. Consumers that need full values read the raw `query_response` for the entity.
 
 ---
 
