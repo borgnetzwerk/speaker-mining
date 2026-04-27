@@ -83,10 +83,10 @@ Care that there is plenty of noise in there "ehem. Gartner an der Uni seines Vat
 ## Future Work
 * Forbidden Features catalogue / Data Privacy catalogue
   * A catalogue for all reference that maybe should not be in the publically visible database
-    * Perosn of color
+    * Person of color
     * Age
     * Gender
-    * Everything that could be used to target / harras people, but is very important for scientists to analyze 
+    * Everything that could be used to target / harass people, but is very important for scientists to analyze 
   * This catalogue should be behind closed doors, only internally accessible, and access is only granted to people who have a university / similar institution backing them and sign a contract that they will do no harm with this data. 
   * See for reference: 
     * living people protection class (P8274)
