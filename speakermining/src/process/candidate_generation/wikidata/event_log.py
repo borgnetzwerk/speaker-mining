@@ -32,6 +32,7 @@ _EVENT_TYPES = {
     "seed_registered",
     "core_class_registered",
     "full_fetch_rule_registered",
+    "entity_rewired",
 }
 _ENDPOINTS = {"wikidata_api", "wikidata_sparql", "derived_local"}
 _STATUSES = {"success", "cache_hit", "http_error", "timeout", "fallback_cache", "not_found", "skipped"}
@@ -489,6 +490,7 @@ def build_core_class_registered_event(
     *,
     qid: str,
     label: str = "",
+    projection_mode: str = "instances",
     timestamp_utc: str | None = None,
 ) -> dict:
     return {
@@ -498,6 +500,28 @@ def build_core_class_registered_event(
         "payload": {
             "qid": str(qid or ""),
             "label": str(label or ""),
+            "projection_mode": str(projection_mode or "instances"),
+        },
+    }
+
+
+def build_entity_rewired_event(
+    *,
+    subject_qid: str,
+    predicate_pid: str,
+    object_qid: str,
+    rule: str = "add",
+    timestamp_utc: str | None = None,
+) -> dict:
+    return {
+        "event_version": "v4",
+        "event_type": "entity_rewired",
+        "timestamp_utc": timestamp_utc or _iso_now(),
+        "payload": {
+            "subject_qid": str(subject_qid or ""),
+            "predicate_pid": str(predicate_pid or ""),
+            "object_qid": str(object_qid or ""),
+            "rule": str(rule or "add"),
         },
     }
 
@@ -571,41 +595,79 @@ def _chunk_id_fallback(path: Path) -> str:
     return f"chunk_{path.stem}"
 
 
+def _read_first_jsonl_event(path: Path) -> dict | None:
+    """Return the first valid JSON object in a JSONL file. O(1) — reads only until first event."""
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            for raw_line in f:
+                line = raw_line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                    if isinstance(obj, dict):
+                        return obj
+                except json.JSONDecodeError:
+                    pass
+    except OSError:
+        pass
+    return None
+
+
+def _read_last_jsonl_event(path: Path) -> dict | None:
+    """Return the last valid JSON object in a JSONL file. O(1) — reads final 4 KB only."""
+    try:
+        with path.open("rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            if size == 0:
+                return None
+            f.seek(max(0, size - 4096))
+            tail = f.read().decode("utf-8", errors="replace")
+        for line in reversed(tail.splitlines()):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+                if isinstance(obj, dict):
+                    return obj
+            except json.JSONDecodeError:
+                continue
+    except OSError:
+        pass
+    return None
+
+
 def _chunk_boundary_summary(path: Path) -> dict:
-    first_event: dict | None = None
-    last_event: dict | None = None
-    first_sequence: int | None = None
-
-    for event in _iter_jsonl_events(path) or []:
-        if first_event is None:
-            first_event = event
-        last_event = event
-        seq = event.get("sequence_num")
-        if first_sequence is None and isinstance(seq, int):
-            first_sequence = seq
-
+    """Return chunk metadata by reading only the first and last events. O(1) per chunk."""
     chunk_id = _chunk_id_fallback(path)
     prev_chunk_id = ""
     next_chunk_id = ""
+    first_sequence = 0
 
-    if isinstance(first_event, dict) and first_event.get("event_type") == "eventstore_opened":
-        payload = first_event.get("payload", {})
-        if isinstance(payload, dict):
+    first_event = _read_first_jsonl_event(path)
+    if isinstance(first_event, dict):
+        seq = first_event.get("sequence_num")
+        if isinstance(seq, int):
+            first_sequence = seq
+        if first_event.get("event_type") == "eventstore_opened":
+            payload = first_event.get("payload", {}) or {}
             chunk_id = str(payload.get("chunk_id") or chunk_id)
             prev_chunk_id = str(payload.get("prev_chunk_id") or "")
 
+    last_event = _read_last_jsonl_event(path)
     if isinstance(last_event, dict) and last_event.get("event_type") == "eventstore_closed":
-        payload = last_event.get("payload", {})
-        if isinstance(payload, dict):
-            chunk_id = str(payload.get("chunk_id") or chunk_id)
-            next_chunk_id = str(payload.get("next_chunk_id") or "")
+        payload = last_event.get("payload", {}) or {}
+        chunk_id = str(payload.get("chunk_id") or chunk_id)
+        next_chunk_id = str(payload.get("next_chunk_id") or "")
 
     return {
         "path": path,
         "chunk_id": chunk_id,
         "prev_chunk_id": prev_chunk_id,
         "next_chunk_id": next_chunk_id,
-        "first_sequence": first_sequence if isinstance(first_sequence, int) else 0,
+        "first_sequence": first_sequence,
     }
 
 
@@ -660,11 +722,57 @@ def iter_all_events(repo_root: Path):
 
 
 def iter_events_from(repo_root: Path, from_sequence: int):
-    """Yield all events with sequence_num >= from_sequence, in log order."""
-    for event in iter_all_events(Path(repo_root)):
-        seq = event.get("sequence_num")
-        if isinstance(seq, int) and seq >= from_sequence:
-            yield event
+    """Yield all events with sequence_num >= from_sequence, skipping earlier chunks.
+
+    F3 fix: _chunk_boundary_summary now reads only first+last lines (O(1) per chunk),
+    and chunks whose next sibling starts at or below from_sequence are skipped entirely.
+    This reduces replay cost from O(total events) to O(relevant chunk events).
+    """
+    if from_sequence <= 0:
+        yield from iter_all_events(repo_root)
+        return
+
+    repo_root = Path(repo_root)
+    chunks_dir = _chunks_dir(repo_root)
+    if not chunks_dir.exists():
+        return
+
+    infos = [_chunk_boundary_summary(p) for p in sorted(chunks_dir.glob("*.jsonl"))]
+    if not infos:
+        return
+
+    # Order infos using the same linked-list logic as _canonical_chunk_paths,
+    # but without re-reading chunk files (infos already have all required fields).
+    by_chunk_id = {str(info["chunk_id"]): info for info in infos}
+    start_candidates = [i for i in infos if not i["prev_chunk_id"] or i["prev_chunk_id"] not in by_chunk_id]
+    current = min(start_candidates or infos, key=lambda r: (r["first_sequence"], r["chunk_id"]))
+
+    ordered: list[dict] = []
+    visited: set[str] = set()
+    while current:
+        cid = str(current["chunk_id"])
+        if cid in visited:
+            break
+        visited.add(cid)
+        ordered.append(current)
+        nxt = str(current["next_chunk_id"] or "")
+        if not nxt:
+            break
+        current = by_chunk_id.get(nxt)
+
+    for info in sorted(infos, key=lambda r: (r["first_sequence"], r["chunk_id"])):
+        if str(info["chunk_id"]) not in visited:
+            ordered.append(info)
+
+    for i, info in enumerate(ordered):
+        # Skip chunk if next chunk starts at or before from_sequence —
+        # every event in this chunk has seq < from_sequence.
+        if i + 1 < len(ordered) and ordered[i + 1]["first_sequence"] <= from_sequence:
+            continue
+        for event in _iter_jsonl_events(info["path"]):
+            seq = event.get("sequence_num")
+            if isinstance(seq, int) and seq >= from_sequence:
+                yield event
 
 
 def iter_query_events(repo_root: Path):

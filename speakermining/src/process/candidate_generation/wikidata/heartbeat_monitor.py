@@ -137,13 +137,16 @@ def run_with_progress_heartbeat(
                             reason=str(adjustment.get("reason", "")),
                         )
 
+            # Strip latest_payload_snapshot before storing; it recursively embeds
+            # the previous heartbeat payload causing unbounded nesting (F22).
+            heartbeat_for_event = {k: v for k, v in heartbeat.items() if k != "latest_payload_snapshot"}
             logger.append_event(
                 event_type="runtime_heartbeat",
                 phase=phase,
                 message=f"{work_label} still running",
                 rate_limit={"heartbeat_interval_seconds": interval_seconds, "heartbeat_window_size": window_size},
                 extra={
-                    "heartbeat": heartbeat,
+                    "heartbeat": heartbeat_for_event,
                     "phase_contract": phase_contract_payload(contract),
                 },
             )

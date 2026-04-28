@@ -4,7 +4,7 @@ from pathlib import Path
 
 from . import V4Handler
 from ..basic_fetch import basic_fetch_batch
-from ..common import canonical_qid
+from ..common import canonical_pid, canonical_qid
 from ..event_log import build_class_resolved_event
 
 
@@ -44,6 +44,31 @@ class ClassHierarchyHandler(V4Handler):
                 # Core classes are resolved trivially — no walk needed
                 if qid not in self._resolved:
                     self._resolved[qid] = {"parent_qids": [], "depth": 0, "core_class_ancestor": qid}
+
+        elif etype == "triple_discovered":
+            # Discover class nodes from P31 (instance-of) and P279 (subclass-of) triples (F20)
+            pid = canonical_pid(str(payload.get("predicate_pid", "") or ""))
+            if pid == "P31":
+                class_qid = canonical_qid(str(payload.get("object_qid", "") or ""))
+                if class_qid and class_qid not in self._resolved and class_qid not in self._ROOT_CLASSES:
+                    self._pending.append(class_qid)
+            elif pid == "P279":
+                for pos in ("subject_qid", "object_qid"):
+                    qid = canonical_qid(str(payload.get(pos, "") or ""))
+                    if qid and qid not in self._resolved and qid not in self._ROOT_CLASSES:
+                        self._pending.append(qid)
+
+        elif etype == "entity_rewired":
+            # Synthetic triple added via rewiring_catalogue.csv (F11)
+            if str(payload.get("rule", "add") or "add").lower() == "add":
+                pid = canonical_qid(str(payload.get("predicate_pid", "") or ""))
+                if pid == "P279":
+                    subject = canonical_qid(str(payload.get("subject_qid", "") or ""))
+                    obj = canonical_qid(str(payload.get("object_qid", "") or ""))
+                    if subject and subject not in self._resolved:
+                        self._pending.append(subject)
+                    if obj and obj not in self._resolved:
+                        self._pending.append(obj)
 
         elif etype == "entity_basic_fetched":
             # Any P279 QIDs are class nodes; queue them for resolution

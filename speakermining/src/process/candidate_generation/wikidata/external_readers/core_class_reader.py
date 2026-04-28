@@ -26,7 +26,8 @@ class CoreClassReader(ExternalEventReader):
                 continue
             # Use filename column for output file naming (e.g. "persons"), not label ("person")
             label = str(row.get("filename") or row.get("label") or "").strip()
-            self._emit(build_core_class_registered_event(qid=qid, label=label))
+            projection_mode = str(row.get("projection_mode") or "instances").strip() or "instances"
+            self._emit(build_core_class_registered_event(qid=qid, label=label, projection_mode=projection_mode))
             registered.add(qid)
             emitted += 1
         return emitted

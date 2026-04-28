@@ -127,7 +127,8 @@ class FetchDecisionHandler(V4Handler):
         pids: set[str] = set()
         with source.open(newline="", encoding="utf-8") as fh:
             for row in csv.DictReader(fh):
-                pid = canonical_pid(str(row.get("predicate_pid", "") or ""))
+                # Column is "property_qid" in the CSV (not "predicate_pid")
+                pid = canonical_pid(str(row.get("property_qid", "") or ""))
                 if pid:
                     pids.add(pid)
         self._rule_pids = pids

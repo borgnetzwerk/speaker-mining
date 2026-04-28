@@ -188,6 +188,9 @@ dmypy.json
 #   you could uncomment the following to ignore the entire vscode folder
 .vscode/
 
+# Claude
+.claude/
+
 # Ruff stuff:
 .ruff_cache/
 

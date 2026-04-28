@@ -24,7 +24,8 @@ class CoreClassOutputHandler(V4Handler):
 
     def __init__(self, repo_root: Path, event_store=None):
         super().__init__(repo_root, event_store)
-        self._core_classes: dict[str, str] = {}   # qid → label
+        self._core_classes: dict[str, str] = {}           # qid → label
+        self._core_class_mode: dict[str, str] = {}        # qid → projection_mode ("instances"|"subclasses")
         self._labels: dict[str, str] = {}          # qid → label
         self._descriptions: dict[str, str] = {}    # qid → description
         self._aliases: dict[str, list[str]] = {}   # qid → list of aliases
@@ -41,6 +42,7 @@ class CoreClassOutputHandler(V4Handler):
             qid = canonical_qid(str(payload.get("qid", "") or ""))
             if qid:
                 self._core_classes[qid] = str(payload.get("label", "") or "")
+                self._core_class_mode[qid] = str(payload.get("projection_mode", "") or "instances") or "instances"
                 self._class_to_core[qid] = qid
 
         elif etype == "class_resolved":
@@ -100,7 +102,7 @@ class CoreClassOutputHandler(V4Handler):
                     p31.append(obj)
 
     def _resolve_core_classes(self, qid: str) -> list[str]:
-        """Return all core class QIDs that this entity resolves to."""
+        """Return all core class QIDs this entity resolves to via P31 (instances strategy)."""
         cores = []
         for p31_qid in self._p31_map.get(qid, []):
             core = self._class_to_core.get(p31_qid, "")
@@ -109,6 +111,10 @@ class CoreClassOutputHandler(V4Handler):
             if core and core not in cores:
                 cores.append(core)
         return cores
+
+    def _subclass_entities_for_core(self, core_qid: str) -> set[str]:
+        """Return all class-node QIDs whose core_class_ancestor is core_qid (subclasses strategy, F12)."""
+        return {qid for qid, ancestor in self._class_to_core.items() if ancestor == core_qid}
 
     def _build_record(self, qid: str, core_class: str, conflict: bool) -> dict:
         return {
@@ -126,25 +132,39 @@ class CoreClassOutputHandler(V4Handler):
         registry_rows = [[qid, label] for qid, label in sorted(self._core_classes.items())]
         self._atomic_write_csv_rows(proj_dir / "core_class_registry.csv", ["qid", "label"], registry_rows)
 
-        # Bucket entities by core class
+        # Bucket entities by core class, respecting each class's projection_mode (F12)
         relevant_by_core: dict[str, list[dict]] = {qid: [] for qid in self._core_classes}
         not_relevant_by_core: dict[str, list[dict]] = {qid: [] for qid in self._core_classes}
 
+        # Separate entity sets per strategy
+        instances_cores = {qid for qid, mode in self._core_class_mode.items() if mode != "subclasses"}
+        subclasses_cores = {qid for qid, mode in self._core_class_mode.items() if mode == "subclasses"}
+
+        # Instances strategy: use P31 map
         all_entities = set(self._triples.keys()) | set(self._labels.keys())
         for entity_qid in all_entities:
-            cores = self._resolve_core_classes(entity_qid)
+            cores = [c for c in self._resolve_core_classes(entity_qid) if c in instances_cores]
             if not cores:
                 continue
-            conflict = len(cores) > 1
-            record = None
+            conflict = len(self._resolve_core_classes(entity_qid)) > 1
             for core in cores:
-                if core not in self._core_classes:
-                    continue
                 record = self._build_record(entity_qid, core, conflict)
                 if entity_qid in self._relevant:
                     relevant_by_core[core].append(record)
                 else:
                     not_relevant_by_core[core].append(record)
+
+        # Subclasses strategy: use class_to_core (P279 chain) — F12
+        for core_qid in subclasses_cores:
+            subclass_qids = self._subclass_entities_for_core(core_qid)
+            for entity_qid in subclass_qids:
+                if entity_qid == core_qid:
+                    continue  # skip the root class itself
+                record = self._build_record(entity_qid, core_qid, False)
+                if entity_qid in self._relevant:
+                    relevant_by_core[core_qid].append(record)
+                else:
+                    not_relevant_by_core[core_qid].append(record)
 
         for core_qid in self._core_classes:
             from ..schemas import canonical_class_filename

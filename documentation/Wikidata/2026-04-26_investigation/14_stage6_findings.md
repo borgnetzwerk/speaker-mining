@@ -38,7 +38,7 @@
 
 ---
 
-### F3 — `iter_events_from` scans entire log on every replay call 🟡 Open
+### F3 — `iter_events_from` scans entire log on every replay call 🟡 ✅ Fixed
 
 **Symptom:** Each `replay_all()` call reads ALL events from sequence 0, even when `last_seq = 63880` and only 5 new events exist. This is O(total events) per handler per replay. For 8 handlers × frequent replays, this dominates runtime.
 
@@ -110,7 +110,7 @@ Option (b) is the simplest short-term fix. Track outstanding-event count and rep
 
 ---
 
-### F9 — Reverse-direction relevancy propagation not implemented 🟡 Open
+### F9 — Reverse-direction relevancy propagation not implemented 🟡 ✅ Fixed
 
 **Rules violated:** E3 (backward propagation), E5 (bidirectional propagation)
 
@@ -122,7 +122,7 @@ Option (b) is the simplest short-term fix. Track outstanding-event count and rep
 
 ---
 
-### F10 — Core class constraint on relevancy rules not checked 🟡 Open
+### F10 — Core class constraint on relevancy rules not checked 🟡 ✅ Fixed
 
 **Rules violated:** E4 (subject_core_class_qid / object_core_class_qid constraints)
 
@@ -134,7 +134,7 @@ Option (b) is the simplest short-term fix. Track outstanding-event count and rep
 
 ---
 
-### F11 — `rewiring_catalogue.csv` not implemented 🟡 Open
+### F11 — `rewiring_catalogue.csv` not implemented 🟡 ✅ Fixed
 
 **Rules violated:** D4 (rewiring for cross-domain entities), D5/D6 (conflict resolution via rewiring)
 
@@ -146,7 +146,7 @@ Option (b) is the simplest short-term fix. Track outstanding-event count and rep
 
 ---
 
-### F12 — Output handler doesn't differentiate P31 instances vs P279 subclass chain 🟡 Open
+### F12 — Output handler doesn't differentiate P31 instances vs P279 subclass chain 🟡 ✅ Fixed
 
 **Rules violated:** G3 (roles output must use the P279 subclass chain, not P31 instances)
 
@@ -194,6 +194,66 @@ Option (b) is the simplest short-term fix. Track outstanding-event count and rep
 
 ---
 
+### F19 — Column name mismatch: `relevancy_relation_contexts.csv` vs handler code 🔴 ✅ Fixed
+
+**Rules violated:** E1 (relevancy must propagate), E3/E4 (direction and constraint rules must apply)
+
+**Symptom:** After a full run, `Entities relevant: 12` = exactly the 12 seeds. Zero propagation. All 106 discovered triple objects classified `unlikely_relevant`. `basic_fetch_state.csv` shows 106 entries all `pending_deferred`. Zero basic_fetch iterations. `Classes resolved: 0`.
+
+**Root cause:** `FetchDecisionHandler._reload_rule_pids()` reads column `predicate_pid`, `RelevancyHandler._reload_rules_from_csv_direct()` reads columns `predicate_pid`, `subject_core_class_qid`, `object_core_class_qid`, and `direction`. The actual CSV uses `property_qid`, `subject_class_qid`, `object_class_qid`, and `can_inherit` (boolean TRUE/FALSE). All column reads return empty strings → `_rule_pids` is always empty → `FetchDecisionHandler` classifies every object as `unlikely_relevant` → `BasicFetchHandler` never has immediate-pending items → `RelevancyHandler` never propagates relevancy → zero expansion from seeds.
+
+**Resolution:** Updated `FetchDecisionHandler._reload_rule_pids()` to read `property_qid`. Updated `RelevancyHandler._reload_rules_from_csv_direct()` to read `property_qid`, `subject_class_qid`, `object_class_qid`; map `can_inherit=TRUE` → `direction=forward` and skip non-inheritable rows entirely (only propagation-enabled rules matter for RelevancyHandler; FetchDecisionHandler includes all predicates regardless).
+
+---
+
+### F20 — P31/P279 triples from full_fetch don't reach ClassHierarchyHandler or `_p31_map` 🔴 ✅ Fixed
+
+**Rules violated:** E4 (core class constraints require P31 data), D2 (class hierarchy must be walked for all discovered class nodes)
+
+**Symptom:** `Classes resolved: 0` even after 12 full_fetches. `RelevancyHandler._p31_map` empty for all seed entities. All core class constraint checks fail → no propagation even after F19 fix.
+
+**Root cause:** `ClassHierarchyHandler._on_event` only handles `entity_basic_fetched` for class node discovery. `RelevancyHandler._on_event` only handles `entity_basic_fetched` for `_p31_map` population. Seeds are full_fetched (not basic_fetched), so `entity_basic_fetched` never fires for them. Their P31 and P279 data arrives as `triple_discovered` events (emitted by `full_fetch.py`) but both handlers ignore `triple_discovered`.
+
+**Resolution:** Added `triple_discovered` handler in `ClassHierarchyHandler`: P31 object → class node queued; P279 subject and object → class nodes queued. Added P31 tracking in `RelevancyHandler._on_event(triple_discovered)`: when `pid == "P31"`, updates `_p31_map[subject]`.
+
+---
+
+### F20b — Constraint check fails for all entities with unknown class (companion to F20) 🔴 ✅ Fixed
+
+**Rules violated:** E4 (constraints must not silently block all propagation)
+
+**Symptom:** Even with F19 and F20 applied, propagation would fail for newly discovered entities whose P31 class hasn't been resolved yet by `ClassHierarchyHandler`. All rules in `relevancy_relation_contexts.csv` have non-empty `subject_class_qid` and `object_class_qid`. With the strict check (`actual != expected`), an unknown class (empty string) would fail because `"" != "Q215627"`.
+
+**Root cause:** `_constraints_match` fails when `_get_core_class()` returns `""` (class not yet resolved) by comparing `"" != expected_class`.
+
+**Resolution:** Changed `_constraints_match` to only fail when the actual class is **known and wrong** — i.e., `if actual and actual != expected_class`. Unknown class (empty string) passes. Class hierarchy resolution then refines constraints over time as `class_resolved` events arrive.
+
+---
+
+### F21 — Forward triples that passed constraint with unknown class not re-evaluated when class resolves 🟡 Open
+
+**Rules violated:** E4 (constraint precision degrades after class data becomes available)
+
+**Symptom:** When a `class_resolved` event fires (after F20 fix), `RelevancyHandler` updates `_class_to_core` but does not re-check existing forward triples that were propagated using relaxed (unknown-class) constraints. Entities that would fail the stricter known-class check remain marked relevant.
+
+**Root cause:** No "pending constrained triples" structure exists in `RelevancyHandler`. Constraint re-evaluation on `class_resolved` would require storing all forward triples by subject.
+
+**Note:** The practical impact is limited. Relaxed constraints (F20b) produce some false positives (extra entities marked relevant) but these are filtered at the output stage — entities that don't match a core class land in `not_relevant_core_<class>.json`. The tradeoff (some extra basic_fetches + cleaner output files) is acceptable for now.
+
+---
+
+### F23 — `FullFetchHandler` never reacts to `entity_marked_relevant` 🔴 ✅ Fixed
+
+**Rules violated:** G1 (all relevant entities must be full_fetched), architecture §6.1
+
+**Symptom:** The handler docstring lists `entity_marked_relevant` as a handled event, but the implementation has no handler for it. Entities marked relevant via propagation (persons, orgs discovered via P371/P449 etc.) are never enqueued for full_fetch. Only seeds (from `seed_registered`) and objects passing `full_fetch_rules.csv` (which only match P31 triples, not relevancy predicates) enter the queue.
+
+**Root cause:** Missing `entity_marked_relevant` case in `FullFetchHandler._on_event`.
+
+**Resolution:** Added `entity_marked_relevant` handler: enqueues the newly-relevant entity at `depth=1` (one hop from seed). Already-full_fetched entities are skipped via the existing `_done` check.
+
+---
+
 ### F16 — Inlinks (incoming triples) not fetched in v4 🟡 Open
 
 **Rules violated:** C2 (inlinks must be fetched for full_fetch entities)
@@ -205,6 +265,16 @@ Option (b) is the simplest short-term fix. Track outstanding-event count and rep
 **Resolution:** After the main `wbgetentities` fetch, issue a SPARQL query for inlinks. The existing `_sparql_get_json` or equivalent can be used. Emit additional `triple_discovered` events with direction `inbound` for each inlink found. FetchDecisionHandler and RelevancyHandler must be updated to handle inbound triples.
 
 **Note:** This is the highest-effort open item. Defer until all 🔴/🟡 items above are resolved.
+
+---
+
+### F22 — Heartbeat payload nesting grows unboundedly 🟢 ✅ Fixed
+
+**Symptom:** Each `runtime_heartbeat` event stores the full previous heartbeat dict in `extra.heartbeat`. That dict contains `latest_payload_snapshot` from `snapshot_recent_activity()`, which is the payload of the most recently seen event — i.e., the previous `runtime_heartbeat` event. This creates recursive nesting: heartbeat N embeds heartbeat N-1's full payload, which embeds N-2's, etc. After 7 heartbeats (visible in the run output) the printed snapshot is already thousands of characters deep.
+
+**Root cause:** In `_pump()`, `heartbeat` (the result of `emit_event_derived_heartbeat`) is stored verbatim as `extra["heartbeat"]` in the `runtime_heartbeat` event. `heartbeat["latest_payload_snapshot"]` is always the payload of the most recent event, which is the previous `runtime_heartbeat` — causing the recursive embedding.
+
+**Resolution:** In `_pump()`, strip `latest_payload_snapshot` from the dict before storing it in the `runtime_heartbeat` event: `heartbeat_for_event = {k: v for k, v in heartbeat.items() if k != "latest_payload_snapshot"}`.
 
 ---
 
@@ -236,6 +306,9 @@ Option (b) is the simplest short-term fix. Track outstanding-event count and rep
 
 | ID | Description | Files Changed |
 |----|-------------|---------------|
+| F12 | `projection_mode` column read from `core_classes.csv` by `CoreClassReader`; carried in `core_class_registered` event; `CoreClassOutputHandler` stores it and branches in `_write()`: instances strategy uses P31 map, subclasses strategy uses `_subclass_entities_for_core()` (P279 chain via `_class_to_core`) | `event_log.py`, `external_readers/core_class_reader.py`, `handlers/output_handler.py` |
+| F9, F10 | `RelevancyHandler` rewritten: `_rules_by_pid` stores direction + core class constraints per rule; `_triples_by_object` reverse index built during replay; `triple_discovered` checks both forward and backward directions; `entity_marked_relevant` triggers `_propagate_backward_from()`; `_constraints_match()` filters by `subject/object_core_class_qid` using `_p31_map` + `_class_to_core` | `handlers/relevancy_handler.py` |
+| F3 | `_chunk_boundary_summary` rewritten to read only first+last lines (O(1) per chunk via `_read_first_jsonl_event`/`_read_last_jsonl_event`); `iter_events_from` now builds chunk order from already-computed infos and skips any chunk whose successor starts ≤ `from_sequence` | `event_log.py` |
 | F4 | `build_entity_marked_relevant_event` extended with `source_seed_qid`, `inherited_from_qid`, `inherited_via_pid`, `direction`; `_mark_relevant` passes all fields; `_on_event` reads correct key `inherited_via_pid` (was `via_pid`) | `event_log.py`, `handlers/relevancy_handler.py` |
 | F5 | `FullFetchHandler.do_next()` emits `entity_discovered` before calling `full_fetch()` | `handlers/full_fetch_handler.py` |
 | F6 | `_reload_rules_from_events` replaced with `_reload_rules_from_csv_direct(rule_file)` — reads CSV directly, no log scan | `handlers/relevancy_handler.py` |
@@ -246,6 +319,12 @@ Option (b) is the simplest short-term fix. Track outstanding-event count and rep
 | F18 | `RelevancyRuleReader._validate_core_class_refs()` added; reads `core_class_registry.csv` and prints warnings for any `subject/object_core_class_qid` not in the registered set; skipped on first run when registry doesn't exist yet | `external_readers/relevancy_rule_reader.py` |
 | F15 | `full_fetch()` gains `max_cache_age_days=365` parameter; cache hit is discarded if `age_days > max_cache_age_days`, forcing a network re-fetch | `full_fetch.py` |
 | F17 | `ClassHierarchyHandler._ROOT_CLASSES = frozenset({"Q35120", "Q1"})` added; walk no longer enqueues root class QIDs | `handlers/class_hierarchy_handler.py` |
+| F19 | `FetchDecisionHandler._reload_rule_pids()`: reads `property_qid` (was `predicate_pid`). `RelevancyHandler._reload_rules_from_csv_direct()`: reads `property_qid`, `subject_class_qid`, `object_class_qid`; maps `can_inherit=TRUE` → `direction=forward`; skips non-inheritable rows | `handlers/fetch_decision_handler.py`, `handlers/relevancy_handler.py` |
+| F20 | `ClassHierarchyHandler._on_event`: added `triple_discovered` case — P31 object and P279 subject/object queued for hierarchy resolution. `RelevancyHandler._on_event`: added P31 tracking in `triple_discovered` — updates `_p31_map[subject]` | `handlers/class_hierarchy_handler.py`, `handlers/relevancy_handler.py` |
+| F20b | `RelevancyHandler._constraints_match`: changed to pass when class is unknown (`actual == ""`); only rejects when class is known and wrong | `handlers/relevancy_handler.py` |
+| F23 | `FullFetchHandler._on_event`: added `entity_marked_relevant` case — enqueues newly-relevant QID at depth=1 | `handlers/full_fetch_handler.py` |
+| F22 | `heartbeat_monitor._pump()`: strips `latest_payload_snapshot` from heartbeat dict before storing in `runtime_heartbeat` event extra | `heartbeat_monitor.py` |
+| F11 | `entity_rewired` event type + builder added to `event_log.py`; `RewireCatalogueReader` created (reads `rewiring_catalogue.csv`, emits one `entity_rewired` per row, idempotent via `(subject,predicate,object,rule)` key); `ClassHierarchyHandler` handles `entity_rewired` with P279 predicate — queues subject+object for hierarchy resolution; `RelevancyHandler` treats `entity_rewired` like a synthetic `triple_discovered` (forward + backward propagation, constraint checks); notebook Step 2 cell updated to instantiate and run reader | `event_log.py`, `external_readers/rewire_catalogue_reader.py`, `handlers/class_hierarchy_handler.py`, `handlers/relevancy_handler.py`, `21_candidate_generation_wikidata.ipynb` |
 | F1, F2 | Wrapped work loop in `run_with_progress_heartbeat` | `21_candidate_generation_wikidata.ipynb` (Step 4 + Step 5) |
 | CSV column | `SeedReader`/`CoreClassReader` now read `wikidata_id` column | `external_readers/seed_reader.py`, `external_readers/core_class_reader.py` |
 | CoreClass label | `CoreClassReader` uses `filename` column for output file naming | `external_readers/core_class_reader.py` |

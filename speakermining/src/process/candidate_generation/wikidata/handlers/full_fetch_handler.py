@@ -43,6 +43,12 @@ class FullFetchHandler(V4Handler):
         elif etype == "full_fetch_rule_registered":
             self._rules.append(dict(payload))
 
+        elif etype == "entity_marked_relevant":
+            # Enqueue relevant entities for full_fetch (F23)
+            qid = canonical_qid(str(payload.get("qid", "") or ""))
+            if qid and qid not in self._done:
+                self._enqueue(qid, depth=1)
+
         elif etype == "entity_fetched":
             qid = canonical_qid(str(payload.get("qid", "") or ""))
             if qid:
