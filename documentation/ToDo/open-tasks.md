@@ -350,6 +350,111 @@ Copy this block when adding a new item.
   3. Redesigned Notebook 21 implements the event-sourced, handler-driven, single-pass architecture with generic rule-driven relevancy propagation and no post-hoc repair step.
 - Notes: Investigation complete (2026-04-26). Clarifications aggregated. Related tasks wired in: TODO-042, TODO-034, TODO-038, TODO-043, TODO-041. Implementation phase next.
 
+### TODO-045: Fernsehserien.de person ID missing from reconciled_data_summary.csv
+
+- Priority: medium
+- Status: open
+- Area: contracts
+- Summary: The `fernsehserien_de_id` column in `data/31_entity_disambiguation/manual/reconciled_data_summary.csv` contains the **episode URL** (e.g. `https://www.fernsehserien.de/markus-lanz/folgen/1-folge-1-514614`) instead of the **person fernsehserien.de ID** (e.g. `andrej-gurkov`). The correct person URL would be: `https://www.fernsehserien.de/<person_id>/filmografie`.
+- Evidence: `open_additional_input.md` batch 7; example row: `person_fs_1ff4ae2b3b83,,Q133019990,https://www.fernsehserien.de/internationaler-fruehschoppen/folgen/24-...,`
+- Definition of done:
+  1. Phase 31 alignment step correctly populates `fernsehserien_de_id` with the person's fernsehserien.de slug (e.g. `andrej-gurkov`), not the episode URL.
+  2. The episode URL is stored in a separate column (e.g. `episode_fernsehserien_de_id` or retained in the appearance join table).
+  3. Existing output files downstream of Phase 31 are regenerated.
+- Notes: **Phase 5 workaround (deferred fix):** The current `fernsehserien_de_id` value IS the episode URL and can still be used as a join key with `episode_metadata_normalized.csv`. Phase 5 design spec `03_design_spec.md` already accounts for this — the join is correct as written. The person-level fernsehserien.de URL is not needed for Phase 5 analysis. Fix is deferred to the next Phase 31 re-run (post-deadline 2026-05-03).
+
+---
+
+### TODO-046: Visualization plot type reference library with example code
+
+- Priority: medium
+- Status: open
+- Area: analysis
+- Summary: Build a reference collection of visualization plot types used in Phase 5 analysis, each with minimal runnable example code using dummy data, documented principles, and exported PNG/PDF. Ensures consistent, "doing it right" implementations across all analysis notebooks.
+- Evidence: `open_additional_input.md` batch 7; plot types identified: violin plot (age distribution), centered stacked bar chart (Likert scale).
+- Definition of done:
+  1. A reference notebook or module exists at `speakermining/src/process/notebooks/viz_reference.ipynb` (or `data/output/visualization/reference/`) with one cell per plot type.
+  2. Each cell: dummy data, correct implementation, exported PNG + PDF, documented principles (axis labels, color choices, legend, accessibility).
+  3. Subtypes are present where nuance exists (e.g. two ways to display grouped bar charts).
+  4. All Phase 5 visualizations are verifiably consistent with the reference implementations.
+- Notes: Immediately relevant for Phase 5 — violin plot needed for age distribution (C8 in design spec), grouped bar chart for gender distributions (C1/C2). Reference should be created alongside or before the first Phase 5 visualization cell.
+
+---
+
+### TODO-047: Research and document requirements formalization approach
+
+- Priority: low
+- Status: open
+- Area: workflow
+- Summary: Investigate established requirements formalization methods (e.g. user stories, formal specs, structured contracts) that could improve task clarity and cooperative project interaction (human or agent). Document recommended approach for this project.
+- Evidence: `open_additional_input.md` batch 7.
+- Definition of done:
+  1. A recommended formalization approach is documented in `documentation/workflow.md` or a dedicated `documentation/requirements-methodology.md`.
+  2. At least one existing TODO is refactored to demonstrate the approach.
+- Notes: Deferred (post-deadline 2026-05-03). Does not benefit Phase 5 analysis.
+
+---
+
+### TODO-048: Task structure — active and sketching zones
+
+- Priority: low
+- Status: open
+- Area: workflow
+- Summary: Create a clear separation between the active TODO zone (tasks ready to be picked up and processed) and a sketching zone (loose ideas not yet formalized enough to be acted on). Each zone has defined entry/exit criteria so that random notes do not pollute the actionable queue.
+- Evidence: `open_additional_input.md` batch 7.
+- Definition of done:
+  1. `documentation/ToDo/` is restructured with at least two distinct areas: `open-tasks.md` (active, fully specified) and a new `sketch.md` or `ideas/` folder (unstructured, not yet actionable).
+  2. Entry criteria for `open-tasks.md` are documented: every task must have all template fields filled.
+- Notes: Deferred (post-deadline 2026-05-03). Does not benefit Phase 5 analysis.
+
+---
+
+### TODO-049: Implement validation pass protocol for larger reworks
+
+- Priority: medium
+- Status: open
+- Area: workflow
+- Summary: Larger reworks (e.g. Wikidata v4 redesign, Phase 31 refactor) must include a formal validation pass comparing old vs. new: output files, runtimes, event log, code diff, and intended design vs. actual implementation. This prevents regressions from going undetected.
+- Evidence: `open_additional_input.md` batch 7.
+- Definition of done:
+  1. A validation pass checklist is documented in `documentation/workflow.md` or a dedicated `documentation/validation-protocol.md`.
+  2. The checklist covers: old vs. new output diff, runtime comparison, event log comparison, code review, design-vs-implementation consistency check.
+  3. At least one completed rework (retrospectively) documents its validation pass results.
+- Notes: Deferred (post-deadline 2026-05-03). Does not benefit Phase 5 analysis.
+
+---
+
+### TODO-050: Wikidata — propagate seed/core-class/rule removals to pipeline outputs
+
+- Priority: medium
+- Status: open
+- Area: architecture
+- Summary: When a user removes a seed, core class, or relevancy rule from the configuration, the change should be accurately propagated to all downstream outputs (projections, output JSON files, event log). Currently, removing a config entry has no effect on previously produced outputs — the removed entity/class remains in all output files until a full re-run.
+- Evidence: `open_additional_input.md` batch 7.
+- Definition of done:
+  1. A "removal propagation" mechanism is designed and documented: which events are emitted, which handlers react, and which output files are updated.
+  2. Removing a seed or core class triggers re-computation of affected projections without requiring a full pipeline restart.
+  3. An integration test verifies that a removed seed disappears from `core_*.json` after the next notebook run.
+- Notes: Deferred (post-deadline 2026-05-03). Requires Phase 21 re-run. Does not benefit Phase 5 analysis.
+
+---
+
+### TODO-051: Machine-readable notebook cell and function runtime statistics
+
+- Priority: medium
+- Status: open
+- Area: workflow
+- Summary: Notebook cells and key functions should emit machine-readable timing and output statistics (row counts, sizes, key metrics) to a structured log. These statistics should be: always-on for minimum heartbeat/progress visibility, configurable in verbosity for debugging without binary on/off, and persistent across runs for regression detection.
+- Evidence: `open_additional_input.md` batch 7.
+- Definition of done:
+  1. A lightweight statistics emitter (function decorator or context manager) is implemented that records function name, start time, elapsed time, and a configurable output summary dict to a JSON-lines log.
+  2. All notebook cells' key functions are instrumented.
+  3. A verbosity level config controls output detail: level 0 = heartbeat only (always on), level 1 = cell-level stats, level 2 = function-level stats.
+  4. Statistics from the previous run are visible in the notebook output on re-run.
+- Notes: Deferred (post-deadline 2026-05-03). Heartbeat is already implemented in Phase 21 (F1/F2 fixes). This extends the concept to all notebooks. Does not block Phase 5 analysis.
+
+---
+
 ### TODO-035: Extend pipeline scope beyond Markus Lanz to other shows
 
 - Priority: low

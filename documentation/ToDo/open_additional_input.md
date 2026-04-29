@@ -9,4 +9,4 @@ When moving content from this file to `ToDo/archive/additional_input.md`, the te
 
 If something here is not clear yet and requires further clarification, raise "**QUESTION: ...**" here to request clarification before additional input from here can be further processed into `documentation/open-tasks.md` and `ToDo/archive/additional_input.md`.
 
-Below is the content to be processed:
+
