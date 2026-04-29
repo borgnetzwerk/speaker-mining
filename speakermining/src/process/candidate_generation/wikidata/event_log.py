@@ -390,6 +390,7 @@ def build_class_resolved_event(
     class_qid: str,
     parent_qids: list[str],
     depth: int,
+    core_class_qid: str = "",
     timestamp_utc: str | None = None,
 ) -> dict:
     return {
@@ -400,6 +401,7 @@ def build_class_resolved_event(
             "class_qid": str(class_qid or ""),
             "parent_qids": list(parent_qids or []),
             "depth": int(depth),
+            "core_class_qid": str(core_class_qid or ""),
         },
     }
 
@@ -436,6 +438,8 @@ def build_fetch_decision_event(
     qid: str,
     decision: str,
     reason: str = "",
+    subject_qid: str = "",
+    predicate_pid: str = "",
     depth: int = 0,
     timestamp_utc: str | None = None,
 ) -> dict:
@@ -447,6 +451,8 @@ def build_fetch_decision_event(
             "qid": str(qid or ""),
             "decision": str(decision or ""),
             "reason": str(reason or ""),
+            "subject_qid": str(subject_qid or ""),
+            "predicate_pid": str(predicate_pid or ""),
             "depth": int(depth),
         },
     }

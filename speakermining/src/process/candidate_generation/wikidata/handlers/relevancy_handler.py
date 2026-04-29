@@ -39,6 +39,7 @@ class RelevancyHandler(V4Handler):
         # core class lookup tables (F10)
         self._p31_map: dict[str, list[str]] = {}     # entity → p31 class qids
         self._class_to_core: dict[str, str] = {}     # class_qid → core_class_qid
+        self._load_snapshot()
 
     def _on_event(self, event: dict) -> None:
         etype = event.get("event_type")
@@ -60,7 +61,7 @@ class RelevancyHandler(V4Handler):
 
         elif etype == "class_resolved":
             class_qid = canonical_qid(str(payload.get("class_qid", "") or ""))
-            core = str(payload.get("core_class_ancestor", "") or "")
+            core = str(payload.get("core_class_qid", "") or "")
             if class_qid and core:
                 self._class_to_core[class_qid] = core
 
@@ -237,6 +238,46 @@ class RelevancyHandler(V4Handler):
             return []
         with source.open(newline="", encoding="utf-8") as fh:
             return list(csv.DictReader(fh))
+
+    def _load_snapshot(self) -> None:
+        """Populate in-memory state from projection CSVs written by previous runs."""
+        import csv
+        # Rules may live in old events (before last_seq); load directly from CSV
+        self._reload_rules_from_csv_direct("relevancy_relation_contexts.csv")
+
+        # core classes → _class_to_core
+        reg = self._proj / "core_class_registry.csv"
+        if reg.exists():
+            with reg.open(newline="", encoding="utf-8") as fh:
+                for row in csv.DictReader(fh):
+                    qid = canonical_qid(str(row.get("qid", "") or ""))
+                    if qid:
+                        self._class_to_core[qid] = qid
+
+        # class resolution map → _class_to_core
+        crm = self._proj / "class_resolution_map.csv"
+        if crm.exists():
+            with crm.open(newline="", encoding="utf-8") as fh:
+                for row in csv.DictReader(fh):
+                    class_qid = canonical_qid(str(row.get("class_qid", "") or ""))
+                    core = str(row.get("core_class_qid", "") or "")
+                    if class_qid and core:
+                        self._class_to_core[class_qid] = core
+
+        # relevant entities → _relevant
+        rmap = self._proj / "relevancy_map.csv"
+        if rmap.exists():
+            with rmap.open(newline="", encoding="utf-8") as fh:
+                for row in csv.DictReader(fh):
+                    qid = canonical_qid(str(row.get("entity_qid", "") or ""))
+                    if qid and str(row.get("relevant", "") or "").lower() == "true":
+                        self._relevant[qid] = {
+                            "first_marked_at": str(row.get("first_marked_at", "") or ""),
+                            "source_seed_qid": str(row.get("source_seed_qid", "") or ""),
+                            "inherited_from_qid": str(row.get("inherited_from_qid", "") or ""),
+                            "inherited_via_pid": str(row.get("inherited_via_pid", "") or ""),
+                            "direction": str(row.get("direction", "") or ""),
+                        }
 
     def is_relevant(self, qid: str) -> bool:
         return qid in self._relevant

@@ -59,9 +59,12 @@ def _result_from_entity_doc(entity_doc: dict) -> dict:
 
 
 def _try_entity_cache(root: Path, qid: str) -> dict | None:
-    """Check the entity_fetch cache for a QID. Returns result dict or None."""
-    cached = _latest_cached_record(root, "entity", qid)
-    if cached is None:
+    """Check the entity_fetch or basic_fetch cache for a QID. Returns result dict or None."""
+    for cache_type in ("entity", "basic_fetch"):
+        cached = _latest_cached_record(root, cache_type, qid)
+        if cached is not None:
+            break
+    else:
         return None
     record, _age = cached
     response_data = get_query_event_response_data(record)
@@ -118,22 +121,21 @@ def basic_fetch_batch(
 
         entities_block = response.get("entities", {}) if isinstance(response, dict) else {}
 
-        event = build_query_event(
-            endpoint="wikidata_api",
-            normalized_query=url,
-            source_step="basic_fetch",
-            status="success",
-            key=batch[0],
-            payload={"entities": entities_block},
-            http_status=200,
-            error=None,
-        )
-        store.append_event(event)
-
         for qid in batch:
             entity_doc = _entity_from_payload({"entities": entities_block}, qid)
             if not entity_doc:
                 continue
+            # Emit one event per QID so each entity is individually cache-indexable (F29)
+            store.append_event(build_query_event(
+                endpoint="wikidata_api",
+                normalized_query=url,
+                source_step="basic_fetch",
+                status="success",
+                key=qid,
+                payload={"entities": {qid: entity_doc}},
+                http_status=200,
+                error=None,
+            ))
             result = _result_from_entity_doc(entity_doc)
             result["source"] = "network"
             results[qid] = result

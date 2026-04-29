@@ -107,7 +107,7 @@ class V4Handler(EventHandler):
         import csv
         import io
         buf = io.StringIO()
-        writer = csv.writer(buf)
+        writer = csv.writer(buf, lineterminator="\n")
         writer.writerow(header)
         writer.writerows(rows)
         self._atomic_write_text(path, buf.getvalue())

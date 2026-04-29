@@ -29,6 +29,7 @@ class FetchDecisionHandler(V4Handler):
         # pending triples: waiting for subject to become full_fetched AND relevant
         self._pending: dict[str, list[tuple[str, str]]] = {}  # subject_qid → [(pid, obj_qid)]
         self._decisions: dict[str, dict] = {}  # obj_qid → {subject_qid, predicate_pid, classification, basic_fetch_status}
+        self._load_snapshot()
 
     def _on_event(self, event: dict) -> None:
         etype = event.get("event_type")
@@ -94,6 +95,8 @@ class FetchDecisionHandler(V4Handler):
             qid=obj,
             decision=classification,
             reason=f"predicate={pid}",
+            subject_qid=subject,
+            predicate_pid=pid,
         ))
         self._decisions[obj] = {
             "subject_qid": subject,
@@ -132,6 +135,53 @@ class FetchDecisionHandler(V4Handler):
                 if pid:
                     pids.add(pid)
         self._rule_pids = pids
+
+    def _load_snapshot(self) -> None:
+        """Populate in-memory state from projection CSVs written by previous runs."""
+        # Rules may live in old events (before last_seq); load directly from CSV
+        self._reload_rule_pids()
+
+        # full_fetch_state → _full_fetched
+        ffs = self._proj / "full_fetch_state.csv"
+        if ffs.exists():
+            with ffs.open(newline="", encoding="utf-8") as fh:
+                for row in csv.DictReader(fh):
+                    qid = canonical_qid(str(row.get("qid", "") or ""))
+                    if qid and str(row.get("status", "") or "") == "complete":
+                        self._full_fetched.add(qid)
+
+        # relevancy_map → _relevant
+        rmap = self._proj / "relevancy_map.csv"
+        if rmap.exists():
+            with rmap.open(newline="", encoding="utf-8") as fh:
+                for row in csv.DictReader(fh):
+                    qid = canonical_qid(str(row.get("entity_qid", "") or ""))
+                    if qid and str(row.get("relevant", "") or "").lower() == "true":
+                        self._relevant.add(qid)
+
+        # basic_fetch_state → _basic_fetched
+        bfs = self._proj / "basic_fetch_state.csv"
+        if bfs.exists():
+            with bfs.open(newline="", encoding="utf-8") as fh:
+                for row in csv.DictReader(fh):
+                    qid = canonical_qid(str(row.get("qid", "") or ""))
+                    if qid and str(row.get("status", "") or "") == "complete":
+                        self._basic_fetched.add(qid)
+
+        # discovery_classification → _decisions
+        dc = self._proj / "discovery_classification.csv"
+        if dc.exists():
+            with dc.open(newline="", encoding="utf-8") as fh:
+                for row in csv.DictReader(fh):
+                    obj_qid = canonical_qid(str(row.get("object_qid", "") or ""))
+                    if not obj_qid:
+                        continue
+                    self._decisions[obj_qid] = {
+                        "subject_qid": str(row.get("subject_qid", "") or ""),
+                        "predicate_pid": str(row.get("predicate_pid", "") or ""),
+                        "classification": str(row.get("classification", "") or ""),
+                        "basic_fetch_status": str(row.get("basic_fetch_status", "pending") or "pending"),
+                    }
 
     def get_potentially_relevant_pending(self) -> list[str]:
         return [

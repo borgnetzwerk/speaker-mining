@@ -15,9 +15,9 @@ class ClassHierarchyHandler(V4Handler):
     or the depth limit is reached. Only NEW class QIDs trigger a walk — previously
     resolved classes are no-ops (O(new classes) per run).
 
-    Reacts to: entity_basic_fetched, core_class_registered
-    Emits: class_resolved
-    Writes: class_resolution_map.csv (class_qid, parent_qids_csv, depth, core_class_ancestor)
+    Reacts to: entity_basic_fetched, triple_discovered, core_class_registered
+    Emits: class_resolved (with core_class_qid field)
+    Writes: class_resolution_map.csv (class_qid, parent_qids, depth, core_class_qid)
     """
 
     # D3: explicit walk terminators — Q35120 (entity) and Q1 (universe of discourse)
@@ -32,6 +32,7 @@ class ClassHierarchyHandler(V4Handler):
         self._resolved: dict[str, dict] = {}  # class_qid → {parent_qids, depth, core_class_ancestor}
         self._core_classes: set[str] = set()
         self._pending: list[str] = []  # class QIDs waiting to be walked
+        self._load_snapshot()
 
     def _on_event(self, event: dict) -> None:
         etype = event.get("event_type")
@@ -94,6 +95,44 @@ class ClassHierarchyHandler(V4Handler):
                     "depth": depth,
                     "core_class_ancestor": core,
                 }
+                if class_qid in self._pending:
+                    self._pending.remove(class_qid)
+
+    def _load_snapshot(self) -> None:
+        """Populate in-memory state from projection CSVs written by previous runs."""
+        import csv
+        reg = self._proj / "core_class_registry.csv"
+        if reg.exists():
+            with reg.open(newline="", encoding="utf-8") as fh:
+                for row in csv.DictReader(fh):
+                    qid = canonical_qid(str(row.get("qid", "") or ""))
+                    if qid:
+                        self._core_classes.add(qid)
+                        self._resolved.setdefault(qid, {"parent_qids": [], "depth": 0, "core_class_ancestor": qid})
+
+        crm = self._proj / "class_resolution_map.csv"
+        if crm.exists():
+            with crm.open(newline="", encoding="utf-8") as fh:
+                for row in csv.DictReader(fh):
+                    class_qid = canonical_qid(str(row.get("class_qid", "") or ""))
+                    if not class_qid:
+                        continue
+                    parent_str = str(row.get("parent_qids", "") or "")
+                    parent_qids = [p for p in parent_str.split("|") if p] if parent_str else []
+                    depth_val = row.get("depth", "0") or "0"
+                    try:
+                        depth = int(depth_val)
+                    except (ValueError, TypeError):
+                        depth = 0
+                    core = str(row.get("core_class_qid", "") or "")
+                    self._resolved[class_qid] = {
+                        "parent_qids": parent_qids,
+                        "depth": depth,
+                        "core_class_ancestor": core,
+                    }
+
+        # Repair any entries with empty core that can be resolved from the loaded graph.
+        self._backpropagate_cores()
 
     def has_pending(self) -> bool:
         return bool(self._pending)
@@ -110,12 +149,19 @@ class ClassHierarchyHandler(V4Handler):
         return self._walk(qid, depth=0, languages=languages or ["de", "en"])
 
     def _walk(self, start_qid: str, depth: int, languages: list[str]) -> int:
-        """Iterative upward P279 walk from start_qid."""
+        """Iterative upward P279 walk from start_qid.
+
+        Collects all newly resolved nodes before emitting events, then
+        backpropagates core_class_ancestor from child to ancestor (F32 fix).
+        This ensures nodes whose parents are resolved later in the same walk
+        still receive a correct core_class_qid in their emitted event.
+        """
         to_resolve = [start_qid]
-        emitted = 0
+        # Walk-local staging area — not committed to _resolved until after backprop
+        new_nodes: dict[str, dict] = {}  # qid → {parent_qids, depth, core_class_ancestor}
 
         while to_resolve:
-            batch = [q for q in to_resolve if q not in self._resolved]
+            batch = [q for q in to_resolve if q not in self._resolved and q not in new_nodes]
             if not batch:
                 break
 
@@ -124,29 +170,48 @@ class ClassHierarchyHandler(V4Handler):
 
             for qid, info in fetch_results.items():
                 parent_qids = info.get("p279_qids", [])
-                event = build_class_resolved_event(
-                    class_qid=qid,
-                    parent_qids=parent_qids,
-                    depth=depth,
-                )
-                self._emit(event)
-                emitted += 1
+                core = self._find_core_ancestor_extended(parent_qids, new_nodes)
+                new_nodes[qid] = {"parent_qids": parent_qids, "depth": depth, "core_class_ancestor": core}
 
-                core = self._find_core_ancestor(parent_qids)
-                self._resolved[qid] = {
-                    "parent_qids": parent_qids,
-                    "depth": depth,
-                    "core_class_ancestor": core,
-                }
-
+                # Only walk further if core is still unknown
                 if depth < self._depth_limit and not core:
                     for parent in parent_qids:
-                        if parent not in self._resolved and parent not in self._ROOT_CLASSES:
+                        if parent not in self._resolved and parent not in new_nodes and parent not in self._ROOT_CLASSES:
                             to_resolve.append(parent)
 
             depth += 1
             if depth > self._depth_limit:
                 break
+
+        # Backpropagate: nodes fetched early may now find cores via later-fetched parents.
+        changed = True
+        while changed:
+            changed = False
+            for info in new_nodes.values():
+                if info["core_class_ancestor"]:
+                    continue
+                core = self._find_core_ancestor_extended(info["parent_qids"], new_nodes)
+                if core:
+                    info["core_class_ancestor"] = core
+                    changed = True
+
+        # Commit to in-memory state and emit events with correct cores.
+        emitted = 0
+        for qid, info in new_nodes.items():
+            core = info["core_class_ancestor"]
+            self._resolved[qid] = {
+                "parent_qids": info["parent_qids"],
+                "depth": info["depth"],
+                "core_class_ancestor": core,
+            }
+            event = build_class_resolved_event(
+                class_qid=qid,
+                parent_qids=info["parent_qids"],
+                depth=info["depth"],
+                core_class_qid=core,
+            )
+            self._emit(event)
+            emitted += 1
 
         return emitted
 
@@ -160,6 +225,42 @@ class ClassHierarchyHandler(V4Handler):
                 return ancestor
         return ""
 
+    def _find_core_ancestor_extended(self, parent_qids: list[str], new_nodes: dict) -> str:
+        """Like _find_core_ancestor but also checks walk-local new_nodes."""
+        for qid in parent_qids:
+            if qid in self._core_classes:
+                return qid
+            ancestor = self._resolved.get(qid, {}).get("core_class_ancestor", "")
+            if ancestor:
+                return ancestor
+            ancestor = new_nodes.get(qid, {}).get("core_class_ancestor", "")
+            if ancestor:
+                return ancestor
+        return ""
+
+    def _backpropagate_cores(self) -> None:
+        """Multi-pass core propagation over _resolved until stable.
+
+        Repairs entries with core_class_ancestor='' from snapshots written
+        before F32 was fixed.
+        """
+        changed = True
+        while changed:
+            changed = False
+            for info in self._resolved.values():
+                if info.get("core_class_ancestor"):
+                    continue
+                for parent in info.get("parent_qids", []):
+                    if parent in self._core_classes:
+                        info["core_class_ancestor"] = parent
+                        changed = True
+                        break
+                    ancestor = self._resolved.get(parent, {}).get("core_class_ancestor", "")
+                    if ancestor:
+                        info["core_class_ancestor"] = ancestor
+                        changed = True
+                        break
+
     def resolve_class(self, qid: str) -> str:
         """Return core_class_ancestor for qid, or '' if unresolved."""
         return self._resolved.get(qid, {}).get("core_class_ancestor", "")
@@ -172,4 +273,4 @@ class ClassHierarchyHandler(V4Handler):
             [class_qid, "|".join(info.get("parent_qids", [])), info.get("depth", 0), info.get("core_class_ancestor", "")]
             for class_qid, info in sorted(self._resolved.items())
         ]
-        self._atomic_write_csv_rows(proj_dir / "class_resolution_map.csv", ["class_qid", "parent_qids", "depth", "core_class_ancestor"], rows)
+        self._atomic_write_csv_rows(proj_dir / "class_resolution_map.csv", ["class_qid", "parent_qids", "depth", "core_class_qid"], rows)

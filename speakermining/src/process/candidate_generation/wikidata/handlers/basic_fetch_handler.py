@@ -4,7 +4,7 @@ from pathlib import Path
 
 from . import V4Handler
 from ..basic_fetch import basic_fetch_batch
-from ..common import canonical_qid
+from ..common import canonical_pid, canonical_qid
 from ..event_log import build_entity_basic_fetched_event
 
 
@@ -27,6 +27,35 @@ class BasicFetchHandler(V4Handler):
         self._pending_immediate: list[str] = []     # potentially_relevant
         self._pending_deferred: list[str] = []      # unlikely_relevant
         self._done: set[str] = set()
+        self._info: dict[str, dict] = {}            # qid → {classification, subject_qid, predicate_pid}
+        self._load_snapshot()
+
+    def _load_snapshot(self) -> None:
+        """Populate in-memory state from basic_fetch_state.csv written by previous runs."""
+        import csv
+        bfs = self._proj / "basic_fetch_state.csv"
+        if not bfs.exists():
+            return
+        with bfs.open(newline="", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                qid = canonical_qid(str(row.get("qid", "") or ""))
+                if not qid:
+                    continue
+                classification = str(row.get("classification", "") or "")
+                status = str(row.get("status", "") or "")
+                self._info[qid] = {
+                    "classification": classification,
+                    "predicate_pid": str(row.get("predicate_pid", "") or ""),
+                    "subject_qid": str(row.get("subject_qid", "") or ""),
+                }
+                if status == "complete":
+                    self._done.add(qid)
+                elif status == "pending":
+                    if qid not in self._pending_immediate:
+                        self._pending_immediate.append(qid)
+                elif status == "deferred":
+                    if qid not in self._pending_deferred:
+                        self._pending_deferred.append(qid)
 
     def _on_event(self, event: dict) -> None:
         etype = event.get("event_type")
@@ -37,10 +66,18 @@ class BasicFetchHandler(V4Handler):
             decision = str(payload.get("decision", "") or "")
             if not qid or qid in self._done:
                 return
-            if decision == "potentially_relevant" and qid not in self._pending_immediate:
-                self._pending_immediate.append(qid)
-            elif decision == "unlikely_relevant" and qid not in self._pending_deferred:
-                self._pending_deferred.append(qid)
+            subject = canonical_qid(str(payload.get("subject_qid", "") or ""))
+            pid = canonical_pid(str(payload.get("predicate_pid", "") or ""))
+            if decision == "potentially_relevant":
+                if qid in self._pending_deferred:
+                    self._pending_deferred.remove(qid)
+                if qid not in self._pending_immediate:
+                    self._pending_immediate.append(qid)
+                self._info[qid] = {"classification": "potentially_relevant", "subject_qid": subject, "predicate_pid": pid}
+            elif decision == "unlikely_relevant" and qid not in self._pending_immediate:
+                if qid not in self._pending_deferred:
+                    self._pending_deferred.append(qid)
+                self._info.setdefault(qid, {"classification": "unlikely_relevant", "subject_qid": subject, "predicate_pid": pid})
 
         elif etype == "entity_basic_fetched":
             qid = canonical_qid(str(payload.get("qid", "") or ""))
@@ -86,7 +123,18 @@ class BasicFetchHandler(V4Handler):
         return emitted
 
     def _write(self, proj_dir: Path) -> None:
-        rows = [[qid, "complete"] for qid in sorted(self._done)]
-        rows += [[qid, "pending_immediate"] for qid in self._pending_immediate]
-        rows += [[qid, "pending_deferred"] for qid in self._pending_deferred]
-        self._atomic_write_csv_rows(proj_dir / "basic_fetch_state.csv", ["qid", "status"], rows)
+        header = ["qid", "classification", "status", "predicate_pid", "subject_qid"]
+        rows = []
+        for qid in sorted(self._done):
+            info = self._info.get(qid, {})
+            rows.append([qid, info.get("classification", ""), "complete",
+                         info.get("predicate_pid", ""), info.get("subject_qid", "")])
+        for qid in self._pending_immediate:
+            info = self._info.get(qid, {})
+            rows.append([qid, info.get("classification", "potentially_relevant"), "pending",
+                         info.get("predicate_pid", ""), info.get("subject_qid", "")])
+        for qid in self._pending_deferred:
+            info = self._info.get(qid, {})
+            rows.append([qid, info.get("classification", "unlikely_relevant"), "deferred",
+                         info.get("predicate_pid", ""), info.get("subject_qid", "")])
+        self._atomic_write_csv_rows(proj_dir / "basic_fetch_state.csv", header, rows)

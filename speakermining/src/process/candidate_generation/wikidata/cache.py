@@ -23,7 +23,7 @@ from process.io_guardrails import atomic_write_csv, atomic_write_parquet, atomic
 
 from .contact_loader import load_contact_info, format_contact_info_for_user_agent
 from .common import canonical_qid, normalize_query_budget
-from .event_log import get_query_event_field, iter_query_events
+from .event_log import get_query_event_field, get_query_event_response_data, iter_query_events
 from .graceful_shutdown import should_terminate
 
 
@@ -60,22 +60,46 @@ def _latest_query_event_index_key(root: Path, source_step: str, key: str) -> tup
 	return _cache_root_key(root), str(source_step or ""), str(key or "")
 
 
+def _all_qids_for_record(record: dict, primary_key: str) -> set[str]:
+	"""Return all entity QIDs associated with a query event.
+
+	Combines the event's key field with every QID present in the entities block
+	of the response payload. This ensures that old-style batch events (where
+	key=batch[0] but payload contains many entities) are fully indexed.
+	"""
+	qids: set[str] = set()
+	if primary_key:
+		qids.add(primary_key)
+	try:
+		response_data = get_query_event_response_data(record)
+		if isinstance(response_data, dict):
+			for entity_qid in response_data.get("entities", {}) or {}:
+				qid = canonical_qid(str(entity_qid or ""))
+				if qid:
+					qids.add(qid)
+	except Exception:
+		pass
+	return qids
+
+
 def _remember_latest_cached_record(root: Path, record: dict, *, force: bool = False) -> None:
 	if not isinstance(record, dict) or record.get("event_version") != "v3":
 		return
 	source_step = str(get_query_event_field(record, "source_step", "") or "")
 	key = str(get_query_event_field(record, "key", "") or "")
-	if not source_step or not key:
+	if not source_step:
 		return
-	index_key = _latest_query_event_index_key(root, source_step, key)
-	if force:
-		_LATEST_QUERY_EVENT_INDEX[index_key] = dict(record)
-		return
-	current = _LATEST_QUERY_EVENT_INDEX.get(index_key)
-	current_seq = int(current.get("sequence_num", -1) or -1) if isinstance(current, dict) else -1
 	record_seq = int(record.get("sequence_num", -1) or -1)
-	if current is None or record_seq >= current_seq:
-		_LATEST_QUERY_EVENT_INDEX[index_key] = dict(record)
+	record_copy = dict(record)
+	for qid in _all_qids_for_record(record, key):
+		index_key = _latest_query_event_index_key(root, source_step, qid)
+		if force:
+			_LATEST_QUERY_EVENT_INDEX[index_key] = record_copy
+		else:
+			current = _LATEST_QUERY_EVENT_INDEX.get(index_key)
+			current_seq = int(current.get("sequence_num", -1) or -1) if isinstance(current, dict) else -1
+			if current is None or record_seq >= current_seq:
+				_LATEST_QUERY_EVENT_INDEX[index_key] = record_copy
 
 
 def _prime_latest_cached_record_index(root: Path) -> None:
@@ -87,16 +111,18 @@ def _prime_latest_cached_record_index(root: Path) -> None:
 		if not isinstance(record, dict) or record.get("event_version") != "v3":
 			continue
 		source_step = str(get_query_event_field(record, "source_step", "") or "")
-		key = str(get_query_event_field(record, "key", "") or "")
-		if not source_step or not key:
+		if not source_step:
 			continue
-		current = latest.get((source_step, key))
-		current_seq = int(current.get("sequence_num", -1) or -1) if isinstance(current, dict) else -1
+		key = str(get_query_event_field(record, "key", "") or "")
 		record_seq = int(record.get("sequence_num", -1) or -1)
-		if current is None or record_seq >= current_seq:
-			latest[(source_step, key)] = dict(record)
-	for (source_step, key), record in latest.items():
-		_LATEST_QUERY_EVENT_INDEX[_latest_query_event_index_key(root, source_step, key)] = record
+		for qid in _all_qids_for_record(record, key):
+			pair = (source_step, qid)
+			current = latest.get(pair)
+			current_seq = int(current.get("sequence_num", -1) or -1) if isinstance(current, dict) else -1
+			if current is None or record_seq >= current_seq:
+				latest[pair] = dict(record)
+	for (source_step, qid), record in latest.items():
+		_LATEST_QUERY_EVENT_INDEX[_latest_query_event_index_key(root, source_step, qid)] = record
 	_LATEST_QUERY_EVENT_INDEX_PRIMED.add(root_key)
 
 

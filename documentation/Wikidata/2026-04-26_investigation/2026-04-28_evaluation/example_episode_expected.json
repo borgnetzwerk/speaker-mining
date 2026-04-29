@@ -1,0 +1,1161 @@
+{
+    "Q130613896": {
+        "_fetched_literal_languages": [
+            "de",
+            "en"
+        ],
+        "type": "item",
+        "id": "Q130613896",
+        "labels": {
+            "en": {
+            "language": "en",
+            "value": "Markus Lanz (October 22nd, 2024)"
+            },
+            "de": {
+            "language": "de",
+            "value": "Markus Lanz (22. Oktober 2024)"
+            },
+            "mul": {
+            "value": "Markus Lanz (October 22nd, 2024)",
+            "language": "en",
+            "for-language": "mul"
+            }
+        },
+        "descriptions": {
+            "en": {
+            "language": "en",
+            "value": "2024 episode of television talk show Markus Lanz (S17E25)"
+            },
+            "de": {
+            "language": "de",
+            "value": "Sendung der Fernsehtalkshow Markus Lanz von 2024 (S17E25)"
+            },
+            "mul": {
+            "value": "2024 episode of television talk show Markus Lanz (S17E25)",
+            "language": "en",
+            "for-language": "mul"
+            }
+        },
+        "aliases": {},
+        "claims": {
+            "P1476": [
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P1476",
+                "hash": "54a2eb9ea772aca75b596520cfde737711f2f9ac",
+                "datavalue": {
+                    "value": {
+                    "text": "Markus Lanz (22. Oktober 2024)",
+                    "language": "de"
+                    },
+                    "type": "monolingualtext"
+                },
+                "datatype": "monolingualtext"
+                },
+                "type": "statement",
+                "id": "Q130613896$B87AD74C-C071-4C72-BE06-D7852D76DA15",
+                "rank": "normal"
+            }
+            ],
+            "P31": [
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P31",
+                "hash": "2d3761f68cf1248dc8fbf0b5eaa1f7fff03df987",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 21191270,
+                    "id": "Q21191270"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "id": "Q130613896$43C101E4-8E8D-45E7-8310-4641001D38EC",
+                "rank": "normal"
+            }
+            ],
+            "P179": [
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P179",
+                "hash": "a6bfffaea5630d572b1de0d02a6c6310077c8c5c",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 1499182,
+                    "id": "Q1499182"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "qualifiers": {
+                "P1545": [
+                    {
+                    "snaktype": "value",
+                    "property": "P1545",
+                    "hash": "13e4f36bc39b14cf6f26c408083b453b581c1222",
+                    "datavalue": {
+                        "value": "2000",
+                        "type": "string"
+                    },
+                    "datatype": "string"
+                    }
+                ]
+                },
+                "qualifiers-order": [
+                "P1545"
+                ],
+                "id": "Q130613896$B774BC3E-8415-46D3-956D-F4EBF0373170",
+                "rank": "normal"
+            }
+            ],
+            "P4908": [
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P4908",
+                "hash": "707cca536faf55a7829efeaf805bcf495c89c1c7",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 130559283,
+                    "id": "Q130559283"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "qualifiers": {
+                "P1545": [
+                    {
+                    "snaktype": "value",
+                    "property": "P1545",
+                    "hash": "daace348f57611d02238053c33432416124ce9a9",
+                    "datavalue": {
+                        "value": "25",
+                        "type": "string"
+                    },
+                    "datatype": "string"
+                    }
+                ]
+                },
+                "qualifiers-order": [
+                "P1545"
+                ],
+                "id": "Q130613896$778DFC06-EEE7-433D-A974-F6D192DF076B",
+                "rank": "normal"
+            }
+            ],
+            "P136": [
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P136",
+                "hash": "9e19f5eb39645b95afd25af514fd6fdb3ee5b8e0",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 622812,
+                    "id": "Q622812"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "id": "Q130613896$90145CD0-4E7F-4AD9-B762-BEE9CA90BC8B",
+                "rank": "normal"
+            }
+            ],
+            "P371": [
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P371",
+                "hash": "6144292c2a0a43c1534c2338aa0410b89a61b015",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 43773,
+                    "id": "Q43773"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "id": "Q130613896$05765C04-88DC-4DB1-9A7C-D9B1662B7112",
+                "rank": "normal"
+            }
+            ],
+            "P495": [
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P495",
+                "hash": "7ace969f65f42c75665109850278ffa517cedf3e",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 183,
+                    "id": "Q183"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "id": "Q130613896$AAA5DFB1-3112-4170-BD82-A454A477E4FC",
+                "rank": "normal"
+            }
+            ],
+            "P364": [
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P364",
+                "hash": "42ea0fa04968ba469913886ef42bb109936ce230",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 188,
+                    "id": "Q188"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "id": "Q130613896$18406989-B260-4D6A-899E-E4C605EE6179",
+                "rank": "normal"
+            }
+            ],
+            "P577": [
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P577",
+                "hash": "d2b10bccea31c7cfe8bc2f9b3d0d72b804a47f05",
+                "datavalue": {
+                    "value": {
+                    "time": "+2024-10-22T00:00:00Z",
+                    "timezone": 0,
+                    "before": 0,
+                    "after": 0,
+                    "precision": 11,
+                    "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                    },
+                    "type": "time"
+                },
+                "datatype": "time"
+                },
+                "type": "statement",
+                "qualifiers": {
+                "P291": [
+                    {
+                    "snaktype": "value",
+                    "property": "P291",
+                    "hash": "a15ed95482d52eea03d59e098dae9e31dafef9bd",
+                    "datavalue": {
+                        "value": {
+                        "entity-type": "item",
+                        "numeric-id": 183,
+                        "id": "Q183"
+                        },
+                        "type": "wikibase-entityid"
+                    },
+                    "datatype": "wikibase-item"
+                    }
+                ]
+                },
+                "qualifiers-order": [
+                "P291"
+                ],
+                "id": "Q130613896$11A482B8-88A6-4BFA-BC00-A0D7DF02A954",
+                "rank": "normal",
+                "references": [
+                {
+                    "hash": "9905e1608b1631d2d3a9fc8b4aa36ad8a06d9079",
+                    "snaks": {
+                    "P854": [
+                        {
+                        "snaktype": "value",
+                        "property": "P854",
+                        "hash": "fcf4210132671529d558e7c1f4a81942f80a2082",
+                        "datavalue": {
+                            "value": "https://www.zdf.de/gesellschaft/markus-lanz/markus-lanz-vom-22-oktober-2024-100.html",
+                            "type": "string"
+                        },
+                        "datatype": "url"
+                        }
+                    ],
+                    "P813": [
+                        {
+                        "snaktype": "value",
+                        "property": "P813",
+                        "hash": "5fff68aa95492777d3c30f7fe6aad5907796ad0e",
+                        "datavalue": {
+                            "value": {
+                            "time": "+2025-02-10T00:00:00Z",
+                            "timezone": 0,
+                            "before": 0,
+                            "after": 0,
+                            "precision": 11,
+                            "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                            },
+                            "type": "time"
+                        },
+                        "datatype": "time"
+                        }
+                    ]
+                    },
+                    "snaks-order": [
+                    "P854",
+                    "P813"
+                    ]
+                }
+                ]
+            }
+            ],
+            "P5030": [
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P5030",
+                "hash": "0f7c0709bca1a472e58a3e7054beecc6899d45ed",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 20724971,
+                    "id": "Q20724971"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "qualifiers": {
+                "P1545": [
+                    {
+                    "snaktype": "value",
+                    "property": "P1545",
+                    "hash": "2a1ced1dca90648ea7e306acbadd74fc81a10722",
+                    "datavalue": {
+                        "value": "1",
+                        "type": "string"
+                    },
+                    "datatype": "string"
+                    }
+                ]
+                },
+                "qualifiers-order": [
+                "P1545"
+                ],
+                "id": "Q130613896$289CF82E-C769-40D3-B7B0-D270C20054B5",
+                "rank": "normal",
+                "references": [
+                {
+                    "hash": "9905e1608b1631d2d3a9fc8b4aa36ad8a06d9079",
+                    "snaks": {
+                    "P854": [
+                        {
+                        "snaktype": "value",
+                        "property": "P854",
+                        "hash": "fcf4210132671529d558e7c1f4a81942f80a2082",
+                        "datavalue": {
+                            "value": "https://www.zdf.de/gesellschaft/markus-lanz/markus-lanz-vom-22-oktober-2024-100.html",
+                            "type": "string"
+                        },
+                        "datatype": "url"
+                        }
+                    ],
+                    "P813": [
+                        {
+                        "snaktype": "value",
+                        "property": "P813",
+                        "hash": "5fff68aa95492777d3c30f7fe6aad5907796ad0e",
+                        "datavalue": {
+                            "value": {
+                            "time": "+2025-02-10T00:00:00Z",
+                            "timezone": 0,
+                            "before": 0,
+                            "after": 0,
+                            "precision": 11,
+                            "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                            },
+                            "type": "time"
+                        },
+                        "datatype": "time"
+                        }
+                    ]
+                    },
+                    "snaks-order": [
+                    "P854",
+                    "P813"
+                    ]
+                }
+                ]
+            },
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P5030",
+                "hash": "73b11c41ddd2c27896d3d56f9a95550043bbdcb9",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 1229961,
+                    "id": "Q1229961"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "qualifiers": {
+                "P1545": [
+                    {
+                    "snaktype": "value",
+                    "property": "P1545",
+                    "hash": "7241753c62a310cf84895620ea82250dcea65835",
+                    "datavalue": {
+                        "value": "2",
+                        "type": "string"
+                    },
+                    "datatype": "string"
+                    }
+                ]
+                },
+                "qualifiers-order": [
+                "P1545"
+                ],
+                "id": "Q130613896$A267570A-FD32-4E37-80B3-92CB4C81587D",
+                "rank": "normal",
+                "references": [
+                {
+                    "hash": "9905e1608b1631d2d3a9fc8b4aa36ad8a06d9079",
+                    "snaks": {
+                    "P854": [
+                        {
+                        "snaktype": "value",
+                        "property": "P854",
+                        "hash": "fcf4210132671529d558e7c1f4a81942f80a2082",
+                        "datavalue": {
+                            "value": "https://www.zdf.de/gesellschaft/markus-lanz/markus-lanz-vom-22-oktober-2024-100.html",
+                            "type": "string"
+                        },
+                        "datatype": "url"
+                        }
+                    ],
+                    "P813": [
+                        {
+                        "snaktype": "value",
+                        "property": "P813",
+                        "hash": "5fff68aa95492777d3c30f7fe6aad5907796ad0e",
+                        "datavalue": {
+                            "value": {
+                            "time": "+2025-02-10T00:00:00Z",
+                            "timezone": 0,
+                            "before": 0,
+                            "after": 0,
+                            "precision": 11,
+                            "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                            },
+                            "type": "time"
+                        },
+                        "datatype": "time"
+                        }
+                    ]
+                    },
+                    "snaks-order": [
+                    "P854",
+                    "P813"
+                    ]
+                }
+                ]
+            },
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P5030",
+                "hash": "02b1f01121ed2685852b00a98f7dd955d98d1a0d",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 1332861,
+                    "id": "Q1332861"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "qualifiers": {
+                "P1545": [
+                    {
+                    "snaktype": "value",
+                    "property": "P1545",
+                    "hash": "0e979f28bf306fefdcd352b4eb8dee5da2153a6d",
+                    "datavalue": {
+                        "value": "3",
+                        "type": "string"
+                    },
+                    "datatype": "string"
+                    }
+                ]
+                },
+                "qualifiers-order": [
+                "P1545"
+                ],
+                "id": "Q130613896$9A185958-78CA-46EA-B764-6A3AF43EBDED",
+                "rank": "normal",
+                "references": [
+                {
+                    "hash": "9905e1608b1631d2d3a9fc8b4aa36ad8a06d9079",
+                    "snaks": {
+                    "P854": [
+                        {
+                        "snaktype": "value",
+                        "property": "P854",
+                        "hash": "fcf4210132671529d558e7c1f4a81942f80a2082",
+                        "datavalue": {
+                            "value": "https://www.zdf.de/gesellschaft/markus-lanz/markus-lanz-vom-22-oktober-2024-100.html",
+                            "type": "string"
+                        },
+                        "datatype": "url"
+                        }
+                    ],
+                    "P813": [
+                        {
+                        "snaktype": "value",
+                        "property": "P813",
+                        "hash": "5fff68aa95492777d3c30f7fe6aad5907796ad0e",
+                        "datavalue": {
+                            "value": {
+                            "time": "+2025-02-10T00:00:00Z",
+                            "timezone": 0,
+                            "before": 0,
+                            "after": 0,
+                            "precision": 11,
+                            "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                            },
+                            "type": "time"
+                        },
+                        "datatype": "time"
+                        }
+                    ]
+                    },
+                    "snaks-order": [
+                    "P854",
+                    "P813"
+                    ]
+                }
+                ]
+            },
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P5030",
+                "hash": "4ae8dc728e8b4d8e91be64afb97c75a336d6cc65",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 122763481,
+                    "id": "Q122763481"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "qualifiers": {
+                "P1545": [
+                    {
+                    "snaktype": "value",
+                    "property": "P1545",
+                    "hash": "cbff8d4b3b7b35f905ef3147a7a6cb88845a774f",
+                    "datavalue": {
+                        "value": "4",
+                        "type": "string"
+                    },
+                    "datatype": "string"
+                    }
+                ]
+                },
+                "qualifiers-order": [
+                "P1545"
+                ],
+                "id": "Q130613896$96BC052E-3154-4F30-A558-0D21058D682E",
+                "rank": "normal",
+                "references": [
+                {
+                    "hash": "9905e1608b1631d2d3a9fc8b4aa36ad8a06d9079",
+                    "snaks": {
+                    "P854": [
+                        {
+                        "snaktype": "value",
+                        "property": "P854",
+                        "hash": "fcf4210132671529d558e7c1f4a81942f80a2082",
+                        "datavalue": {
+                            "value": "https://www.zdf.de/gesellschaft/markus-lanz/markus-lanz-vom-22-oktober-2024-100.html",
+                            "type": "string"
+                        },
+                        "datatype": "url"
+                        }
+                    ],
+                    "P813": [
+                        {
+                        "snaktype": "value",
+                        "property": "P813",
+                        "hash": "5fff68aa95492777d3c30f7fe6aad5907796ad0e",
+                        "datavalue": {
+                            "value": {
+                            "time": "+2025-02-10T00:00:00Z",
+                            "timezone": 0,
+                            "before": 0,
+                            "after": 0,
+                            "precision": 11,
+                            "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                            },
+                            "type": "time"
+                        },
+                        "datatype": "time"
+                        }
+                    ]
+                    },
+                    "snaks-order": [
+                    "P854",
+                    "P813"
+                    ]
+                }
+                ]
+            },
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P5030",
+                "hash": "176406cb129ed2e77a587cdbbd1492a9671fab19",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 99394172,
+                    "id": "Q99394172"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "qualifiers": {
+                "P1545": [
+                    {
+                    "snaktype": "value",
+                    "property": "P1545",
+                    "hash": "ea4583c18f699186700d21642b477a2dc1d345c8",
+                    "datavalue": {
+                        "value": "5",
+                        "type": "string"
+                    },
+                    "datatype": "string"
+                    }
+                ]
+                },
+                "qualifiers-order": [
+                "P1545"
+                ],
+                "id": "Q130613896$95984AAE-4DA8-4F33-94BD-D673191CC219",
+                "rank": "normal",
+                "references": [
+                {
+                    "hash": "9905e1608b1631d2d3a9fc8b4aa36ad8a06d9079",
+                    "snaks": {
+                    "P854": [
+                        {
+                        "snaktype": "value",
+                        "property": "P854",
+                        "hash": "fcf4210132671529d558e7c1f4a81942f80a2082",
+                        "datavalue": {
+                            "value": "https://www.zdf.de/gesellschaft/markus-lanz/markus-lanz-vom-22-oktober-2024-100.html",
+                            "type": "string"
+                        },
+                        "datatype": "url"
+                        }
+                    ],
+                    "P813": [
+                        {
+                        "snaktype": "value",
+                        "property": "P813",
+                        "hash": "5fff68aa95492777d3c30f7fe6aad5907796ad0e",
+                        "datavalue": {
+                            "value": {
+                            "time": "+2025-02-10T00:00:00Z",
+                            "timezone": 0,
+                            "before": 0,
+                            "after": 0,
+                            "precision": 11,
+                            "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                            },
+                            "type": "time"
+                        },
+                        "datatype": "time"
+                        }
+                    ]
+                    },
+                    "snaks-order": [
+                    "P854",
+                    "P813"
+                    ]
+                }
+                ]
+            },
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P5030",
+                "hash": "a52f116d99ef016279f8a75899255fd85f58d410",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 1697620,
+                    "id": "Q1697620"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "qualifiers": {
+                "P1545": [
+                    {
+                    "snaktype": "value",
+                    "property": "P1545",
+                    "hash": "32387bd293902a2430b5bb680033d36ecea00dd0",
+                    "datavalue": {
+                        "value": "6",
+                        "type": "string"
+                    },
+                    "datatype": "string"
+                    }
+                ]
+                },
+                "qualifiers-order": [
+                "P1545"
+                ],
+                "id": "Q130613896$F79C3D47-5153-4A40-BF70-9882E06CFA39",
+                "rank": "normal",
+                "references": [
+                {
+                    "hash": "9905e1608b1631d2d3a9fc8b4aa36ad8a06d9079",
+                    "snaks": {
+                    "P854": [
+                        {
+                        "snaktype": "value",
+                        "property": "P854",
+                        "hash": "fcf4210132671529d558e7c1f4a81942f80a2082",
+                        "datavalue": {
+                            "value": "https://www.zdf.de/gesellschaft/markus-lanz/markus-lanz-vom-22-oktober-2024-100.html",
+                            "type": "string"
+                        },
+                        "datatype": "url"
+                        }
+                    ],
+                    "P813": [
+                        {
+                        "snaktype": "value",
+                        "property": "P813",
+                        "hash": "5fff68aa95492777d3c30f7fe6aad5907796ad0e",
+                        "datavalue": {
+                            "value": {
+                            "time": "+2025-02-10T00:00:00Z",
+                            "timezone": 0,
+                            "before": 0,
+                            "after": 0,
+                            "precision": 11,
+                            "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                            },
+                            "type": "time"
+                        },
+                        "datatype": "time"
+                        }
+                    ]
+                    },
+                    "snaks-order": [
+                    "P854",
+                    "P813"
+                    ]
+                }
+                ]
+            },
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P5030",
+                "hash": "b8623e5ab2802cf20c079c536de297037bb8b89e",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 15435153,
+                    "id": "Q15435153"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "qualifiers": {
+                "P1545": [
+                    {
+                    "snaktype": "value",
+                    "property": "P1545",
+                    "hash": "9a4403310d2d27312d0a93830981a1e51b735843",
+                    "datavalue": {
+                        "value": "7",
+                        "type": "string"
+                    },
+                    "datatype": "string"
+                    }
+                ]
+                },
+                "qualifiers-order": [
+                "P1545"
+                ],
+                "id": "Q130613896$109B09CA-911A-4BA1-8251-3B35C6922998",
+                "rank": "normal",
+                "references": [
+                {
+                    "hash": "9905e1608b1631d2d3a9fc8b4aa36ad8a06d9079",
+                    "snaks": {
+                    "P854": [
+                        {
+                        "snaktype": "value",
+                        "property": "P854",
+                        "hash": "fcf4210132671529d558e7c1f4a81942f80a2082",
+                        "datavalue": {
+                            "value": "https://www.zdf.de/gesellschaft/markus-lanz/markus-lanz-vom-22-oktober-2024-100.html",
+                            "type": "string"
+                        },
+                        "datatype": "url"
+                        }
+                    ],
+                    "P813": [
+                        {
+                        "snaktype": "value",
+                        "property": "P813",
+                        "hash": "5fff68aa95492777d3c30f7fe6aad5907796ad0e",
+                        "datavalue": {
+                            "value": {
+                            "time": "+2025-02-10T00:00:00Z",
+                            "timezone": 0,
+                            "before": 0,
+                            "after": 0,
+                            "precision": 11,
+                            "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                            },
+                            "type": "time"
+                        },
+                        "datatype": "time"
+                        }
+                    ]
+                    },
+                    "snaks-order": [
+                    "P854",
+                    "P813"
+                    ]
+                }
+                ]
+            },
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P5030",
+                "hash": "9d0e9d93e4e73eef71cb41368a81e161762c456e",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 130613869,
+                    "id": "Q130613869"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "qualifiers": {
+                "P1545": [
+                    {
+                    "snaktype": "value",
+                    "property": "P1545",
+                    "hash": "94d4f77373c2051829a238495246b458b7737ef9",
+                    "datavalue": {
+                        "value": "8",
+                        "type": "string"
+                    },
+                    "datatype": "string"
+                    }
+                ]
+                },
+                "qualifiers-order": [
+                "P1545"
+                ],
+                "id": "Q130613896$C972179A-EBBB-4A1B-ABDD-E0F390846D25",
+                "rank": "normal",
+                "references": [
+                {
+                    "hash": "9905e1608b1631d2d3a9fc8b4aa36ad8a06d9079",
+                    "snaks": {
+                    "P854": [
+                        {
+                        "snaktype": "value",
+                        "property": "P854",
+                        "hash": "fcf4210132671529d558e7c1f4a81942f80a2082",
+                        "datavalue": {
+                            "value": "https://www.zdf.de/gesellschaft/markus-lanz/markus-lanz-vom-22-oktober-2024-100.html",
+                            "type": "string"
+                        },
+                        "datatype": "url"
+                        }
+                    ],
+                    "P813": [
+                        {
+                        "snaktype": "value",
+                        "property": "P813",
+                        "hash": "5fff68aa95492777d3c30f7fe6aad5907796ad0e",
+                        "datavalue": {
+                            "value": {
+                            "time": "+2025-02-10T00:00:00Z",
+                            "timezone": 0,
+                            "before": 0,
+                            "after": 0,
+                            "precision": 11,
+                            "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                            },
+                            "type": "time"
+                        },
+                        "datatype": "time"
+                        }
+                    ]
+                    },
+                    "snaks-order": [
+                    "P854",
+                    "P813"
+                    ]
+                }
+                ]
+            }
+            ],
+            "P449": [
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P449",
+                "hash": "53a5f090c03e98ff9074d966581f9857b48cd500",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 48989,
+                    "id": "Q48989"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "id": "Q130613896$C797123C-3B6C-4AC0-BBC3-AF4B3C03E429",
+                "rank": "normal"
+            }
+            ],
+            "P462": [
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P462",
+                "hash": "5ac56e40bdfa19d2450075f92f476554fac1a8aa",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 22006653,
+                    "id": "Q22006653"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "id": "Q130613896$34CA541A-9E9E-428D-B9E1-9C9EAEE212C3",
+                "rank": "normal"
+            }
+            ],
+            "P2047": [
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P2047",
+                "hash": "025ec71bf60de7fd4ce022255bfd925eb6fa5382",
+                "datavalue": {
+                    "value": {
+                    "amount": "+85",
+                    "unit": "http://www.wikidata.org/entity/Q7727",
+                    "upperBound": "+85",
+                    "lowerBound": "+85"
+                    },
+                    "type": "quantity"
+                },
+                "datatype": "quantity"
+                },
+                "type": "statement",
+                "id": "Q130613896$BCA073A4-C576-4D27-9147-7F76FC67C70B",
+                "rank": "normal"
+            },
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P2047",
+                "hash": "9c965a6a8fe2736b0370f5d1e912df40cb294358",
+                "datavalue": {
+                    "value": {
+                    "amount": "+84.3",
+                    "unit": "http://www.wikidata.org/entity/Q7727"
+                    },
+                    "type": "quantity"
+                },
+                "datatype": "quantity"
+                },
+                "type": "statement",
+                "id": "Q130613896$AB1ABC30-160F-42B9-BE7D-54F9E0965DB8",
+                "rank": "normal",
+                "references": [
+                {
+                    "hash": "9905e1608b1631d2d3a9fc8b4aa36ad8a06d9079",
+                    "snaks": {
+                    "P854": [
+                        {
+                        "snaktype": "value",
+                        "property": "P854",
+                        "hash": "fcf4210132671529d558e7c1f4a81942f80a2082",
+                        "datavalue": {
+                            "value": "https://www.zdf.de/gesellschaft/markus-lanz/markus-lanz-vom-22-oktober-2024-100.html",
+                            "type": "string"
+                        },
+                        "datatype": "url"
+                        }
+                    ],
+                    "P813": [
+                        {
+                        "snaktype": "value",
+                        "property": "P813",
+                        "hash": "5fff68aa95492777d3c30f7fe6aad5907796ad0e",
+                        "datavalue": {
+                            "value": {
+                            "time": "+2025-02-10T00:00:00Z",
+                            "timezone": 0,
+                            "before": 0,
+                            "after": 0,
+                            "precision": 11,
+                            "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                            },
+                            "type": "time"
+                        },
+                        "datatype": "time"
+                        }
+                    ]
+                    },
+                    "snaks-order": [
+                    "P854",
+                    "P813"
+                    ]
+                }
+                ]
+            }
+            ],
+            "P156": [
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P156",
+                "hash": "1109d02e5ab98064d4b74662f72680f807f33b2e",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 130637713,
+                    "id": "Q130637713"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "id": "Q130613896$d3bf2687-4430-8f46-ada7-c2f953998c6e",
+                "rank": "normal"
+            }
+            ],
+            "P345": [
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P345",
+                "hash": "d95ba1b0280117ec970c74c69b0990b453965f0c",
+                "datavalue": {
+                    "value": "tt34386690",
+                    "type": "string"
+                },
+                "datatype": "external-id"
+                },
+                "type": "statement",
+                "id": "Q130613896$670f0951-4c8a-590e-903d-24cdf262b467",
+                "rank": "normal"
+            }
+            ],
+            "P155": [
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P155",
+                "hash": "b82671f49034586f0b1d5755ad2eff60615ea5ec",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 132193426,
+                    "id": "Q132193426"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "id": "Q130613896$C3ADA2B9-E7BA-4641-8D03-F86E4CA34F3E",
+                "rank": "normal"
+            }
+            ],
+            "P291": [
+            {
+                "mainsnak": {
+                "snaktype": "value",
+                "property": "P291",
+                "hash": "a15ed95482d52eea03d59e098dae9e31dafef9bd",
+                "datavalue": {
+                    "value": {
+                    "entity-type": "item",
+                    "numeric-id": 183,
+                    "id": "Q183"
+                    },
+                    "type": "wikibase-entityid"
+                },
+                "datatype": "wikibase-item"
+                },
+                "type": "statement",
+                "id": "Q130613896$65E04A4B-55DC-4A04-A1B1-6D1255AA63D1",
+                "rank": "normal"
+            }
+            ]
+        }
+    }
+}
