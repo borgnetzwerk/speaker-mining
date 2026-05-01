@@ -12,7 +12,7 @@ Tasks are ordered by dependency — foundation first, visualization last.
 ## TASK-B19 — Setup Config Files for Human Specification
 
 **Priority:** Immediate — prerequisite for TASK-B01, TASK-B04, TASK-B14  
-**Status:** Open  
+**Status:** Completed  
 **Requirements:** REQ-C01, REQ-H04, REQ-H06, REQ-V03
 
 Create the following configuration files in `data/00_setup/`, following the existing CSV pattern (see `core_classes.csv`, `properties.csv` for format reference):
@@ -31,7 +31,7 @@ All files must be human-editable without code changes. Code reads from them on e
 ## TASK-B01 — Color Registry
 
 **Priority:** Immediate — prerequisite for all visualization tasks  
-**Status:** Open  
+**Status:** Completed  
 **Requirements:** REQ-V01, REQ-V02, REQ-V03, REQ-I09  
 **Depends on:** TASK-B19
 
@@ -142,7 +142,7 @@ These helpers must be imported by every visualization cell; no inline re-impleme
 ## TASK-B09 — Universal Visualizations (appearances + unique)
 
 **Priority:** Immediate  
-**Status:** Open  
+**Status:** Partial — `viz_universal.py` created with `universal_visualizations()` and `make_universal_chart()`. Notebook cell 28 rewritten to call it via a loop. Missing: full ColorRegistry integration per QID (currently uses palette cycling, not per-value registry lookup); missing: PDF output (save_fig currently saves PNG only via Plotly).  
 **Requirements:** REQ-U07  
 **Depends on:** TASK-B08
 
@@ -327,7 +327,7 @@ For each scope (per show + combined):
 ## TASK-B25 — Define Extended Color Palette and Update Visualization Principles
 
 **Priority:** Immediate — prerequisite for TASK-B01  
-**Status:** Open  
+**Status:** Completed  
 **Requirements:** REQ-V01, REQ-V02, REQ-V03, REQ-V14  
 **Depends on:** TASK-B19
 
@@ -369,6 +369,31 @@ For each scope, produce a property coverage dashboard:
 3. Produce horizontal bar chart sorted by `pct_with_value` descending, bars colored by property type
 
 Implemented in `viz_coverage.py`. Output under `meta/`.
+
+---
+
+## TASK-B28 — Temporal Claim Handling: Qualify Analysis by Claim-Level Temporality
+
+**Priority:** High — correctness issue affecting all temporal properties (P102 party, P108 employer, P39 position)  
+**Status:** Open  
+**Requirements:** REQ-P01, REQ-P02
+
+Correct the conceptual error where temporality is treated as a property-level attribute rather than a claim-level attribute.
+
+**Design rule (canonical):** A property is never inherently "temporal" or "non-temporal." Individual *claims* may carry temporal qualifiers (P580 start time, P582 end time). Code must evaluate each claim row individually: does this specific (subject, predicate, object) triple have a P580 or P582 qualifier?
+
+**Impact areas:**
+1. `config.py` — `temporal_variable` column and related logic: deprecated. `normalize_analysis_properties` must not set or use this flag. `infer_temporal_properties_from_values` retained as a diagnostic only.
+2. `property_extraction.py` — `extract_item_values` already captures `qualifier_pids` per statement; use this to mark individual rows as temporal rather than flagging the whole property DataFrame.
+3. `analysis_properties.csv` — remove the `temporal_variable` column (or keep for human notes only, never read by code).
+4. `universal_stats.py` — carrier stats and episode stats must accept an optional `effective_at` parameter to filter claims to those valid at a given date (using P580 ≤ date ≤ P582).
+5. Notebook cells computing occupation/party/employer distributions should optionally filter to currently-valid claims only.
+
+**Concrete steps:**
+1. Add a boolean column `is_temporal` to the per-property DataFrames produced by `extract_item_values` — True when `qualifier_pids` contains P580 or P582.
+2. Add an `effective_at` filter to `compute_carrier_stats` (optional; when None, use all claims regardless of temporality).
+3. Remove `temporal_variable` column from `analysis_properties.csv`; update `load_analysis_properties` to not expect it.
+4. Update all downstream uses.
 
 ---
 
@@ -418,4 +443,5 @@ TASK-B26 (cross-show comparison viz)    ← depends on B05, B08
 TASK-B27 (property coverage dashboard)  ← independent, can run in parallel
   ↓
 TASK-B18 (html/pdf links)       ← lowest priority
+TASK-B28 (temporal claim handling) ← correctness fix, high priority
 ```

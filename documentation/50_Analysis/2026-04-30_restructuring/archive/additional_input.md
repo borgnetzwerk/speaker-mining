@@ -425,3 +425,58 @@ Is episode duration (runtime) available in the current pipeline data? If so, whi
 - Or marked as optional (included if data present, skipped if absent)?
   * **Clarification:** We have all this data on virtually every episode, it should be available. This can remain optional (and then keep an "unknown" just as with everything else), but generally, for every episode we mined from ZDF Archiv / Fernsehserien.de / Wikidata, we should have this information.
     * **Clarification:** On that note: Very good point on ZDF Archiv / Fernsehserien.de / Wikidata: We should have a dedicated segment of visualizations just comparing what we were able to retrieve from those sources. Examples include, but are not limited to: Which Episodes were on which platforms? We need a clever visualization to show what individual episode was retrieved from which (combination of) source(s), and for a large number of episodes. We also need to be able to highlight where some episodes had missing data, e.g. we know that a segment of Fernsehserien.de was missing the guest metadata of some episodes which only ZDF Archiv could then provide. This analysis is very vital and fits into our meta-level analysis.
+
+
+---
+
+## Additional Input (2026-05-01 — batch 2)
+
+## Broken code
+We ran the notebook `speakermining/src/process/notebooks/50_analysis.ipynb` cell by cell, and while some aspects look much more like the redesign now, plenty are still broken, likely referencing deprecated concepts.
+Inspect and fix all Errors.
+
+## Visualization approach now more structured, yet still wrong
+We currently only producd our first visualization (01_gender_persons), yet it is wrong in almost every conceivable way:
+
+### Missing data
+Currently, we present:
+4840 unknown / no data
+570 männlich
+328 weiblich
+
+In v0 before the redesign, we had identified the following:
+
+    Gender distribution of talk show guests (by unique person)n=5,738 canonical guests · all shows combined · Wikidata P21
+
+    n=3,527 (61.5%) männlich
+    n=2,088 (36.4%) weiblich
+    n=4 (0.1%) nichtbinär
+    n=2 (0.0%) Transfrau
+    n=1 (0.0%) Agender
+    n=1 (0.0%) Transmann
+    n=115 (2.0%) (unknown)
+
+Apparently, we have lost access to 4725 instances of guests. We must identify where we lost data access capabilities between V0 and the restructuring.
+
+### Visual
+* No labels
+* No different colors
+* Just a bar chart (multiple clarifications added to the desgin there)
+
+We have extensively established our design specifications in additonal input, in requriements, in design, coding principles and visualization principles - we must follow them.
+
+
+### Wrong behaviour
+If we call them "## 13. Universal Visualizations (TASK-B09)", then we should not have to call each of them individually. We should just be able to say: universal_visualizations(list_of_alll_properties) and it should generate all visualizations for all properties, all following the same rules. That is the entire point of the restructuring: Establish one structure once, classify everything acordingly, and then process anything exactly through these predefined pipelines.
+
+Think of it like this: 
+* If we add a new property to `data\00_setup\analysis_properties.csv`, the analysis must adapt to it. Thus: we must not hard-code any specific property analysis. We load `data\00_setup\analysis_properties.csv`, categorize the properties to be analyzed, and then work through the list. No property specific hardcoding. This is the entire point of the restructuring.
+
+We have extensively established our design specifications in additonal input, in requriements, in design, coding principles and visualization principles - we must follow them.
+
+
+### Temporal variables wrongly handled
+If a property is or is not a temporal_variable is not uniform: it must be decided instance by instance. One person may have the same property value for their entire life, one other may just not have their temporal start/end date specified. We cannot say "property X is temporal", we must say "specific claim X involving subject,predicat,object is only true temporal from start X to end Y". We may know nothing about the temporal property, or just the start date, or just the end date, or both. We must evaluate, capture and analyze claim by claim.
+
+Very likely, every single mention of `temporal_variable` throughout this repository is under the false assumption that properties are either temporal or not temporal.
+Correct would be: Claims may be temporal.

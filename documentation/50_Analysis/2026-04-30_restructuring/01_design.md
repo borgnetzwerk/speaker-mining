@@ -409,6 +409,8 @@ Every visualization must call these helpers before `save_fig()`:
 For each property and scope, produce two charts:
 - **Total appearances bar chart:** horizontal bar, Y = property value label, X = `appearance_count`, sorted descending; "Unknown" gray at bottom; top-N + "other" if crowded
 - **Unique individuals bar chart:** same layout, X = `person_count`
+  * **Clarification:** Those two charts should be able to be merged in one. A grouped bar chart should do fine, potentially with two different scales for the x axis (since there will generaly be much more appearances than unique individuals)
+    * **Clarification:** generally, we must be on the lookout for different very basic visualizations that make more sense when merged into one visualization.
 
 Both charts draw colors from the registry. Label each bar with the count (inside if ≥50% of max bar width, outside otherwise).
 

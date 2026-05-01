@@ -248,6 +248,7 @@ Any Item property whose value may change over a person's lifetime is a temporall
 **Required caveats:** for any property marked as temporally variable, every visualization and table for that property must display a clearly visible note: *"Snapshot: reflects current Wikidata value, not necessarily the value at time of appearance."*
 
 **Config flag:** `properties.csv` must include a `temporal_variable` column (0/1). When set to 1, the extraction layer (Layer 1b) may optionally use start/end date qualifiers to restrict values to those valid at episode date (`start ≤ episode_date ≤ end`, or end absent). Snapshot remains the default regardless; the flag enables the caveat display and unlocks temporal filtering as an opt-in.
+  * **Clarification:** If a property is or is not a temporal_variable is not uniform: it must be decided instance by instance. One person may have the same property value for their entire life, one other may just not have their temporal start/end date specified. We cannot say "property X is temporal", we must say "specific claim X involving subject,predicat,object is only true temporal from start X to end Y". We may know nothing about the temporal property, or just the start date, or just the end date, or both. We must evaluate, capture and analyze claim by claim.
 
 **Seed values:** member of political party (P102), position held (P39), employer (P108) are the initial known temporally variable properties and must be seeded with `temporal_variable=1` in `properties.csv`. They are examples, not an exhaustive list.
 

@@ -24,11 +24,14 @@ PALETTE = {
     "purple":    "#CC79A7",  # primary categorical color 6
     "yellow":    "#F0E442",  # primary categorical color 7
     "black":     "#000000",  # primary categorical color 8
-    "gray":      "#999999",  # always used for "Unknown" / "Other"
+    "gray":      "#999999",  # reserved for "Unknown"
+    "other":     "#CCCCCC",  # reserved for "Other"
 }
 ```
 
-**Universal assignment order**: assign palette colors by categorical sequence — `blue` first, `orange` second, `green` third, and so on. `gray` is always reserved for "Unknown" / "Other" / "neutral". Never assign semantic meanings inline; put any semantic mappings in the [Use-Case-Specific Mappings](#use-case-specific-mappings) section at the bottom of this document.
+**Extended palette**: for analysis notebooks that need more than the 8 Okabe-Ito seed colors, extend the dynamic assignment palette to 12–16 total colorblind-safe colors by appending additional distinct hues after the seed set. The current project palette uses these additional colors: `#44AA99`, `#88CCEE`, `#DDCC77`, `#AA4499`.
+
+**Universal assignment order**: assign palette colors by categorical sequence — `blue` first, `orange` second, `green` third, and so on. `gray` is always reserved for "Unknown" / missing data and `other` is reserved for aggregated "Other" buckets. Never assign semantic meanings inline; put any semantic mappings in the [Use-Case-Specific Mappings](#use-case-specific-mappings) section at the bottom of this document. When a seeded semantic color collides with the dynamic palette, remove the colliding palette entry before assigning colors to unseeded QIDs.
 
 **Rule**: never use `red` and `green` as a contrasting pair.
 

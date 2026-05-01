@@ -20,6 +20,12 @@ Fresh-start redesign of the analysis and visualization layer. See `00_plan.md` f
 
 ---
 
+## Implementation Progress
+
+- `data/00_setup/analysis_properties.csv`, `loop_resolution.csv`, `midlevel_classes.csv`, and `party_colors.csv` are in place as human-editable config files.
+- `speakermining/src/analysis/{config,color_registry,viz_base,__init__}.py` now provides the shared analysis foundation, including runtime temporal inference and deterministic QID color assignment.
+- `documentation/visualizations/visualization-principles.md` has been extended to reflect the current palette rules and reserved colors.
+
 ## Phase Status
 
 | Phase | Goal | Status |
