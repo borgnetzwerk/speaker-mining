@@ -8,7 +8,7 @@ Generally, the approach will now be:
 
 Keep in mind that the data under `data/31_entity_disambiguation/raw_import` has the advantage that it is not affected by all the current issues of v4, but still has the downsides of v3 (e.g. core roles is empty because roles are classes and v3 was not yet able to handle that.)
 
-**Note on entity access (F25):** `entity_access.py` implements `get_cached_entity_doc`, `ensure_basic_fetch`, and `load_core_entities` — sufficient for Phase 5 property retrieval. The `00_immutable_input.md` contains a clarification requesting a future `all_outlink_fetch` function (full property retrieval without inlinks, for manually reconciled QIDs that fail the full_fetch exclusion check). This is not needed for Phase 5 and is deferred post-deadline.
+**Note on entity access (F25):** `entity_access.py` implements `get_cached_entity_doc`, `ensure_basic_fetch`, `all_outlink_fetch`, and `load_core_entities`. For Phase 5 property retrieval (P21, P106, P102, P108, P569, P19), `all_outlink_fetch` is the required tier — it is cache-first and fetches full entity claims on a cache miss without triggering inlinks expansion. `ensure_basic_fetch` retrieves only labels + P31/P279 and must not be used as a property source. `all_outlink_fetch` was specified in `00_immutable_input.md` and is implemented as of 2026-04-30. Only access Wikidata through Phase 2 `entity_access.py` functions — never call `full_fetch.full_fetch()` directly from Phase 5 code.
 
 See also open Tasks:
 

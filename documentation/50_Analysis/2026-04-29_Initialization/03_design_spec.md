@@ -65,10 +65,10 @@ All analyses in Step C default to the `guest` population. Other role sets are re
 ### 2.2 Guest classification
 A person counts as a **guest** for a given episode if their row in `reconciled_data_summary.csv` has `entity_class == "person"` and the `fernsehserien_de_id` episode URL links to a relevant broadcasting program (those in `data/00_setup/broadcasting_programs.csv` — authoritative source for in-scope shows).
 
-Topic-mentioned persons (TODO-040 risk: Elon Musk type) are identified by tracing `alignment_unit_id` back to `episode_guests_normalized.csv` and checking `guest_role`. If `guest_role == "Gast"` (or equivalent), the person is a guest. If the only source is `pm_*` mention IDs with no Fernsehserien guest link, classify as `incidental`.  
+Topic-mentioned persons (TODO-040 risk) are identified by tracing `alignment_unit_id` back to `episode_guests_normalized.csv` and checking `guest_role`. If `guest_role == "Gast"` (or equivalent), the person is a guest. If the only source is `pm_*` mention IDs with no Fernsehserien guest link, classify as `incidental`.  
 **Note:** `incidental` mentions are retained and analyzable as a separate set.
 
-**Before proceeding:** Verify Elon Musk and sample 20 entries (TODO-040). If systematic misclassification found, raise blocking issue.
+**Before proceeding:** Sample the `person_catalogue_unclassified.csv` output (TODO-040). If systematic misclassification found, raise blocking issue.
 
 ---
 
@@ -82,13 +82,13 @@ Topic-mentioned persons (TODO-040 risk: Elon Musk type) are identified by tracin
 1. Load `dedup_persons.csv` → base catalogue (8,998 rows)
 2. Survey distinct `guest_role` values in `episode_guests_normalized.csv`; build role mapping per §2.1; tag each row accordingly; apply `MODERATOR_QIDS` override for rows with missing role data
 3. Count appearances per `canonical_entity_id` from `reconciled_data_summary.csv` → `appearance_count`
-4. For rows with `wikidata_id`: load claims from `core_persons.json`; for missing QIDs call `ensure_basic_fetch`
+4. For rows with `wikidata_id`: load claims from `core_persons.json`; for missing QIDs call `entity_access.all_outlink_fetch(qid, repo_root)` — full claims, cache-first, no inlinks expansion
 5. Extract P21 (gender), P106 (occupation), P102 (party), P108 (employer), P569 (birth date → `birthyear`), P19 (place of birth → `birthplace`/`birthplace_qid`) from claims (time-sensitive filter: deferred per TODO-041)
 6. Persons without `wikidata_id`: all Wikidata-derived columns `= ""`; still present with `canonical_label` and `appearance_count`
 
 **Also output:**
 - `data/40_analysis/guest_catalogue_unmatched.csv` — same columns, restricted to rows where `wikidata_id == ""`
-- `data/40_analysis/person_catalogue_unclassified.csv` — same columns, restricted to persons with `appearance_count == 0` after the episode join (no match in any source). These are persons that entered the catalogue via early Wikidata discovery but were never linked to an actual episode. This list is the expected resting place for topic-mentioned QIDs (e.g. Elon Musk) that were never physically present as guests.
+- `data/40_analysis/person_catalogue_unclassified.csv` — same columns, restricted to persons with `appearance_count == 0` after the episode join (no match in any source). These are persons that entered the catalogue via early Wikidata discovery but were never linked to an actual episode. This list is the expected resting place for topic-mentioned persons that were never physically present as guests.
 
 ---
 
@@ -199,7 +199,7 @@ One notebook: `speakermining/src/process/notebooks/50_analysis.ipynb`
 Cells in order:
 1. Imports and path setup
 2. **Setup:** Load `data/00_setup/broadcasting_programs.csv`; survey distinct `guest_role` values in `episode_guests_normalized.csv`; build role mapping; define `MODERATOR_QIDS` override
-3. **Audit:** TODO-040 guest classification check (Elon Musk trace + sample)
+3. **Audit:** TODO-040 guest classification check (unclassified person sample + verification)
 4. **Step A:** Build person catalogue (with role tagging)
 5. **Step B:** Build occurrence matrix + derivatives + completeness check
 6. **Step C1–C2:** Gender distributions + temporal
@@ -215,5 +215,5 @@ Each cell prints intermediate counts so results are visible without running the 
 
 ## 6. Open Clarifications
 
-1. **Guest classification audit — Elon Musk case (TODO-040):** Musk was carried forward from an early Wikidata discovery run and is not matched to any episode in any of the three sources (Wikidata episodes, ZDF PDFs, Fernsehserien.de). If role classification is correctly implemented, he must appear in `person_catalogue_unclassified.csv` — not in the guest catalogue. The audit after running Step A: verify Musk is in the unclassified list. If he is in the guest list, the classification logic has a defect. This is a correctness check for the overall system, not a Musk-specific concern.
+1. **Guest classification audit (TODO-040):** Some persons entered via Wikidata discovery and are not matched to any episode in any of the three sources (Wikidata episodes, ZDF PDFs, Fernsehserien.de). If role classification is correctly implemented, they must appear in `person_catalogue_unclassified.csv` — not in the guest catalogue. The audit after running Step A: sample the unclassified list, verify entries are genuinely unmatched. If systematic misclassification is found, the classification logic has a defect affecting all statistics. This is a systemic correctness check.
 2. **Fernsehserien person ID (TODO-045):** The `fernsehserien_de_id` column in `reconciled_data_summary.csv` contains episode URLs, not person slugs (data quality issue from Phase 3). The Step B join is correct as written. The person's fernsehserien_de_id slug can be extracted from Fernsehserien source data during Step A property fetch — the slug IS the fernsehserien_de_id; no URL construction needed. The historical column mis-assignment in aligned files is deferred post-deadline.

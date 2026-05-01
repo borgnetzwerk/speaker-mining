@@ -13,9 +13,9 @@ The `00_immutable_input.md` is to be kept verbatim and unchanged. Downstream doc
 
 ---
 
-## Current State (2026-04-29)
+## Current State (2026-04-30)
 
-**Step completed:** Design specification — ready for implementation.
+**Step completed:** Full notebook run successful; TASK-A06 resolved; TASK-A07–A11 defined; output rewiring and dataset prep in progress.
 
 | File | Status | Purpose |
 |------|--------|---------|
@@ -24,21 +24,17 @@ The `00_immutable_input.md` is to be kept verbatim and unchanged. Downstream doc
 | `02_open_tasks_triage.md` | ✅ Done | All open tasks categorized: immediate / deferred / time-permitting; data access strategy |
 | `03_design_spec.md` | ✅ Done | Full analysis design: data model, role separation, Steps A–D, notebook structure |
 | `04_analysis_angle_structure.md` | ✅ Done | Property type taxonomy, generic function signatures (F1–F5), mapping C1–C8 to functions |
-| `open-tasks.md` | 🔄 Active | Analysis-specific tasks: TASK-A01 (resolved), TASK-A02 through TASK-A05 |
+| `05_implementation_context.md` | ✅ Done | Data source decisions, join strategy, role taxonomy, property fetch coverage, run findings |
+| `open-tasks.md` | 🔄 Active | TASK-A01/A06/A07/A08 resolved; TASK-A02–A05/A09–A11 open |
 
-**Next step:** Resolve TODO-040 (guest classification audit), then implement `50_analysis.ipynb` cell by cell per `03_design_spec.md` and `04_analysis_angle_structure.md`.
+**Next step:** Re-run `50_analysis.ipynb` (now 27 cells). Cell 5b fetches missing Wikidata data (~15 min first run). Cell 22b copies reference data to `reference/`. Verify all outputs land in `data/50_analysis/` with correct subdirectory structure.
 
-**Immediate blockers before first analysis output:**
-1. **TODO-019** — Build complete person catalogue from `reconciled_data_summary.csv` (see `03_design_spec.md` Step A)
-2. **TODO-039** — Role-based classification: data-driven via `guest_role` field; no person is dropped, only sorted. When Markus Lanz appears as a guest on another show, he is a guest there. See `03_design_spec.md` §2.1.
-3. **TODO-040** — Guest classification audit (Elon Musk case) — see explanation below
-4. **TODO-027** — Verify mention_category propagation; approach: compare IDs across files; audit the difference
-
-**TODO-040 explained — Guest classification audit:**  
-Fernsehserien.de and ZDF source data capture two distinct types of person mentions: (a) persons who **physically appeared** as guests, and (b) persons who were **discussed as topics** (e.g. "Trump's policies" discussed without Trump being present). Both types can end up in the person records after Phase 1 and 3.
-
-Elon Musk is the canonical test case: he was carried forward from an early Wikidata discovery run and is **not matched to any episode** in any of the three sources (Wikidata episodes, ZDF PDFs, Fernsehserien.de). He should never appear in the guest catalogue.
-
-Step A produces a `person_catalogue_unclassified.csv` — persons with no episode match in any source. If the classification logic is correct, Musk appears there, not in the guest list. The audit is: run Step A, check which list he is in. If he is in the guest list, the classification has a defect affecting all statistics.
-
-The broader check: take a random sample of 20 entries from the unclassified list and verify they are all genuinely unmatched (not missed guests). If systematic misclassification is found in either direction, raise a blocker.
+**Post-full-run status (2026-04-30):**
+- ✅ TASK-A06 resolved: `all_outlink_fetch` implemented in `entity_access.py`; notebook cell 5b fetches ~4,464 missing QIDs (~15 min first run); `begin_request_context` / `end_request_context` correctly wired; confirmed running successfully.
+- ✅ TODO-040 audit passed: all 3,238 unclassified persons have `role=incidental`, `appearance_count=0`. No systematic misclassification.
+- ✅ TODO-027 completeness check ran: 6,011 pairs in reconciled not matched in episode_guests (name-join gap); 7,731 in episode_guests not in reconciled (unreconciled Fernsehserien persons). Both are acceptable gaps.
+- ✅ Role distribution: 5,738 guests, 3,238 incidental, 17 moderators, 5 staff.
+- ✅ Occupation/party Cartesian-product bug fixed in `gen_50_analysis.py` (zip-before-explode pattern).
+- ℹ Phoenix Runde: no episode data in `episode_metadata_normalized.csv` — data gap from Phase 1, not a notebook bug. See `05_implementation_context.md` §5.
+- ✅ TASK-A07 resolved: all outputs now go to `data/50_analysis/all/`, `persons/`, per-show `<show_id>/`.
+- ✅ TASK-A08 resolved: notebook cell 22b copies non-human reference data to `reference/`; person catalogue isolated in `persons/`.

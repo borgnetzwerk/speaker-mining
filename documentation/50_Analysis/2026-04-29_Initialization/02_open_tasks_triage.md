@@ -53,9 +53,9 @@ Before triaging tasks, a map of what exists on disk and is immediately usable.
 - **Why now:** Persons in non-guest roles (moderators, production staff, editorial staff) will skew all guest statistics if not separated. Must be classified before any result is produced.
 - **Action:** Implement data-driven role detection via `guest_role` field in `episode_guests_normalized.csv`. Survey all distinct `guest_role` values; map each to `guest`, `moderator`, `staff`, or `incidental`. A person is a moderator for a show if they appear in that show's episodes with role "Moderation" — not globally excluded. When Markus Lanz appears as a guest in another show, he is classified `guest` for that episode. `MODERATOR_QIDS` is an override for edge cases only. See `03_design_spec.md` §2.1 for the full role separation spec.
 
-#### TODO-040 — Audit guest classification (Elon Musk case)
+#### TODO-040 — Audit guest classification (unclassified person check)
 - **Why now:** If topic-mentioned persons are systematically in the guest catalogue, every distribution chart is wrong. This must be checked before publishing any result.
-- **Action:** Trace Elon Musk (check for his QID in catalogue), trace back to Phase 1 source row. Take a random sample of 20 entries and verify. Document verdict. If systematic misclassification is found, raise a blocker before proceeding with analysis.
+- **Action:** After Step A, sample the `person_catalogue_unclassified.csv` output (20 random entries). Verify they are genuinely unmatched persons, not missed guests. If systematic misclassification is found in either direction, raise a blocker before proceeding with analysis.
 
 #### TODO-027 — Propagate mention_category (guest vs. incidental)
 - **Why now:** Phase 5 analysis should operate only on guests, not on incidentally mentioned persons. The analysis design in `00_immutable_input.md` explicitly distinguishes guest instances from other mentions.
@@ -120,4 +120,4 @@ For Phase 5, data is loaded in priority order:
 3. **`data/31_entity_disambiguation/raw_import/`** — episode metadata, broadcast dates, guest-episode links (v3 data, stable, unaffected by v4 issues)
 4. **`entity_access.get_cached_entity_doc(qid, repo_root)`** — runtime supplementation for QIDs not covered by the above
 
-When `core_persons.json` is missing a QID that appears in `reconciled_data_summary.csv`, call `entity_access.ensure_basic_fetch(qid, repo_root)` to retrieve at minimum labels and P31/P106/P21 claims.
+When `core_persons.json` is missing a QID that appears in `reconciled_data_summary.csv`, call `entity_access.all_outlink_fetch(qid, repo_root)` to retrieve full claims (P21, P106, P102, P108, P569, P19, etc.). `ensure_basic_fetch` retrieves only labels + P31/P279 and is insufficient for property analysis.

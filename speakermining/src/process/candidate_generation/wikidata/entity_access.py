@@ -1,6 +1,6 @@
 """Public entity access API for downstream phases (Phase 5+).
 
-Three access tiers match the interface contract documented in F25:
+Access tiers (F25 interface contract):
 
   get_cached_entity_doc(qid, repo_root)
       Returns the best available raw Wikidata entity document from the event log
@@ -9,25 +9,41 @@ Three access tiers match the interface contract documented in F25:
 
   ensure_basic_fetch(qid, repo_root, languages)
       Cache hit → same as get_cached_entity_doc.  Miss → issues a network call,
-      stores the result in the event log cache, then returns the doc.  Returns
-      None only if the network call fails or the QID doesn't exist on Wikidata.
+      stores the result in the event log cache, then returns the doc.  Retrieves
+      labels + P31/P279 only — NOT sufficient for property analysis (P21, P106,
+      P102, P108, P569, P19).  Use all_outlink_fetch for those.
+
+  all_outlink_fetch(qid, repo_root, languages)
+      Cache hit → same as get_cached_entity_doc.  Miss → fetches the entity's
+      full claims from Wikidata (all outlink properties: P21, P106, P102, P108,
+      P569, P19, etc.) and stores the result in the event log cache.  Does NOT
+      trigger inlinks expansion or recursive graph traversal.  This is the
+      correct tier for Phase 5 property retrieval over manually reconciled QIDs.
+      Requires an active request context (begin_request_context must be called
+      before any batch that may trigger network calls).
 
   load_core_entities(repo_root, class_filename)
       Reads a core_<class_filename>.json handover file from the projections
       directory and returns it as {QID: entity_doc}.  Returns {} if the file is
       missing or empty.
 
-NOTE — full_fetch without inlinks (all_outlink_fetch):
-      This third tier (for manually curated QIDs that need a richer fetch than
-      basic_fetch but should not trigger the full inlinks expansion) is deferred
-      to post-deadline (post 2026-05-03).  Until then, callers that need more
-      than basic_fetch data should use the existing full_fetch.full_fetch()
-      directly or wait for the dedicated function.
+Request context (required before network calls):
+
+  begin_request_context(budget_remaining, query_delay_seconds, ...)
+      Initialize the Phase 2 network guardrail before a batch of all_outlink_fetch
+      calls that may hit the network.  budget_remaining=-1 means unlimited.
+      query_delay_seconds controls the minimum inter-request delay.
+
+  end_request_context() -> int
+      Tear down the request context.  Returns the number of network requests
+      consumed.  Always call this in a finally block after begin_request_context.
 """
 from __future__ import annotations
 
 import json
 from pathlib import Path
+
+from .cache import begin_request_context, end_request_context  # noqa: F401 — re-exported for Phase 5 callers
 
 
 def get_cached_entity_doc(qid: str, repo_root: Path) -> dict | None:
@@ -83,6 +99,40 @@ def ensure_basic_fetch(
     # basic_fetch_batch returns {label, p31_qids, p279_qids, source}; the raw doc
     # is now in the event log cache — retrieve it via the standard path.
     return get_cached_entity_doc(qid, repo_root)
+
+
+def all_outlink_fetch(
+    qid: str,
+    repo_root: Path,
+    *,
+    languages: list[str] | None = None,
+) -> dict | None:
+    """Return full entity doc for qid, fetching all outlink claims if not cached.
+
+    Cache-first: returns immediately if a full entity doc already exists in the
+    event log.  On cache miss, fetches the entity's complete claims from Wikidata
+    (P21, P106, P102, P108, P569, P19, and all other outlink properties) via one
+    HTTP request and stores the result in the event log cache.
+
+    Does NOT trigger inlinks expansion or recursive entity graph traversal.
+    This is the correct tier for Phase 5 property retrieval over manually
+    reconciled QIDs that were not covered by the Phase 2 hydration run.
+    Callers should never call full_fetch.full_fetch() directly — use this
+    function instead.
+
+    Returns:
+        Entity doc dict with full claims, or None if not found / fetch failed.
+    """
+    from .full_fetch import full_fetch as _full_fetch
+    from .common import canonical_qid as _cqid
+
+    qid = _cqid(str(qid or ""))
+    if not qid:
+        return None
+    cached = get_cached_entity_doc(qid, repo_root)
+    if cached is not None:
+        return cached
+    return _full_fetch(qid, repo_root=Path(repo_root), depth=0, languages=languages)
 
 
 def load_core_entities(repo_root: Path, class_filename: str) -> dict[str, dict]:

@@ -174,13 +174,39 @@ Derived insights from this table:
 
 ---
 
-## 6. Extension Guide
+## 6. Visualization Mapping
+    * **Clarification:** Every analysis type may have any number of visualization - there is no need to limit to an arbitrary number of two. 
+
+Every analysis function type (F1–F5) maps to one or more standard chart types from `documentation/visualizations/visualization-principles.md`. This table is the single source of truth for which visualization belongs to which analysis.
+
+| Analysis function | Primary chart type | Secondary chart type | Notes |
+|---|---|---|---|
+| F1 — Distribution | Horizontal bar chart (sort desc) | Grouped bar (by show side-by-side) | `gray` for Unknown/Other; annotate n=; see viz-principles §Bar Charts |
+| F2 — Over time | Line chart (value × year, one line per property value) | Stacked area | One line per gender/category; see viz-principles §Histograms |
+| F3 — Cross-tabulation | Grouped bar chart | Centered stacked bar (when one axis is binary) | Binary pairs (gender×occ): use centered stacked bar; non-binary: grouped bar |
+| F4 — Continuous distribution | Histogram with configurable bins | Violin or box plot alongside | Default 10-year bins for age; annotate n=; see viz-principles §Histograms |
+| F5 — Hierarchy | Sunburst (primary) + Sankey (secondary) | Tree view (tertiary) | Multi-parent strategy must be documented; 5% Other cutoff on combined; see viz-principles §Sunburst |
+| Page rank | Node graph (only) | — | Node size ∝ rank score; label top-N nodes (configurable); never bar chart; see viz-principles §Node Graphs |
+
+**Chart type decision rules:**
+- F1 with > 2 values → horizontal bar chart
+- F3 where one axis is binary (e.g. gender) → centered stacked bar chart (left/right split)
+- F3 where both axes are multi-value → grouped bar chart (top-N × top-M)
+- F4 data → histogram first; add violin/box alongside for richer summary
+- F5 hierarchy → sunburst is the required primary; Sankey and tree are optional
+
+**Export rule** (from viz-principles §3): every chart must export PNG + PDF. HTML is optional. Output path: `data/50_analysis/all/visualizations/<analysis>.<ext>` for combined; `data/50_analysis/<show_id>/visualizations/` for per-show.
+
+---
+
+## 7. Extension Guide
 
 To add a new analysis:
 1. Identify the property type (A / B / C / D) for each axis
 2. Select the matching function type (F1–F5) or combine two
 3. Call the generic function with the appropriate parameters
 4. Document in §3 mapping table above
-5. Add output file to `03_design_spec.md` §4 output files table
+5. Select the corresponding chart type(s) from §6 visualization mapping
+6. Add output file to `03_design_spec.md` §4 output files table
 
-New property types or visualization types that do not fit F1–F5 should be added to §2 of this document before implementation.
+New property types or visualization types that do not fit F1–F5 should be added to §2 and §6 of this document before implementation.
