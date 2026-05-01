@@ -229,3 +229,4 @@ documentation/visualizations/*
 # Ignore for now
 speakermining/src/process/candidate_generation/INSTITUTION_EXTRACTION_DEFERRED.md
 speakermining/src/process/candidate_generation/institution_extraction_deferred.py
+speakermining/src/process/notebooks/*.py
