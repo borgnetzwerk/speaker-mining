@@ -140,6 +140,43 @@ Policy for this file:
 - 2026-04-30 TASK-B15, TASK-B16, TASK-B17
 - 2026-05-04 additional input (`Birth year`, `string binary`, `Additional visualization types`)
 
+
+To retrieve a person's birth-year, we must derive it from birth-date, if available.
+
+```
+---------------------------------------------------------------------------
+KeyError                                  Traceback (most recent call last)
+Cell In[4], line 145
+    139     catalogue["birthyear"] = ""
+    141 CATALOGUE_COLS = [
+    142     "canonical_entity_id", "wikidata_id", "canonical_label", "cluster_size",
+    143     "cluster_strategy", "cluster_confidence", "role", "appearance_count", "birthyear",
+    144 ]
+--> 145 catalogue = catalogue[CATALOGUE_COLS]
+
+File c:\workspace\git\borgnetzwerk\speaker-mining\.venv\Lib\site-packages\pandas\core\frame.py:4384, in DataFrame.__getitem__(self, key)
+   4382     if is_iterator(key):
+   4383         key = list(key)
+-> 4384     indexer = self.columns._get_indexer_strict(key, "columns")[1]
+   4386 # take() does not accept boolean indexers
+   4387 if getattr(indexer, "dtype", None) == bool:
+
+File c:\workspace\git\borgnetzwerk\speaker-mining\.venv\Lib\site-packages\pandas\core\indexes\base.py:6302, in Index._get_indexer_strict(self, key, axis_name)
+   6299 else:
+   6300     keyarr, indexer, new_indexer = self._reindex_non_unique(keyarr)
+-> 6302 self._raise_if_missing(keyarr, indexer, axis_name)
+   6304 keyarr = self.take(indexer)
+   6305 if isinstance(key, Index):
+   6306     # GH 42790 - Preserve name from an Index
+
+File c:\workspace\git\borgnetzwerk\speaker-mining\.venv\Lib\site-packages\pandas\core\indexes\base.py:6355, in Index._raise_if_missing(self, key, indexer, axis_name)
+   6352     raise KeyError(f"None of [{key}] are in the [{axis_name}]")
+   6354 not_found = list(ensure_index(key)[missing_mask.nonzero()[0]].unique())
+-> 6355 raise KeyError(f"{not_found} not in index")
+
+KeyError: "['birthyear'] not in index"
+```
+
 ---
 
 ## TASK-F09 - Episode, Source, and Cross-Show Dashboards
