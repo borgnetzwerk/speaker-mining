@@ -19,6 +19,22 @@ from .contracts import (
     STRATEGY_WIKIDATA_QID,
 )
 
+_PRESERVED_MEMBER_COLUMNS = [
+    "entity_class",
+    "match_confidence",
+    "match_strategy",
+    "inference_flag",
+    "inference_basis",
+    "fernsehserien_de_id",
+    "fernsehserien_de_id_fernsehserien_de",
+    "program_name_fernsehserien_de",
+    "episode_url_fernsehserien_de",
+    "guest_name_fernsehserien_de",
+    "guest_role_fernsehserien_de",
+    "guest_description_fernsehserien_de",
+    "source_event_sequence_fernsehserien_de",
+]
+
 _MATCH_TIER_RANK = {"exact": 0, "high": 1, "medium": 2, "unresolved": 3}
 
 
@@ -37,7 +53,7 @@ def _best_representative_idx(group: pd.DataFrame) -> object:
 def _build_member_rows(group: pd.DataFrame, canonical_entity_id: str, cluster_key: str, rep_idx: object) -> list[dict]:
     rows = []
     for idx, row in group.iterrows():
-        rows.append({
+        member_row = {
             "canonical_entity_id": canonical_entity_id,
             "alignment_unit_id": row["alignment_unit_id"],
             "mention_id": row.get("mention_id", ""),
@@ -46,7 +62,10 @@ def _build_member_rows(group: pd.DataFrame, canonical_entity_id: str, cluster_ke
             "match_tier": row["match_tier"],
             "cluster_key": cluster_key,
             "is_representative": "true" if idx == rep_idx else "false",
-        })
+        }
+        for column in _PRESERVED_MEMBER_COLUMNS:
+            member_row[column] = row.get(column, "")
+        rows.append(member_row)
     return rows
 
 
@@ -218,6 +237,64 @@ def build_person_clusters(
             "representative_alignment_unit_id": rep_row["alignment_unit_id"],
         })
         member_rows.extend(_build_member_rows(group, canonical_entity_id, cluster_key, rep_idx))
+
+    # Post-processing: merge clusters with the same wikidata_id (prioritize manual_reconciliation tier)
+    # This handles cases where reconciliation_df is incomplete and Strategy 1 creates duplicate wikidata_id clusters
+    dedup_persons_pre = pd.DataFrame(cluster_rows, columns=DEDUP_PERSONS_COLUMNS)
+    dedup_members_pre = pd.DataFrame(member_rows, columns=DEDUP_CLUSTER_MEMBERS_COLUMNS)
+    
+    wd_duplicates = dedup_persons_pre[dedup_persons_pre["wikidata_id"].str.strip() != ""].groupby(
+        "wikidata_id"
+    )["canonical_entity_id"].nunique()
+    wd_duplicates = wd_duplicates[wd_duplicates > 1].index.tolist()
+
+    if wd_duplicates:
+        # For each wikidata_id with multiple canonical entities, merge into highest-priority strategy
+        ce_mapping = {}  # Maps old canonical_entity_id → new canonical_entity_id
+        merged_clusters = []
+        merged_members = []
+
+        for wd_id in wd_duplicates:
+            dup_clusters = dedup_persons_pre[dedup_persons_pre["wikidata_id"] == wd_id].copy()
+
+            # Prioritize by strategy: manual_reconciliation > wikidata_qid_match > normalized_name > singleton
+            strategy_priority = {
+                STRATEGY_MANUAL_RECONCILIATION: 0,
+                STRATEGY_WIKIDATA_QID: 1,
+                STRATEGY_NORMALIZED_NAME: 2,
+                STRATEGY_SINGLETON: 3,
+            }
+            dup_clusters["_priority"] = dup_clusters["cluster_strategy"].map(
+                lambda s: strategy_priority.get(s, 99)
+            )
+            primary = dup_clusters.loc[dup_clusters["_priority"].idxmin()]
+            primary_ce_id = primary["canonical_entity_id"]
+
+            # Update all alternate clusters to map to primary
+            for old_ce_id in dup_clusters[dup_clusters["canonical_entity_id"] != primary_ce_id]["canonical_entity_id"]:
+                ce_mapping[old_ce_id] = primary_ce_id
+
+        # Rebuild cluster_rows by merging duplicates
+        for row in cluster_rows:
+            ce_id = row["canonical_entity_id"]
+            if ce_id in ce_mapping:
+                continue  # Skip old clusters (they're absorbed into primary)
+            merged_clusters.append(row)
+
+        # Update member rows to point to new canonical_entity_ids and recalculate cluster_size
+        for member in member_rows:
+            if member["canonical_entity_id"] in ce_mapping:
+                member["canonical_entity_id"] = ce_mapping[member["canonical_entity_id"]]
+            merged_members.append(member)
+
+        # Recalculate cluster_size for merged canonical entities
+        member_df = pd.DataFrame(merged_members)
+        cluster_sizes = member_df.groupby("canonical_entity_id").size().to_dict()
+        for cluster in merged_clusters:
+            cluster["cluster_size"] = cluster_sizes.get(cluster["canonical_entity_id"], 0)
+
+        cluster_rows = merged_clusters
+        member_rows = merged_members
 
     dedup_persons = pd.DataFrame(cluster_rows, columns=DEDUP_PERSONS_COLUMNS)
     dedup_members = pd.DataFrame(member_rows, columns=DEDUP_CLUSTER_MEMBERS_COLUMNS)

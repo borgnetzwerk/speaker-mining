@@ -7,12 +7,12 @@ PHASE31_DIR = DATA_DIR / "31_entity_disambiguation"
 PHASE32_DIR = DATA_DIR / "32_entity_deduplication"
 
 ALIGNED_DIR = PHASE31_DIR / "aligned"
+MANUAL_DIR = PHASE31_DIR / "manual"
 
 INPUT_FILES = {
     "aligned_persons": ALIGNED_DIR / "aligned_persons.csv",
-    # Optional — present only after manual OpenRefine reconciliation is complete.
-    # Phase 32 will use it as the highest-confidence tier when it exists.
-    "reconciliation_csv": PHASE31_DIR / "reconciliation_export.csv",
+    # Phase 32 now consumes the authoritative manual reconciliation summary.
+    "reconciliation_csv": MANUAL_DIR / "reconciled_data_summary.csv",
 }
 
 RECONCILIATION_CSV_COLUMNS = [
@@ -27,6 +27,7 @@ RECONCILIATION_CSV_COLUMNS = [
 OUTPUT_DIR = PHASE32_DIR
 OUTPUT_FILES = {
     "dedup_persons": PHASE32_DIR / "dedup_persons.csv",
+    "dedup_persons_unresolved": PHASE32_DIR / "dedup_persons_unresolved.csv",
     "dedup_cluster_members": PHASE32_DIR / "dedup_cluster_members.csv",
     "dedup_summary": PHASE32_DIR / "dedup_summary.json",
 }
@@ -54,6 +55,19 @@ DEDUP_CLUSTER_MEMBERS_COLUMNS = [
     "match_tier",
     "cluster_key",
     "is_representative",
+    "entity_class",
+    "match_confidence",
+    "match_strategy",
+    "inference_flag",
+    "inference_basis",
+    "fernsehserien_de_id",
+    "fernsehserien_de_id_fernsehserien_de",
+    "program_name_fernsehserien_de",
+    "episode_url_fernsehserien_de",
+    "guest_name_fernsehserien_de",
+    "guest_role_fernsehserien_de",
+    "guest_description_fernsehserien_de",
+    "source_event_sequence_fernsehserien_de",
 ]
 
 STRATEGY_MANUAL_RECONCILIATION = "manual_reconciliation"

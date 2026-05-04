@@ -61,41 +61,36 @@ def extract_wikidata_properties(entity_doc):
 def build_person_catalogue(
     dedup_persons: pd.DataFrame,
     cluster_members: pd.DataFrame,
-    reconciled: pd.DataFrame,
-    episode_guests_raw: pd.DataFrame,
     episode_meta: pd.DataFrame,
     in_scope_show_ids: Set[str],
     core_persons: Dict,
     qid_label: Dict[str, str],
     moderator_qids: Optional[Set[str]] = None,
     repo_root: Optional[Path] = None,
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Build person catalogue with role classification, appearance counts, and Wikidata properties.
-    
+
     Args:
-        dedup_persons: Entity deduplication results
-        cluster_members: Cluster membership records
-        reconciled: Reconciled person-episode matches
-        episode_guests_raw: Raw episode guest data
-        episode_meta: Episode metadata
-        in_scope_show_ids: Set of show IDs to include in analysis
-        core_persons: Archive Wikidata entity cache (QID → entity doc)
-        qid_label: QID → human-readable label mapping
-        moderator_qids: Optional set of known moderator QIDs
-        
+        dedup_persons: Phase 32 entity deduplication results.
+        cluster_members: Phase 32 cluster membership records.
+        episode_meta: Episode metadata for show filtering and ordering.
+        in_scope_show_ids: Set of show IDs to include in analysis.
+        core_persons: Archive Wikidata entity cache (QID → entity doc).
+        qid_label: QID → human-readable label mapping.
+        moderator_qids: Optional set of known moderator QIDs.
+
     Returns:
-        Tuple of (catalogue, unmatched, unclassified) DataFrames
+        Tuple of (catalogue, unmatched, unclassified, ri_with_role, episode_appearances).
     """
     if moderator_qids is None:
         moderator_qids = set()
-    
-    # Define role priority: lower = higher priority in final assignment
-    ROLE_MAP = {
+
+    role_map = {
         "Gast": "guest",
         "Kommentar": "guest",
         "Kommentator": "guest",
-        "": "guest",  # empty = unspecified role
+        "": "guest",
         "Moderation": "moderator",
         "Produktionsauftrag": "staff",
         "Produktionsfirma": "staff",
@@ -103,98 +98,71 @@ def build_person_catalogue(
         "Regie": "staff",
         "Drehbuch": "staff",
     }
-    ROLE_PRIORITY = {"guest": 0, "moderator": 1, "staff": 2, "incidental": 3}
-    
-    # In-scope episode URLs
+    role_priority = {"guest": 0, "moderator": 1, "staff": 2, "incidental": 3}
+
+    member_df = cluster_members.copy()
+    if member_df.empty:
+        member_df = pd.DataFrame(columns=[
+            "canonical_entity_id",
+            "alignment_unit_id",
+            "canonical_label",
+            "wikidata_id",
+            "mention_id",
+            "match_tier",
+            "fernsehserien_de_id_fernsehserien_de",
+            "guest_role_fernsehserien_de",
+            "episode_url_fernsehserien_de",
+        ])
+
+    if "fernsehserien_de_id_fernsehserien_de" in member_df.columns:
+        member_df["show_id"] = member_df["fernsehserien_de_id_fernsehserien_de"].astype(str).str.strip()
+    else:
+        member_df["show_id"] = ""
+
+    if "episode_url_fernsehserien_de" in member_df.columns:
+        member_df["episode_url"] = member_df["episode_url_fernsehserien_de"].astype(str).str.strip()
+    else:
+        member_df["episode_url"] = ""
+
+    guest_role_series = member_df["guest_role_fernsehserien_de"] if "guest_role_fernsehserien_de" in member_df.columns else pd.Series("", index=member_df.index)
+    member_df["role"] = guest_role_series.astype(str).map(role_map).fillna("guest")
+    member_df.loc[member_df["wikidata_id"].isin(moderator_qids), "role"] = "moderator"
+
     in_scope_episode_urls = set(
-        episode_meta[episode_meta["fernsehserien_de_id"].isin(in_scope_show_ids)]["episode_url"]
+        episode_meta[episode_meta["fernsehserien_de_id"].isin(in_scope_show_ids)]["episode_url"].astype(str).str.strip()
     )
-    
-    # Join reconciled → cluster_members to get canonical_entity_id
-    cm_bridge = cluster_members[["alignment_unit_id", "canonical_entity_id"]].drop_duplicates("alignment_unit_id")
-    reconciled_ceid = reconciled.merge(cm_bridge, on="alignment_unit_id", how="left")
-    
-    # Filter to in-scope episodes
-    reconciled_inscope = reconciled_ceid[
-        reconciled_ceid["fernsehserien_de_id"].isin(in_scope_episode_urls)
+
+    in_scope_members = member_df[
+        member_df["show_id"].isin(in_scope_show_ids) & member_df["episode_url"].isin(in_scope_episode_urls)
     ].copy()
-    
-    # Join with episode_guests_raw to get guest_role
-    eg_lookup = (
-        episode_guests_raw[["episode_url", "guest_name", "guest_role"]]
-        .copy()
-        .assign(_name_lower=lambda d: d["guest_name"].str.strip().str.lower())
-    )
-    reconciled_inscope["_name_lower"] = reconciled_inscope["canonical_label"].str.strip().str.lower()
-    
-    ri_with_role = reconciled_inscope.merge(
-        eg_lookup.rename(columns={"episode_url": "fernsehserien_de_id", "guest_role": "raw_role"}),
-        on=["fernsehserien_de_id", "_name_lower"],
-        how="left"
-    ).drop(columns=["_name_lower", "guest_name"], errors="ignore")
-    
-    ri_with_role["raw_role"] = ri_with_role["raw_role"].fillna("")
-    ri_with_role["role"] = ri_with_role["raw_role"].map(ROLE_MAP).fillna("guest")
-    ri_with_role.loc[ri_with_role["wikidata_id"].isin(moderator_qids), "role"] = "moderator"
-    
-    # Appearance count per canonical entity
+
     app_counts_s = (
-        ri_with_role[ri_with_role["canonical_entity_id"].notna()]
-        .groupby("canonical_entity_id")["fernsehserien_de_id"]
+        in_scope_members[in_scope_members["canonical_entity_id"].notna()]
+        .groupby("canonical_entity_id")["episode_url"]
         .nunique()
         .rename("appearance_count")
         .reset_index()
     )
-    
-    # Dominant role per canonical entity (guest > moderator > staff > incidental)
+
     dominant_role_s = (
-        ri_with_role[ri_with_role["canonical_entity_id"].notna()]
+        in_scope_members[in_scope_members["canonical_entity_id"].notna()]
         .groupby("canonical_entity_id")["role"]
-        .agg(lambda roles: min(roles, key=lambda r: ROLE_PRIORITY.get(r, 9)))
+        .agg(lambda roles: min(roles, key=lambda r: role_priority.get(r, 9)))
         .rename("role")
         .reset_index()
     )
-    
-    # Best wikidata_id per canonical entity from reconciled data
-    TIER_ORDER = {"high": 0, "medium": 1, "low": 2, "": 9}
-    best_qid_df = (
-        reconciled_ceid[
-            reconciled_ceid["canonical_entity_id"].notna() &
-            (reconciled_ceid["wikidata_id"] != "")
-        ][["canonical_entity_id", "wikidata_id", "match_tier"]]
-        .assign(_rank=lambda d: d["match_tier"].map(TIER_ORDER).fillna(9).astype(int))
-        .sort_values(["canonical_entity_id", "_rank"])
-        .groupby("canonical_entity_id", as_index=False)
-        .first()[["canonical_entity_id", "wikidata_id"]]
-        .rename(columns={"wikidata_id": "reconciled_wikidata_id"})
-    )
-    
-    # Build catalogue from dedup_persons
+
     catalogue = dedup_persons[[
         "canonical_entity_id", "wikidata_id", "canonical_label",
         "cluster_size", "cluster_strategy", "cluster_confidence"
     ]].copy()
-    
-    catalogue = (
-        catalogue
-        .merge(dominant_role_s, on="canonical_entity_id", how="left")
-        .merge(app_counts_s, on="canonical_entity_id", how="left")
-        .merge(best_qid_df, on="canonical_entity_id", how="left")
-    )
+
+    catalogue = catalogue.merge(dominant_role_s, on="canonical_entity_id", how="left")
+    catalogue = catalogue.merge(app_counts_s, on="canonical_entity_id", how="left")
     catalogue["role"] = catalogue["role"].fillna("incidental")
-    
-    # Override with reconciled QID (more complete)
-    catalogue["wikidata_id"] = (
-        catalogue["reconciled_wikidata_id"]
-        .where(catalogue["reconciled_wikidata_id"].notna() & (catalogue["reconciled_wikidata_id"] != ""),
-               other=catalogue["wikidata_id"])
-        .fillna("")
-    )
-    catalogue.drop(columns=["reconciled_wikidata_id"], inplace=True)
     catalogue.loc[catalogue["wikidata_id"].isin(moderator_qids), "role"] = "moderator"
     catalogue["appearance_count"] = catalogue["appearance_count"].fillna(0).astype(int)
-    
-    # Lazy import entity_access once; None if unavailable
+
     _get_cached = None
     if repo_root is not None:
         try:
@@ -203,7 +171,6 @@ def build_person_catalogue(
         except Exception:
             pass
 
-    # Extract Wikidata properties: archive first, entity_access cache fallback
     prop_records = []
     _archive_hits = 0
     _cache_hits = 0
@@ -227,9 +194,8 @@ def build_person_catalogue(
                     _misses += 1
             else:
                 _misses += 1
-        
+
         claims = entity.get("claims", {}) if entity else {}
-        
         if claims:
             gender_qid, occ_qids, party_qids, employer_qids, birthyear, bp_qid = extract_wikidata_properties(entity)
             gender = qid_label.get(gender_qid, gender_qid) if gender_qid else ""
@@ -241,7 +207,7 @@ def build_person_catalogue(
             gender_qid = gender = birthyear = bp_qid = birthplace = ""
             occ_qids = party_qids = employer_qids = []
             occ_labels = pty_labels = emp_labels = []
-        
+
         prop_records.append({
             "canonical_entity_id": row["canonical_entity_id"],
             "gender": gender, "gender_qid": gender_qid,
@@ -250,12 +216,12 @@ def build_person_catalogue(
             "party": "|".join(pty_labels), "party_qids": "|".join(party_qids),
             "employer": "|".join(emp_labels), "employer_qids": "|".join(employer_qids),
         })
-    
+
     print(f"  Wikidata property coverage: archive={_archive_hits:,}  cache={_cache_hits:,}  missing={_misses:,}")
 
     props_df = pd.DataFrame(prop_records)
     catalogue = catalogue.merge(props_df, on="canonical_entity_id", how="left")
-    
+
     CATALOGUE_COLS = [
         "canonical_entity_id", "wikidata_id", "canonical_label", "cluster_size",
         "cluster_strategy", "cluster_confidence", "role", "appearance_count",
@@ -263,12 +229,37 @@ def build_person_catalogue(
         "occupations", "occupation_qids", "party", "party_qids", "employer", "employer_qids",
     ]
     catalogue = catalogue[CATALOGUE_COLS]
-    
-    # Separate catalogues
+
     unmatched = catalogue[catalogue["wikidata_id"] == ""]
     unclassified = catalogue[catalogue["appearance_count"] == 0]
-    
-    return catalogue, unmatched, unclassified
+
+    episode_appearances = in_scope_members[in_scope_members["canonical_entity_id"].notna()].copy()
+    if not episode_appearances.empty:
+        episode_appearances = episode_appearances.rename(columns={
+            "episode_url": "episode_id",
+            "raw_role": "role",
+            "wikidata_id": "guest_qid",
+        })
+        episode_appearances = episode_appearances.merge(
+            catalogue[["canonical_entity_id", "wikidata_id", "canonical_label", "appearance_count", "birthyear"]],
+            on="canonical_entity_id",
+            how="left",
+        )
+        episode_appearances["premiere_date"] = episode_appearances["episode_id"].map(
+            episode_meta.set_index("episode_url")["premiere_date"].to_dict()
+        )
+        episode_appearances["show_id"] = episode_appearances["show_id"].astype(str)
+    else:
+        episode_appearances = pd.DataFrame(columns=[
+            "canonical_entity_id", "alignment_unit_id", "mention_id", "canonical_label",
+            "wikidata_id", "match_tier", "cluster_key", "is_representative",
+            "fernsehserien_de_id", "fernsehserien_de_id_fernsehserien_de", "program_name_fernsehserien_de",
+            "episode_url_fernsehserien_de", "guest_name_fernsehserien_de", "guest_role_fernsehserien_de",
+            "guest_description_fernsehserien_de", "source_event_sequence_fernsehserien_de", "show_id",
+            "episode_id", "role", "guest_qid", "canonical_label", "appearance_count", "birthyear", "premiere_date",
+        ])
+
+    return catalogue, unmatched, unclassified, in_scope_members, episode_appearances
 
 
 def build_occurrence_matrix(
