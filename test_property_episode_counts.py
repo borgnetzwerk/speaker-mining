@@ -14,7 +14,7 @@ from process.analysis.universal_stats import (
     compute_episode_appearance_stats,
     expand_property_values_to_appearances,
 )
-from process.analysis.occurrence_matrix import build_person_catalogue
+from process.analysis.occurrence_matrix import build_occurrence_matrix, build_person_catalogue
 
 
 def _build_synthetic_base() -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -190,3 +190,55 @@ def test_build_person_catalogue_keeps_guest_qid_from_catalogue() -> None:
     assert len(episode_appearances) == 1
     assert episode_appearances.iloc[0]["wikidata_id"] == "Q1"
     assert episode_appearances.iloc[0]["guest_qid"] == "Q1"
+
+
+def test_build_occurrence_matrix_keeps_zero_guest_episodes() -> None:
+    catalogue = pd.DataFrame(
+        [
+            {
+                "canonical_entity_id": "ce_001",
+                "canonical_label": "Person One",
+                "role": "guest",
+                "appearance_count": 1,
+            }
+        ]
+    )
+
+    episode_meta = pd.DataFrame(
+        [
+            {
+                "episode_url": "ep-1",
+                "premiere_date": "2024-01-01",
+                "fernsehserien_de_id": "show-1",
+                "program_name": "Show One",
+            },
+            {
+                "episode_url": "ep-2",
+                "premiere_date": "2024-01-02",
+                "fernsehserien_de_id": "show-1",
+                "program_name": "Show One",
+            },
+        ]
+    )
+
+    ri_with_role = pd.DataFrame(
+        [
+            {
+                "canonical_entity_id": "ce_001",
+                "fernsehserien_de_id": "show-1",
+                "role": "guest",
+            }
+        ]
+    )
+
+    matrix_out, matrix_num = build_occurrence_matrix(
+        catalogue=catalogue,
+        episode_meta=episode_meta,
+        in_scope_episode_urls={"ep-1", "ep-2"},
+        ri_with_role=ri_with_role,
+    )
+
+    assert list(matrix_num.columns) == ["ep-1", "ep-2"]
+    assert list(matrix_out.columns[-2:]) == ["ep-1", "ep-2"]
+    assert int(matrix_num.loc["ce_001", "ep-2"]) == 0
+    assert matrix_out.loc[matrix_out["canonical_entity_id"] == "ce_001", "ep-2"].iloc[0] == ""

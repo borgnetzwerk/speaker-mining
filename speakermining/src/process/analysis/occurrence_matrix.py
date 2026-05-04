@@ -333,7 +333,7 @@ def build_occurrence_matrix(
     )
     
     ordered_persons = [c for c in person_order["canonical_entity_id"] if c in matrix_num.index]
-    ordered_episodes = [e for e in ep_order["episode_url"] if e in matrix_num.columns]
+    ordered_episodes = list(ep_order["episode_url"])
     matrix_num = matrix_num.reindex(index=ordered_persons, columns=ordered_episodes, fill_value=0)
     
     # Output format: 1/empty cells
