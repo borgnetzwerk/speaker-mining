@@ -6,6 +6,12 @@ Implementation tasks for the analysis and visualization redesign.
 **Dependency order:** see end of this file.
 
 Tasks are ordered by dependency — foundation first, visualization last.
+ 
+## Prioritization Snapshot
+
+- **Immediate:** TASK-B02, TASK-B03, TASK-B04, TASK-B05, TASK-B06, TASK-B07, TASK-B08, TASK-B09, TASK-B10, TASK-B11, TASK-B12, TASK-B13, TASK-B14, TASK-B15, TASK-B16, TASK-B17, TASK-B20, TASK-B21, TASK-B22, TASK-B23, TASK-B26
+- **High:** TASK-B24, TASK-B27, TASK-B28
+- **Lowest:** TASK-B18
 
 ---
 

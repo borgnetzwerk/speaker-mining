@@ -1,5 +1,7 @@
 ## Pre Analysis redesign
 
+> Status: Completely implemented
+
 Currently, the analysis step `speakermining/src/process/notebooks/50_analysis.ipynb` is a bit overloaded:
 * Data is ingested from manual reconciliation
 * Then partially deduplicated
@@ -58,7 +60,7 @@ Per core class, two files (CSV or JSON, whichever is more suitable) that cointai
 The main thing we fix in analysis that the input preparation is outsourced to Phase 3 Step 2, and we only read it from there.
 Thus:
 
-1. Reads all the relevant data from `data\00_setup` (for exmaple `broadcasting_programs.csv` and `analysis_properties.csv`)
+1. Reads all the relevant data from `data/00_setup` (for exmaple `broadcasting_programs.csv` and `analysis_properties.csv`)
 2. Reads all episodes from the Phase 3 Step 2 output.
 3. Classifies all relevant persons into their respective categories for the upcoming analysis (per epsiode: moderator XOR guest XOR ...), creating the fundamental occurence matrixes (moderator_episode_occurence matrix, guest_episode_occurence matrix, ...)
 4. Identifies all the relevant properties and values for these entities (e.g. persons episodes broadcasting_programs) relevant to this particular analysis and outlink_fetches all their data that is not yet available.
