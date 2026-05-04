@@ -9,7 +9,7 @@ Policy for this file:
 
 ## TASK-F01 - Guest Role Separation and Appearance Accounting
 **Priority:** Immediate  
-**Status:** Open
+**Status:** Partial
 
 **Problem:** Guest and moderator roles are still mixed in analysis paths, and appearance totals are inconsistent (property-level appearances can exceed total guest appearances).
 
@@ -23,6 +23,14 @@ Policy for this file:
 - 2026-05-04 additional input (`Fixes`)
 - 2026-05-04 starting point
 - 2026-04-30 tasks: TASK-B02, TASK-B06
+
+**Progress update (2026-05-04):**
+- Notebook property extraction is now guest-only (guest catalogue + guest episode map), so moderator/staff rows no longer expand into guest property occurrence outputs.
+- Birthyear projection now keeps a single stable `birthyear` column and avoids `birthyear_x`/`birthyear_y` collisions that caused `KeyError: ['birthyear'] not in index`.
+- Property statistics now expand from unique guest-episode rows, not guest totals; a regression test covers the 100-person / 40-episode counting model and prevents appearance inflation.
+- Property expansion for guest-level values now derives episode joins from the occurrence basis (`ri_with_role` + canonical catalogue QIDs), which restored expected `P21` carrier coverage.
+- Each property now also emits a `value_episode_matrix.csv` artifact (value x episode with unique-guest counts per cell) to support zero-based diagnostics directly.
+- Remaining work: validate end-to-end appearance totals against expected bounds and harden min-per-episode diagnostics across all generated property tables.
 
 ---
 
@@ -74,6 +82,11 @@ Policy for this file:
 - 2026-04-30 TASK-B05, TASK-B06, TASK-B07
 - 2026-04-29 TASK-A04, TASK-A05
 - 2026-05-04 additional input (`Meta Statistics`, `Per property`)
+
+**Progress update (2026-05-04):**
+- Notebook property standardization now preserves the full guest base and no longer assumes a pre-existing `value` column after merging extracted rows.
+- Property outputs run successfully for all 16 enabled properties, including `P21`, with guest-level rows retained for carrier statistics.
+- Remaining work: confirm the downstream combination tables and any per-property diagnostics still aggregate from the same guest-preserving base.
 
 ---
 
@@ -139,6 +152,9 @@ Policy for this file:
 **Primary sources:**
 - 2026-04-30 TASK-B15, TASK-B16, TASK-B17
 - 2026-05-04 additional input (`Birth year`, `string binary`, `Additional visualization types`)
+
+**Progress update (2026-05-04):**
+- Birthyear carry-over for catalogue generation has been stabilized to prevent notebook failure in downstream age/scalar calculations.
 
 
 To retrieve a person's birth-year, we must derive it from birth-date, if available.

@@ -1,6 +1,6 @@
 # Implementation Plan
 
-1. TASK-F01 - Guest Role Separation and Appearance Accounting | Open
+1. TASK-F01 - Guest Role Separation and Appearance Accounting | Partial
 2. TASK-F02 - Dynamic Property-Driven Analysis Pipeline | Open
 3. TASK-F03 - Class Hierarchy and Loop Resolution Completion | Open
 4. TASK-F04 - Standardized Property Statistics and Combination Tables | Partial
@@ -15,3 +15,14 @@
 13. TASK-F13 - Documentation and Structural Compliance | Open
 14. TASK-F14 - Lower-Priority Exploratory Angles | Low priority
 15. TASK-F15 - PageRank Node Visualizations | Open
+
+## Progress Log
+
+- 2026-05-04: TASK-F01 moved to `Partial`.
+	Notebook updates in `50_analysis.ipynb` now enforce guest-only property expansion and fix birthyear column collisions that triggered `KeyError` during catalogue projection.
+- 2026-05-04: TASK-F04 property standardization was validated.
+	The property merge helper now keeps guest base rows visible even when extracted property frames omit `value`, and the notebook completed all 16 enabled property outputs successfully.
+- 2026-05-04: property expansion was corrected to use unique guest-episode rows.
+	A synthetic regression test now asserts that per-property appearance totals stay bounded by the actual guest-appearance matrix instead of inflating beyond it.
+- 2026-05-04: QID propagation and property matrix outputs were hardened.
+	Guest episode joins now use canonical QIDs from the occurrence basis, and each property writes a value-by-episode matrix for direct per-episode carrier inspection.

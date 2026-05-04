@@ -118,12 +118,15 @@ def compute_episode_appearance_stats(
     if valid.empty:
         return pd.DataFrame(columns=["value", "min_per_episode", "max_per_episode", "mean_per_episode", "std_dev_per_episode", "median_per_episode", "pct_without_value", "total_appearances", "unique_persons"])
 
-    total_episodes = max(working["_episode"].nunique(), 1)
+    all_episodes = sorted(e for e in working["_episode"].unique() if e != "")
+    total_episodes = max(len(all_episodes), 1)
     total_persons = max(working["_carrier"].nunique(), 1)
 
     rows = []
     for value, subset in valid.groupby("_value", dropna=False):
-        per_episode = subset.groupby("_episode").size()
+        # Reindex onto all episodes so zeros are preserved for downstream diagnostics.
+        per_episode = subset.groupby("_episode").size().reindex(all_episodes, fill_value=0)
+        episodes_with_value = int((per_episode > 0).sum())
         rows.append(
             {
                 "value": value,
@@ -132,7 +135,7 @@ def compute_episode_appearance_stats(
                 "mean_per_episode": round(float(per_episode.mean()), 2),
                 "std_dev_per_episode": round(float(per_episode.std(ddof=0) if len(per_episode) > 1 else 0.0), 2),
                 "median_per_episode": round(float(per_episode.median()), 2),
-                "pct_without_value": round((1 - (subset["_episode"].nunique() / total_episodes)) * 100, 2),
+                "pct_without_value": round((1 - (episodes_with_value / total_episodes)) * 100, 2),
                 "total_appearances": int(len(subset)),
                 "unique_persons": int(subset["_carrier"].nunique()),
             }
@@ -140,6 +143,137 @@ def compute_episode_appearance_stats(
 
     result = pd.DataFrame(rows)
     return result.sort_values(["total_appearances", "unique_persons", "value"], ascending=[False, False, True]).reset_index(drop=True)
+
+
+def expand_property_values_to_appearances(
+    appearance_frame: pd.DataFrame,
+    property_values: pd.DataFrame,
+    *,
+    carrier_column: str = "guest_qid",
+    carrier_id_column: str = "canonical_entity_id",
+    episode_column: str = "episode_id",
+    label_column: str = "guest_label",
+    value_column: str = "value",
+    appearance_column: str = "appearance_count",
+) -> pd.DataFrame:
+    """Expand carrier-level property values to one row per appearance.
+
+    The base frame must contain one row per carrier x episode appearance. The
+    returned frame keeps that grain, sets ``appearance_count`` to 1 for every
+    row, and preserves carriers without values so downstream stats can emit an
+    unknown bucket without inflating counts.
+    """
+
+    if appearance_frame is None or appearance_frame.empty:
+        return pd.DataFrame(
+            columns=[carrier_id_column, carrier_column, label_column, episode_column, value_column, appearance_column]
+        )
+
+    required_columns = {carrier_id_column, carrier_column, episode_column}
+    missing = required_columns.difference(appearance_frame.columns)
+    if missing:
+        raise KeyError(f"Missing required appearance columns: {sorted(missing)}")
+
+    base = appearance_frame.copy()
+    base[carrier_id_column] = _clean_series(base, carrier_id_column)
+    base[carrier_column] = _clean_series(base, carrier_column)
+    base[episode_column] = _clean_series(base, episode_column)
+    if label_column in base.columns:
+        base[label_column] = _clean_series(base, label_column)
+    else:
+        base[label_column] = ""
+    base[appearance_column] = 1
+
+    working = property_values.copy() if property_values is not None else pd.DataFrame()
+    if working.empty:
+        base[value_column] = ""
+        return base[[carrier_id_column, carrier_column, label_column, episode_column, value_column, appearance_column]].copy()
+
+    if carrier_column not in working.columns:
+        if carrier_id_column in working.columns:
+            working[carrier_column] = working[carrier_id_column]
+        else:
+            working[carrier_column] = ""
+
+    working[carrier_column] = _clean_series(working, carrier_column)
+
+    if value_column not in working.columns:
+        if "value_label" in working.columns or "value_qid" in working.columns:
+            value_label = _clean_series(working, "value_label") if "value_label" in working.columns else pd.Series("", index=working.index)
+            value_qid = _clean_series(working, "value_qid") if "value_qid" in working.columns else pd.Series("", index=working.index)
+            working[value_column] = value_label.where(value_label != "", value_qid)
+        elif "value_year" in working.columns:
+            working[value_column] = working["value_year"]
+        elif "value_amount" in working.columns:
+            working[value_column] = working["value_amount"]
+        else:
+            working[value_column] = ""
+
+    working[value_column] = _clean_series(working, value_column)
+    working = working.drop_duplicates(subset=[carrier_column, value_column])
+
+    keep_cols = [carrier_column, value_column]
+    for extra in ("value_label", "value_qid"):
+        if extra in working.columns:
+            keep_cols.append(extra)
+
+    joined = base.merge(working[keep_cols], on=carrier_column, how="left")
+
+    if "value_label" in joined.columns and "value_qid" in joined.columns:
+        joined[value_column] = joined[value_column].where(
+            joined[value_column] != "",
+            joined["value_label"].fillna(joined["value_qid"]),
+        )
+
+    joined[value_column] = _clean_series(joined, value_column)
+    joined[appearance_column] = joined[appearance_column].fillna(1).astype(int)
+    return joined[[carrier_id_column, carrier_column, label_column, episode_column, value_column, appearance_column]].copy()
+
+
+def build_value_episode_matrix(
+    frame: pd.DataFrame,
+    *,
+    value_column: str,
+    episode_column: str = "episode_id",
+    carrier_column: str = "canonical_entity_id",
+) -> pd.DataFrame:
+    """Build value x episode matrix with unique carrier counts per cell.
+
+    Each cell is the number of unique carriers with a given value present in an
+    episode. Zero values are preserved for all known episode columns.
+    """
+
+    if frame is None or frame.empty:
+        return pd.DataFrame(columns=["value"])
+
+    required = {value_column, episode_column, carrier_column}
+    missing = required.difference(frame.columns)
+    if missing:
+        raise KeyError(f"Missing required columns: {sorted(missing)}")
+
+    working = frame.copy()
+    working["_value"] = _clean_series(working, value_column)
+    working["_episode"] = _clean_series(working, episode_column)
+    working["_carrier"] = _clean_series(working, carrier_column)
+    working = working[(working["_episode"] != "") & (working["_carrier"] != "")]
+
+    episodes = sorted(working["_episode"].unique())
+    valid = working[working["_value"] != ""]
+    if valid.empty:
+        out = pd.DataFrame(columns=["value"] + episodes)
+        return out
+
+    matrix = valid.pivot_table(
+        index="_value",
+        columns="_episode",
+        values="_carrier",
+        aggfunc="nunique",
+        fill_value=0,
+    )
+    matrix = matrix.reindex(columns=episodes, fill_value=0)
+    matrix = matrix.reset_index().rename(columns={"_value": "value"})
+    matrix.columns.name = None
+    return matrix
 
 
 def build_frequency_distribution(

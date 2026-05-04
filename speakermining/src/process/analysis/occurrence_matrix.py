@@ -238,13 +238,28 @@ def build_person_catalogue(
         episode_appearances = episode_appearances.rename(columns={
             "episode_url": "episode_id",
             "raw_role": "role",
-            "wikidata_id": "guest_qid",
         })
         episode_appearances = episode_appearances.merge(
             catalogue[["canonical_entity_id", "wikidata_id", "canonical_label", "appearance_count", "birthyear"]],
             on="canonical_entity_id",
             how="left",
         )
+        # Always derive guest_qid from canonical catalogue linkage, not from
+        # cluster membership rows, which may lack resolved Wikidata IDs.
+        if "wikidata_id_y" in episode_appearances.columns:
+            episode_appearances["wikidata_id"] = episode_appearances["wikidata_id_y"].fillna(
+                episode_appearances.get("wikidata_id_x", "")
+            )
+        elif "wikidata_id" not in episode_appearances.columns and "wikidata_id_x" in episode_appearances.columns:
+            episode_appearances["wikidata_id"] = episode_appearances["wikidata_id_x"]
+
+        qid_series = pd.Series("", index=episode_appearances.index, dtype=str)
+        for qid_col in ("wikidata_id", "wikidata_id_y", "wikidata_id_x"):
+            if qid_col in episode_appearances.columns:
+                candidate = episode_appearances[qid_col].fillna("").astype(str).str.strip()
+                qid_series = qid_series.where(qid_series.str.strip() != "", candidate)
+
+        episode_appearances["guest_qid"] = qid_series.astype(str).str.strip()
         episode_appearances["premiere_date"] = episode_appearances["episode_id"].map(
             episode_meta.set_index("episode_url")["premiere_date"].to_dict()
         )

@@ -32,6 +32,8 @@ from .universal_stats import (
     UNKNOWN_LABEL,
     compute_carrier_stats,
     compute_episode_appearance_stats,
+    expand_property_values_to_appearances,
+    build_value_episode_matrix,
     build_frequency_distribution,
     build_pareto_table,
 )
