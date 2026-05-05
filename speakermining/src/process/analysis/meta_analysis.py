@@ -14,17 +14,17 @@ from pathlib import Path
 def compute_wikidata_coverage(reconciled_df: pd.DataFrame, episode_meta_df: pd.DataFrame) -> pd.DataFrame:
     """
     Compute per-episode Wikidata reconciliation coverage.
-    
+
     Returns DataFrame with columns: episode_url, matched_persons, matched_persons_pct, show_id
     """
     if reconciled_df.empty:
         return pd.DataFrame()
-    
+
     # Per-episode: count matched vs total mentions
     df = reconciled_df.copy()
     df["entity_class"] = df.get("entity_class", "unknown")
     df["has_wikidata"] = (df.get("wikidata_id", "") != "") & (df["wikidata_id"].notna())
-    
+
     episode_stats = (
         df.groupby("fernsehserien_de_id")
         .agg({
@@ -37,9 +37,28 @@ def compute_wikidata_coverage(reconciled_df: pd.DataFrame, episode_meta_df: pd.D
     episode_stats["coverage_pct"] = (
         episode_stats["matched_persons"] / episode_stats["total_mentions"] * 100
     ).round(1)
-    
-    # Join episode metadata for show info
-    if "fernsehserien_de_id" in episode_meta_df.columns and "episode_url" in episode_meta_df.columns:
+
+    # Join episode metadata for show info.
+    # aligned_episodes format: fernsehserien_de_id = FS episode URL,
+    #   fernsehserien_de_id_fernsehserien_de = show ID
+    if "alignment_unit_id" in episode_meta_df.columns:
+        ep_join = (
+            episode_meta_df[["fernsehserien_de_id", "fernsehserien_de_id_fernsehserien_de",
+                              "premiere_date_date_fernsehserien_de"]]
+            .drop_duplicates("fernsehserien_de_id")
+        )
+        episode_stats = episode_stats.merge(
+            ep_join,
+            left_on="episode_url",
+            right_on="fernsehserien_de_id",
+            how="left",
+        )
+        episode_stats.rename(columns={
+            "fernsehserien_de_id_fernsehserien_de": "show_id",
+            "premiere_date_date_fernsehserien_de": "premiere_date",
+        }, inplace=True)
+        episode_stats.drop(columns=["fernsehserien_de_id"], errors="ignore", inplace=True)
+    elif "fernsehserien_de_id" in episode_meta_df.columns and "episode_url" in episode_meta_df.columns:
         episode_stats = episode_stats.merge(
             episode_meta_df[["episode_url", "fernsehserien_de_id", "premiere_date"]],
             left_on="episode_url",
@@ -47,7 +66,7 @@ def compute_wikidata_coverage(reconciled_df: pd.DataFrame, episode_meta_df: pd.D
             how="left"
         )
         episode_stats.rename(columns={"fernsehserien_de_id": "show_id"}, inplace=True)
-    
+
     return episode_stats.sort_values("episode_url").reset_index(drop=True)
 
 
@@ -58,38 +77,47 @@ def compute_coverage_statistics(reconciled_df: pd.DataFrame) -> pd.DataFrame:
     """
     if reconciled_df.empty:
         return pd.DataFrame()
-    
+
     df = reconciled_df.copy()
     df["has_wikidata"] = (df.get("wikidata_id", "") != "") & (df["wikidata_id"].notna())
-    
+
     total_mentions = len(df)
     matched_count = df["has_wikidata"].sum()
     coverage_pct = (matched_count / max(total_mentions, 1) * 100)
-    
+
     stats_rows = [
         {"metric": "Total Mentions Processed", "count": total_mentions, "pct": 100.0},
         {"metric": "Matched to Wikidata", "count": int(matched_count), "pct": coverage_pct},
         {"metric": "Unmatched", "count": int(total_mentions - matched_count), "pct": 100 - coverage_pct},
     ]
-    
+
     return pd.DataFrame(stats_rows)
 
 
 def compute_per_show_coverage(reconciled_df: pd.DataFrame, episode_meta_df: pd.DataFrame) -> pd.DataFrame:
     """
     Compute Wikidata coverage per broadcasting program.
-    
+
     Returns DataFrame: show_id, total_episodes, episodes_with_coverage, avg_coverage_pct
     """
-    if reconciled_df.empty or "fernsehserien_de_id" not in reconciled_df.columns:
+    if reconciled_df.empty:
         return pd.DataFrame()
-    
+
+    # Prefer the deduplicated show ID column (aligned_episodes format) over the FS episode URL.
+    show_id_col = (
+        "fernsehserien_de_id_fernsehserien_de"
+        if "fernsehserien_de_id_fernsehserien_de" in reconciled_df.columns
+        else "fernsehserien_de_id"
+    )
+    if show_id_col not in reconciled_df.columns:
+        return pd.DataFrame()
+
     df = reconciled_df.copy()
     df["has_wikidata"] = (df.get("wikidata_id", "") != "") & (df["wikidata_id"].notna())
-    
+
     # Per-show statistics
     show_stats = (
-        df.groupby("fernsehserien_de_id")
+        df.groupby(show_id_col)
         .agg({
             "alignment_unit_id": "count",
             "has_wikidata": "sum"
@@ -100,10 +128,21 @@ def compute_per_show_coverage(reconciled_df: pd.DataFrame, episode_meta_df: pd.D
     show_stats["coverage_pct"] = (
         show_stats["matched_mentions"] / show_stats["total_mentions"] * 100
     ).round(1)
-    
-    # Count episodes per show
-    episodes_per_show = episode_meta_df.groupby("fernsehserien_de_id").size().reset_index(name="total_episodes")
-    show_stats = show_stats.merge(episodes_per_show, left_on="show_id", right_on="fernsehserien_de_id", how="left")
-    show_stats.drop(columns=["fernsehserien_de_id"], inplace=True, errors="ignore")
-    
+
+    # Count episodes per show — use show ID column appropriate for the metadata format.
+    ep_show_col = (
+        "fernsehserien_de_id_fernsehserien_de"
+        if "fernsehserien_de_id_fernsehserien_de" in episode_meta_df.columns
+        else "fernsehserien_de_id"
+    )
+    if ep_show_col in episode_meta_df.columns:
+        episodes_per_show = (
+            episode_meta_df.groupby(ep_show_col).size().reset_index(name="total_episodes")
+        )
+        show_stats = show_stats.merge(
+            episodes_per_show, left_on="show_id", right_on=ep_show_col, how="left"
+        )
+        if ep_show_col != "show_id":
+            show_stats.drop(columns=[ep_show_col], inplace=True, errors="ignore")
+
     return show_stats.sort_values("coverage_pct", ascending=False).reset_index(drop=True)

@@ -61,7 +61,7 @@ def extract_wikidata_properties(entity_doc):
 def build_person_catalogue(
     dedup_persons: pd.DataFrame,
     cluster_members: pd.DataFrame,
-    episode_meta: pd.DataFrame,
+    aligned_episodes: pd.DataFrame,
     in_scope_show_ids: Set[str],
     core_persons: Dict,
     qid_label: Dict[str, str],
@@ -74,8 +74,8 @@ def build_person_catalogue(
     Args:
         dedup_persons: Phase 32 entity deduplication results.
         cluster_members: Phase 32 cluster membership records.
-        episode_meta: Episode metadata for show filtering and ordering.
-        in_scope_show_ids: Set of show IDs to include in analysis.
+        aligned_episodes: Aligned episode universe from Phase 31 (aligned_episodes.csv).
+        in_scope_show_ids: Set of FS show IDs (fernsehserien_de_id) to include.
         core_persons: Archive Wikidata entity cache (QID → entity doc).
         qid_label: QID → human-readable label mapping.
         moderator_qids: Optional set of known moderator QIDs.
@@ -128,17 +128,50 @@ def build_person_catalogue(
     member_df["role"] = guest_role_series.astype(str).map(role_map).fillna("guest")
     member_df.loc[member_df["wikidata_id"].isin(moderator_qids), "role"] = "moderator"
 
-    in_scope_episode_urls = set(
-        episode_meta[episode_meta["fernsehserien_de_id"].isin(in_scope_show_ids)]["episode_url"].astype(str).str.strip()
+    # Map each cluster member to the alignment_unit_id of its episode.
+    # Primary: FS episode URL → alignment_unit_id via aligned_episodes.
+    # Fallback: episode_id_zdf equals the alignment_unit_id for ZDF-sourced episodes.
+    _ae = aligned_episodes
+    fs_url_to_auid = (
+        _ae[_ae["fernsehserien_de_id"].astype(str).str.strip() != ""]
+        .set_index("fernsehserien_de_id")["alignment_unit_id"]
+        .to_dict()
+    )
+    member_df["episode_auid"] = member_df["fernsehserien_de_id"].astype(str).map(fs_url_to_auid).fillna("")
+    if "episode_id_zdf" in member_df.columns:
+        _zdf_mask = member_df["episode_auid"].str.strip() == ""
+        member_df.loc[_zdf_mask, "episode_auid"] = (
+            member_df.loc[_zdf_mask, "episode_id_zdf"].fillna("").astype(str)
+        )
+    member_df["episode_auid"] = member_df["episode_auid"].astype(str).str.strip()
+
+    # In-scope episodes: all alignment_unit_ids whose show is in in_scope_show_ids.
+    in_scope_episode_ids = set(
+        _ae[_ae["fernsehserien_de_id_fernsehserien_de"].astype(str).str.strip().isin(in_scope_show_ids)]
+        ["alignment_unit_id"].astype(str).str.strip()
     )
 
-    in_scope_members = member_df[
-        member_df["show_id"].isin(in_scope_show_ids) & member_df["episode_url"].isin(in_scope_episode_urls)
-    ].copy()
+    # Build canonical date map: alignment_unit_id → "YYYY-MM-DD"
+    _auid_to_date: dict = {}
+    for _, _ep in _ae.iterrows():
+        _auid = str(_ep.get("alignment_unit_id", "")).strip()
+        if not _auid:
+            continue
+        _d = str(_ep.get("premiere_date_date_fernsehserien_de", "")).strip()[:10]
+        if not _d or _d == "nan":
+            _pub = str(_ep.get("publikationsdatum_zdf", "")).strip()
+            if _pub:
+                _parts = _pub.split(".")
+                if len(_parts) == 3:
+                    _d = f"{_parts[2]}-{_parts[1]}-{_parts[0]}"
+        if _d:
+            _auid_to_date[_auid] = _d
+
+    in_scope_members = member_df[member_df["episode_auid"].isin(in_scope_episode_ids)].copy()
 
     app_counts_s = (
         in_scope_members[in_scope_members["canonical_entity_id"].notna()]
-        .groupby("canonical_entity_id")["episode_url"]
+        .groupby("canonical_entity_id")["episode_auid"]
         .nunique()
         .rename("appearance_count")
         .reset_index()
@@ -236,7 +269,7 @@ def build_person_catalogue(
     episode_appearances = in_scope_members[in_scope_members["canonical_entity_id"].notna()].copy()
     if not episode_appearances.empty:
         episode_appearances = episode_appearances.rename(columns={
-            "episode_url": "episode_id",
+            "episode_auid": "episode_id",
             "raw_role": "role",
         })
         episode_appearances = episode_appearances.merge(
@@ -260,9 +293,7 @@ def build_person_catalogue(
                 qid_series = qid_series.where(qid_series.str.strip() != "", candidate)
 
         episode_appearances["guest_qid"] = qid_series.astype(str).str.strip()
-        episode_appearances["premiere_date"] = episode_appearances["episode_id"].map(
-            episode_meta.set_index("episode_url")["premiere_date"].to_dict()
-        )
+        episode_appearances["premiere_date"] = episode_appearances["episode_id"].map(_auid_to_date)
         episode_appearances["show_id"] = episode_appearances["show_id"].astype(str)
     else:
         episode_appearances = pd.DataFrame(columns=[
@@ -279,70 +310,89 @@ def build_person_catalogue(
 
 def build_occurrence_matrix(
     catalogue: pd.DataFrame,
-    episode_meta: pd.DataFrame,
-    in_scope_episode_urls: Set[str],
+    aligned_episodes: pd.DataFrame,
+    in_scope_episode_ids: Set[str],
     ri_with_role: pd.DataFrame,
     top_n: Optional[int] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Build guest × episode occurrence matrix.
-    
+
     Args:
         catalogue: Person catalogue
-        episode_meta: Episode metadata
-        in_scope_episode_urls: Set of in-scope episode URLs
-        ri_with_role: Reconciled guest-episode pairs with roles
+        aligned_episodes: Aligned episode universe from Phase 31.
+        in_scope_episode_ids: Set of alignment_unit_id values for in-scope episodes.
+        ri_with_role: Reconciled guest-episode pairs with roles (must have episode_auid column).
         top_n: Optional; if set, return only top N guests by appearance count
-        
+
     Returns:
         Tuple of (occurrence_matrix_df, occurrence_matrix_numeric)
     """
     # Guest subset
     guest_cat = catalogue[catalogue["role"] == "guest"].copy()
-    
-    # Guest-episode pairs
+
+    # Guest-episode pairs — pivot column is alignment_unit_id
     guest_ceids = set(guest_cat["canonical_entity_id"])
+    _ep_col = "episode_auid" if "episode_auid" in ri_with_role.columns else "episode_id"
     guest_pairs = ri_with_role[
         ri_with_role["canonical_entity_id"].isin(guest_ceids) &
         (ri_with_role["role"] == "guest")
-    ][["canonical_entity_id", "fernsehserien_de_id"]].drop_duplicates()
-    
-    # Episode sort order (by premiere_date asc)
+    ][["canonical_entity_id", _ep_col]].drop_duplicates().rename(columns={_ep_col: "episode_auid"})
+
+    # Build canonical date per alignment_unit_id for episode sort order
+    _auid_to_date: dict = {}
+    for _, _ep in aligned_episodes.iterrows():
+        _auid = str(_ep.get("alignment_unit_id", "")).strip()
+        if not _auid:
+            continue
+        _d = str(_ep.get("premiere_date_date_fernsehserien_de", "")).strip()[:10]
+        if not _d or _d == "nan":
+            _pub = str(_ep.get("publikationsdatum_zdf", "")).strip()
+            if _pub:
+                _parts = _pub.split(".")
+                if len(_parts) == 3:
+                    _d = f"{_parts[2]}-{_parts[1]}-{_parts[0]}"
+        if _d:
+            _auid_to_date[_auid] = _d
+
+    # Episode sort order (by canonical premiere_date asc)
     ep_order = (
-        episode_meta[episode_meta["episode_url"].isin(in_scope_episode_urls)]
-        [["episode_url", "premiere_date", "fernsehserien_de_id", "program_name"]]
-        .drop_duplicates("episode_url")
-        .sort_values("premiere_date")
+        aligned_episodes[aligned_episodes["alignment_unit_id"].isin(in_scope_episode_ids)]
+        [["alignment_unit_id", "fernsehserien_de_id_fernsehserien_de", "program_name_fernsehserien_de"]]
+        .drop_duplicates("alignment_unit_id")
+        .copy()
     )
-    
+    ep_order["premiere_date"] = ep_order["alignment_unit_id"].map(_auid_to_date).fillna("")
+    ep_order = ep_order.sort_values("premiere_date")
+
     # Person sort order (appearance_count desc, then alpha)
     person_order = (
         guest_cat[["canonical_entity_id", "canonical_label", "appearance_count"]]
         .sort_values(["appearance_count", "canonical_label"], ascending=[False, True])
     )
-    
+
     # Apply top_n filter if requested
     if top_n:
         person_order = person_order.head(top_n)
-    
+
     # Pivot to matrix (1 = appeared, 0 = absent)
     guest_pairs["_val"] = 1
     matrix_num = guest_pairs.pivot_table(
-        index="canonical_entity_id", columns="fernsehserien_de_id",
+        index="canonical_entity_id", columns="episode_auid",
         values="_val", aggfunc="max", fill_value=0
     )
-    
+
     ordered_persons = [c for c in person_order["canonical_entity_id"] if c in matrix_num.index]
-    ordered_episodes = list(ep_order["episode_url"])
+    ordered_episodes = list(ep_order["alignment_unit_id"])
     matrix_num = matrix_num.reindex(index=ordered_persons, columns=ordered_episodes, fill_value=0)
-    
+
     # Output format: 1/empty cells
     matrix_out = matrix_num.copy().astype(object)
     matrix_out[matrix_num == 0] = ""
     ceid_to_label = person_order.set_index("canonical_entity_id")["canonical_label"]
     matrix_out.insert(0, "canonical_label", ceid_to_label)
     matrix_out = matrix_out.reset_index()
-    
+
     return matrix_out, matrix_num
 
 
