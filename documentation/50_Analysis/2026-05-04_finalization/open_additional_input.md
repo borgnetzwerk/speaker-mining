@@ -30,3 +30,7 @@ If something here is not clear yet and requires further clarification, raise "**
     * For example: All property analysis is currently done only for ALL, but must also be done for each show individually.
 
 Generally: The current visualizations like Pareto or simple bar charts in general are very basic, and we should not spend much more time on this. Stacked bar charts, timelines, Sunburst, Treemap etc. are all much more interesting and still not implemented. Particularly the property x property and the property x person stacked bar charts will be very interesting. We should focus on those.
+
+## Issue resurfaced
+The wrong-episode-mapping critical issue seems to have resurfaced. We once again have a `data/50_analysis/couchwissen/occurrence_matrix.csv` filled with occurrences of guests that were never there. 
+Same names, same issues as originally documented in `documentation/31_entitiy_disambiguation/2026-04-05_critical_issue/issue.md`.

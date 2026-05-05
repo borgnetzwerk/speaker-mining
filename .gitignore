@@ -226,6 +226,7 @@ data/*/*
 # data/50_analysis/persons/
 # data/50_analysis/persons/**
 # # Re-ignore large matrix files (too big for GitHub, not needed for navigation)
+# data/50_analysis/**/occurrence_matrix.csv
 # data/50_analysis/**/*_occurrence_matrix.csv
 # data/50_analysis/**/co_occurrence_matrix.csv
 # data/50_analysis/**/value_episode_matrix.csv
