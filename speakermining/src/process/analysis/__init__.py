@@ -53,3 +53,7 @@ from .viz_universal import (
     universal_visualizations,
     make_universal_chart,
 )
+from .viz_dashboards import (
+    build_guest_frequency_pareto_outputs,
+    build_source_coverage_dashboards,
+)

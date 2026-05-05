@@ -26,3 +26,9 @@
 	A synthetic regression test now asserts that per-property appearance totals stay bounded by the actual guest-appearance matrix instead of inflating beyond it.
 - 2026-05-04: QID propagation and property matrix outputs were hardened.
 	Guest episode joins now use canonical QIDs from the occurrence basis, and each property writes a value-by-episode matrix for direct per-episode carrier inspection.
+- 2026-05-04: guest frequency and Pareto outputs were completed in the analysis notebook.
+	The notebook now writes `guest_frequency_distribution.csv`, `guest_frequency_pareto.csv`, and a Plotly Pareto chart for top guest appearances, which closes the current visualization stub in TASK-B21 / TASK-F09.
+- 2026-05-04: source-attribution and cross-show coverage dashboards were added.
+	TASK-F09 now emits overall Wikidata coverage, stacked by-show completeness, and unique-person coverage comparison charts alongside `source_coverage_dashboard.csv`.
+- 2026-05-04: dashboard visualization logic was moved into `speakermining/src/process/analysis/viz_dashboards.py`.
+	The notebook now only orchestrates the dashboard helpers, matching the repository rule that chart construction lives in analysis modules.

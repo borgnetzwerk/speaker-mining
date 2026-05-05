@@ -210,6 +210,12 @@ KeyError: "['birthyear'] not in index"
 - 2026-04-30 TASK-B23, TASK-B24, TASK-B26, TASK-B27
 - 2026-05-04 additional input (`Source specific analysis`, `Episode specific property visualization`)
 
+**Progress update (2026-05-04):**
+- The notebook now emits a guest frequency distribution table plus a Pareto chart/output bundle for top guest appearances, using the analysis-layer aggregation helpers.
+- Visualization cleanup also removed notebook-level stub imports that were no longer needed once the Pareto output became real.
+- Source attribution now has an actual dashboard layer: overall coverage, stacked by-show completeness, and unique-person coverage comparison charts are written from the meta-analysis outputs.
+- The chart construction for those dashboard families now lives in `speakermining/src/process/analysis/viz_dashboards.py`; the notebook only dispatches the module calls.
+
 ---
 
 ## TASK-F10 - Person-Level and Relevance Analyses
