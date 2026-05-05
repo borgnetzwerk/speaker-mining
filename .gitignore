@@ -215,6 +215,26 @@ data/*/*
 # !data/items/example.* #Except for example file
 # data/sparql_results/*
 # !data/sparql_results/example.* #Except for example file
+
+# # Phase 50 analysis: allow publication-ready outputs for GitHub navigation (TASK-F18)
+# # Unignore the analysis output tree so specific files below can be tracked.
+# !data/50_analysis/all/
+# !data/50_analysis/all/**
+# !data/50_analysis/*/
+# !data/50_analysis/*/**
+# # Re-ignore GDPR-sensitive person-level directory
+# data/50_analysis/persons/
+# data/50_analysis/persons/**
+# # Re-ignore large matrix files (too big for GitHub, not needed for navigation)
+# data/50_analysis/**/*_occurrence_matrix.csv
+# data/50_analysis/**/co_occurrence_matrix.csv
+# data/50_analysis/**/value_episode_matrix.csv
+# # Re-ignore duplicate visualization formats; PNG is sufficient for GitHub rendering
+# data/50_analysis/**/*.pdf
+# data/50_analysis/**/*.html
+
+
+
 documentation/visualizations/*.drawio.xml
 documentation/visualizations/*Ps.drawio.pdf
 speakermining/src/config/main.json

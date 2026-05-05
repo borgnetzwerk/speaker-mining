@@ -53,13 +53,16 @@ def _assign_colors(labels: list) -> list[str]:
     return colors
 
 
-def _prepare_plot_df(stats: pd.DataFrame, top_n: int) -> pd.DataFrame:
+def _prepare_plot_df(stats: pd.DataFrame, top_n: int) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Sort by appearance_count descending; group tail beyond top_n as 'Other';
-    always place Unknown row last (REQ-V05, REQ-V11, REQ-U08).
+    Sort by appearance_count descending; group tail beyond top_n as 'Other'.
+    Unknown rows are returned separately so the caller can render them as a footnote
+    rather than a competing bar (REQ-V05, REQ-V11, REQ-U08, TASK-F05).
+
+    Returns: (main_df, unknown_df)
     """
     if stats is None or stats.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame()
 
     unknown_mask = stats["value"].astype(str).str.startswith("Unknown")
     unknown_rows = stats[unknown_mask].copy()
@@ -78,10 +81,7 @@ def _prepare_plot_df(stats: pd.DataFrame, top_n: int) -> pd.DataFrame:
         }])
         value_rows = pd.concat([value_rows.head(top_n), other_row], ignore_index=True)
 
-    frames = [value_rows]
-    if not unknown_rows.empty:
-        frames.append(unknown_rows.reset_index(drop=True))
-    return pd.concat(frames, ignore_index=True)
+    return value_rows.reset_index(drop=True), unknown_rows.reset_index(drop=True)
 
 
 def make_universal_chart(
@@ -101,7 +101,7 @@ def make_universal_chart(
     - REQ-V07: scope label in chart title
     - REQ-V10: context stats (n_unique, n_appearances, n_empty) in subtitle
     """
-    plot_df = _prepare_plot_df(stats, top_n)
+    plot_df, unknown_df = _prepare_plot_df(stats, top_n)
     if plot_df.empty:
         return go.Figure()
 
@@ -111,7 +111,7 @@ def make_universal_chart(
     unknown_mask = stats["value"].astype(str).str.startswith("Unknown")
     n_unique = int(stats[~unknown_mask]["person_count"].sum())
     n_appearances = int(stats[~unknown_mask]["appearance_count"].sum())
-    n_empty = int(stats[unknown_mask]["person_count"].sum()) if unknown_mask.any() else 0
+    n_empty = int(unknown_df["person_count"].sum()) if not unknown_df.empty else 0
 
     fig = go.Figure()
 

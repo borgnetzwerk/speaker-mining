@@ -17,6 +17,7 @@ from .occurrence_matrix import (
     build_person_catalogue,
     build_occurrence_matrix,
     build_cooccurrence_matrix,
+    build_role_occurrence_matrices,
     extract_wikidata_properties,
 )
 from .property_extraction import (
@@ -57,3 +58,4 @@ from .viz_dashboards import (
     build_guest_frequency_pareto_outputs,
     build_source_coverage_dashboards,
 )
+from .readme_generator import generate_all_readmes

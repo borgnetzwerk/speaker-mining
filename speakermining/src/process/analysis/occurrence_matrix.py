@@ -98,7 +98,9 @@ def build_person_catalogue(
         "Regie": "staff",
         "Drehbuch": "staff",
     }
-    role_priority = {"guest": 0, "moderator": 1, "staff": 2, "incidental": 3}
+    # Moderator and staff must win over guest when a person appears in multiple roles.
+    # A show host who is ever a guest elsewhere still has "moderator" as their canonical role.
+    role_priority = {"moderator": 0, "staff": 1, "guest": 2, "incidental": 3}
 
     member_df = cluster_members.copy()
     if member_df.empty:
@@ -196,6 +198,25 @@ def build_person_catalogue(
     catalogue.loc[catalogue["wikidata_id"].isin(moderator_qids), "role"] = "moderator"
     catalogue["appearance_count"] = catalogue["appearance_count"].fillna(0).astype(int)
 
+    # TASK-F16: Assign data quality tier (1–4) based on source reconciliation depth.
+    # Tier 1: Wikidata QID + entity doc in core_persons cache — full property coverage.
+    # Tier 2: Wikidata QID present but no entity doc — Wikidata-mentioned only.
+    # Tier 3: No Wikidata QID but cluster_size > 1 — matched across multiple sources.
+    # Tier 4: No Wikidata QID and cluster_size == 1 — single non-Wikidata source only.
+    def _quality_tier(row: pd.Series) -> int:
+        qid = str(row.get("wikidata_id", "")).strip()
+        if qid and core_persons.get(qid):
+            return 1
+        if qid:
+            return 2
+        try:
+            if int(row.get("cluster_size", 1)) > 1:
+                return 3
+        except (ValueError, TypeError):
+            pass
+        return 4
+    catalogue["data_quality_tier"] = catalogue.apply(_quality_tier, axis=1)
+
     _get_cached = None
     if repo_root is not None:
         try:
@@ -258,6 +279,7 @@ def build_person_catalogue(
     CATALOGUE_COLS = [
         "canonical_entity_id", "wikidata_id", "canonical_label", "cluster_size",
         "cluster_strategy", "cluster_confidence", "role", "appearance_count",
+        "data_quality_tier",
         "gender", "gender_qid", "birthyear", "birthplace", "birthplace_qid",
         "occupations", "occupation_qids", "party", "party_qids", "employer", "employer_qids",
     ]
@@ -394,6 +416,77 @@ def build_occurrence_matrix(
     matrix_out = matrix_out.reset_index()
 
     return matrix_out, matrix_num
+
+
+def build_role_occurrence_matrices(
+    catalogue: pd.DataFrame,
+    aligned_episodes: pd.DataFrame,
+    in_scope_episode_ids: Set[str],
+    ri_with_role: pd.DataFrame,
+) -> Dict[str, pd.DataFrame]:
+    """Build separate occurrence matrices for moderator and staff roles.
+
+    Returns a dict with keys 'moderator' and 'staff', each containing a
+    (canonical_entity_id + canonical_label) × episode occurrence DataFrame
+    with 1/empty cells, matching the format of the guest occurrence matrix.
+    """
+    _ep_col = "episode_auid" if "episode_auid" in ri_with_role.columns else "episode_id"
+
+    _auid_to_date: dict = {}
+    for _, _ep in aligned_episodes.iterrows():
+        _auid = str(_ep.get("alignment_unit_id", "")).strip()
+        if not _auid:
+            continue
+        _d = str(_ep.get("premiere_date_date_fernsehserien_de", "")).strip()[:10]
+        if not _d or _d == "nan":
+            _pub = str(_ep.get("publikationsdatum_zdf", "")).strip()
+            if _pub:
+                _parts = _pub.split(".")
+                if len(_parts) == 3:
+                    _d = f"{_parts[2]}-{_parts[1]}-{_parts[0]}"
+        if _d:
+            _auid_to_date[_auid] = _d
+
+    ep_order = (
+        aligned_episodes[aligned_episodes["alignment_unit_id"].isin(in_scope_episode_ids)]
+        [["alignment_unit_id"]]
+        .drop_duplicates("alignment_unit_id")
+        .copy()
+    )
+    ep_order["premiere_date"] = ep_order["alignment_unit_id"].map(_auid_to_date).fillna("")
+    ordered_episodes = list(ep_order.sort_values("premiere_date")["alignment_unit_id"])
+
+    results: Dict[str, pd.DataFrame] = {}
+    for role in ("moderator", "staff"):
+        role_cat = catalogue[catalogue["role"] == role].copy()
+        role_ceids = set(role_cat["canonical_entity_id"])
+        pairs = ri_with_role[
+            ri_with_role["canonical_entity_id"].isin(role_ceids) &
+            (ri_with_role["role"] == role)
+        ][["canonical_entity_id", _ep_col]].drop_duplicates().rename(columns={_ep_col: "episode_auid"})
+
+        if pairs.empty:
+            results[role] = pd.DataFrame(columns=["canonical_entity_id", "canonical_label"])
+            continue
+
+        pairs["_val"] = 1
+        mat = pairs.pivot_table(
+            index="canonical_entity_id", columns="episode_auid",
+            values="_val", aggfunc="max", fill_value=0
+        )
+        person_order = (
+            role_cat[["canonical_entity_id", "canonical_label", "appearance_count"]]
+            .sort_values(["appearance_count", "canonical_label"], ascending=[False, True])
+        )
+        ordered_persons = [c for c in person_order["canonical_entity_id"] if c in mat.index]
+        mat = mat.reindex(index=ordered_persons, columns=ordered_episodes, fill_value=0)
+        mat_out = mat.copy().astype(object)
+        mat_out[mat == 0] = ""
+        ceid_to_label = person_order.set_index("canonical_entity_id")["canonical_label"]
+        mat_out.insert(0, "canonical_label", ceid_to_label)
+        results[role] = mat_out.reset_index()
+
+    return results
 
 
 def build_cooccurrence_matrix(

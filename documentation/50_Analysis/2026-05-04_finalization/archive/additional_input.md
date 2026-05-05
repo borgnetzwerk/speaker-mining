@@ -151,3 +151,97 @@ Per Show and once for all shows:
 * and if possible, one radar chart that will aggregate all values of properties into on a single scale form 0% to 100%. Will be complicated for most, but maybe possible for something like "average age" or "percentage politician" or "percentage scientist" or "percentage male" or similar
 
 Layer radar charts on top of each other. For now: always layer the show's individual radar chart over the average radar chart.
+
+---
+
+## For Documentation
+Generally: The order we established is the universal behaviour we should expect and implement at every step of the analysis:
+* List episodes (e.g. 5000)
+    * create binary guests x episodes occurrence matrix (e.g. 6000 x 5000)
+       * from this occurrence matrix: derive all other value x episode matrix per property. (e.g. 4x5000 for one property, 532 x 5000 for another, 28 x 5000 for a third, ...). Here, each cell reflects the number of guests with that property value were present: 0 if none, 1 if one unique person, 5 if five unique persons, up to the maximum number of guests that were present in that episode, if everyone happens to have that. This way, we can quickly calculate things like "how many episodes were without carrier of this particular value" just by looking at that value's row and count the zeors.
+
+## Separation of roles still not clear and consistent
+
+guest_frequency_pareto seems to still count moderators:
+For example, "Frank Plasberg" is correctly captured as role "Moderation", but appears in the guest pareto analysis. 
+
+Gert Scobel is wronglycclassified as the "top_guest" of the show scobel moderated by Gert Scobel.
+ce_787877c615c1,Gert Scobel,Q1515337,372,1,scobel
+ce_6cda164436e5,3sat,,83,2,scobel
+
+Here we can also see that 3sat, the production company with role "Produktionsauftrag", is also listed here. This logic is still fundamentally broken.
+
+We must clearly classify who is guest, and who is moderator, or anything else. Do this one time, reuse it constantly throughout analysis, never overrule it, and keep it consistent downstream. Everything must follow the same logic. Ideally completely separate them into separate files:
+* guest_occurrence_matrix
+* moderator_occurrence_matrix
+* production_order_occurrence_matrix
+or similar.
+
+---
+
+## General principle: Show everything we found
+
+All analysis should end up in a visualization. If an analsis is made, a respective visualization should trigger - general rule of thumb: no csv should go without png. An example would be TASK-F04, it is currently not clear if stats such as "episode coverage, min/max/avg per episode" are ever visualized. These could either all be their own visualizations, be part of some greater dashboard of each show, or part of some per-property unfied dashboard. Generally: If we calculate a stat, we should use it. This is not a binding MUST, but a guideline: If we don't utilize a value, we risk it being forgotten about. Visualizations are  the main interface access readers have to our analysis.
+
+
+## Interesting findings
+
+### PRECISELY 19.000 appereances with gender
+
+We seem to have PRECISELY 19.000 appereances with gender. This can be totally randomness, but also the sign of some hardcoded cutoff or similar. We should conduct a short investigation to identify if we may have accidentally hardcoded something that resulted in this, or if it is indeed just a coincidence.
+
+Confirm if unique episodes are already only those that are part of our specified series, and if guests  are guests of those.
+No other irrelevant members captured.
+
+  all/occurrence_matrix.csv: 8294 persons × 4863 episodes
+
+### Empty properties for highly relevant individuals.
+"Die Welt" only has 110 appearances as employer, despite that one Robin Alexander being there 139 times. Robin Alexander was Deputy Editor-in-Chief for "Die Welt" from 2019 to 2025. But this was never documented on Wikidata.
+
+For the most influential persons: which properties were empty for them
+
+## On "unique" persons
+
+Confirm how many had no Wikidata ID and keep them in a separate counter (outside of the visualization). Also for all statistics:
+Three degrees of quality:
+1: Reconciled with wiidata, so a person of whom we know the wikidata QID
+2: a person that is only mentioned in wikidata and in no other source
+3: a person that we could at least match between two non-wikidata sources (e.g. ZDF archive and Fernsehserien.de)
+4: a person that is only stated on one source, and this source is not wikidata.
+
+Only use stage 1 and 2 for visualizations.
+In statistics: always separate the counts for all of them separately: only the category 1 guests are truly high quality, 2 and 3 are okay, but not great, and 4 is so low we can only carry it as a "we found it, but are unable to do much with it". Ideally, we end up with something like:
+1: 97 % of our data
+2: 1 % of our data
+3: 2 % of our data
+4: 0% of our data
+
+### Interesting apparrent duplicates with different QIDs
+Doktor phil und Doktor Philosophiae
+
+Evangelisch-lutherische Kirche
+Evangelisch-lutherische kirche
+
+Evangelische Kirche
+
+### On Visualizations
+Regarding visualization texts:
+We should stick to a language convention: in English, if we keep the property title as is, it will be mostly lowercase (with some exceptions). Then we should keep our words we add to this, like "distribution", lowercase as well.
+In German, those properties will follow German capitalization rules, and will have plenty of capitalized words - so we should uphold this with text following German rules: "Verteilung"
+
+Additionally to this: keep the "unknown" section separate from the main visualisation. It should not be distorted from the often times un proportionally larger bar.
+
+Turn the Pareto bars into a stacked bar chart
+Add percentage of total occurences to the bar labels of that show, as well as the total on top (so you can quicky see: robin Alexander has 40 appearances on Markus Lanz, accounting for a total of 3% of that shows appearances; and on top of the bar, Robin Alexander had 153 appearances, 1% of all recorded
+
+
+## Structured Output folder documentation generation
+The goal would be a set of README.md files that, when navigated, allow to quickly gain an overview over the most relevant data points.
+During creation, it should be filled with the data from the analysis, and it should embed the visualizations into the markdown code, so that they are visually loaded: the result should be a folder that a reader can navigate on GitHub and inspect what we found, without ever needing to click on any file. Just folder navigation should be enough to learn and see everything important in the respective README.md files.
+
+
+### GitIgnore tuning
+we should also configure the .gitignore to allow those files to be gitted and discoverable via GitHub. Definition of Files to be included into the git:
+* does NOT contain GDPR critical data specific to a person. This means that demographic overviews are generally fine, but by person profiles are not.
+* does NOT have an unreasonably large file.
+* does NOT have a direct siblingthat can do the same. E.g. we don't need to upload the HTML, PNG and PDF visualizations - pick one that is most suitable for GitHub, and only permit that one.

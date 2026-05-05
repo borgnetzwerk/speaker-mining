@@ -11,8 +11,22 @@ If something here is not clear yet and requires further clarification, raise "**
 
 ---
 
-## For Documentation
-Generally: The order we established is the universal behaviour we should expect and implement at every step of the analysis:
-* List episodes (e.g. 5000)
-    * create binary guests x episodes occurrence matrix (e.g. 6000 x 5000)
-       * from this occurrence matrix: derive all other value x episode matrix per property. (e.g. 4x5000 for one property, 532 x 5000 for another, 28 x 5000 for a third, ...). Here, each cell reflects the number of guests with that property value were present: 0 if none, 1 if one unique person, 5 if five unique persons, up to the maximum number of guests that were present in that episode, if everyone happens to have that. This way, we can quickly calculate things like "how many episodes were without carrier of this particular value" just by looking at that value's row and count the zeors.
+## Current state and lessons learned
+* When creating stacked bar charts with labels, try to create horizontal stacked bar charts, where possible. The current Pareto visualization is barely readable as a vertical stacked bar chart with labels. Current issues: Text is rotated to the other labels, so you need to rotate your view to read whats inside. If the bars were horizontal, we would not have this issue.
+  * Exceptions would be something like timelines, which we'd expect to be left to right.
+
+* On Displaying "no data": On top, we currently display "n=... unique persons  - ... appereances - ... no data". This would be the perfect place to structure it something like this:
+    ... guest appereances of ... unique persons
+    no property data on ... guest appereances of ... unique persons (Tier 1 and Tier 2 entries that happen to not have claims for this particular property)
+    no Wikidata entry on ... guest appereances of ... unique persons (Tier 3 and Tier 4 entries)
+  * potentially, there is a more clever way to format this, but the general idea is: display what data we have
+
+* On README generation: We also need one README per property.
+  * Basic principle: Every folder in `data/50_analysis` needs its own README.
+
+* Basic principle: 
+  * Every analysis, visualization and README that is created for "ALL" should also be created per show.
+  * Every analysis, visualization and README that is created per show should also be created for "ALL.
+    * For example: All property analysis is currently done only for ALL, but must also be done for each show individually.
+
+Generally: The current visualizations like Pareto or simple bar charts in general are very basic, and we should not spend much more time on this. Stacked bar charts, timelines, Sunburst, Treemap etc. are all much more interesting and still not implemented. Particularly the property x property and the property x person stacked bar charts will be very interesting. We should focus on those.

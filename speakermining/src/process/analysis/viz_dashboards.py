@@ -22,6 +22,7 @@ from .universal_stats import (
     build_frequency_distribution,
     build_pareto_table,
 )
+from .viz_universal import _PALETTE
 from .viz_base import PALETTE, apply_font, save_fig
 
 
@@ -35,8 +36,16 @@ def build_guest_frequency_pareto_outputs(
     viz_dir: str | Path,
     *,
     top_n: int = 25,
+    episode_appearances: pd.DataFrame | None = None,
 ) -> dict[str, pd.DataFrame | Path]:
-    """Write guest frequency and Pareto outputs and return the generated tables."""
+    """Write guest frequency and Pareto outputs and return the generated tables.
+
+    When *episode_appearances* is supplied the Pareto bar chart becomes a stacked
+    bar where each segment represents one broadcasting show.  Each segment is
+    labelled with its appearance count and percentage of that show's total
+    appearances; the overall total + its percentage of all appearances is
+    annotated above each full bar.
+    """
 
     all_dir = _ensure_path(output_dir)
     viz_dir = _ensure_path(viz_dir)
@@ -71,6 +80,29 @@ def build_guest_frequency_pareto_outputs(
     pareto_table["canonical_label"] = pareto_table["canonical_label"].fillna(pareto_table["carrier"])
     pareto_top = pareto_table.head(top_n).copy()
 
+    if episode_appearances is not None and not episode_appearances.empty and "show_id" in episode_appearances.columns:
+        fig = _build_stacked_pareto(pareto_top, episode_appearances, guest_appearance_counts)
+    else:
+        fig = _build_simple_pareto(pareto_top, guest_appearance_counts)
+
+    apply_font(fig)
+    save_fig(fig, viz_dir / "guest_frequency_pareto")
+
+    atomic_write_csv(all_dir / "guest_frequency_distribution.csv", frequency_distribution)
+    atomic_write_csv(all_dir / "guest_frequency_pareto.csv", pareto_table)
+
+    return {
+        "frequency_distribution": frequency_distribution,
+        "pareto_table": pareto_table,
+        "pareto_top": pareto_top,
+        "figure_path": viz_dir / "guest_frequency_pareto",
+    }
+
+
+def _build_simple_pareto(
+    pareto_top: pd.DataFrame,
+    guest_appearance_counts: pd.DataFrame,
+) -> go.Figure:
     fig = go.Figure()
     fig.add_trace(go.Bar(
         x=pareto_top["canonical_label"],
@@ -95,7 +127,8 @@ def build_guest_frequency_pareto_outputs(
         title=dict(
             text=(
                 "Guest Appearance Frequency and Pareto Distribution<br>"
-                f"<sup>{len(guest_appearance_counts):,} unique guests · {int(guest_appearance_counts['appearance_count'].sum()):,} total appearances</sup>"
+                f"<sup>{len(guest_appearance_counts):,} unique guests · "
+                f"{int(guest_appearance_counts['appearance_count'].sum()):,} total appearances</sup>"
             ),
             x=0.5,
         ),
@@ -107,18 +140,135 @@ def build_guest_frequency_pareto_outputs(
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         height=max(500, 28 * len(pareto_top) + 180),
     )
-    apply_font(fig)
-    save_fig(fig, viz_dir / "guest_frequency_pareto")
+    return fig
 
-    atomic_write_csv(all_dir / "guest_frequency_distribution.csv", frequency_distribution)
-    atomic_write_csv(all_dir / "guest_frequency_pareto.csv", pareto_table)
 
-    return {
-        "frequency_distribution": frequency_distribution,
-        "pareto_table": pareto_table,
-        "pareto_top": pareto_top,
-        "figure_path": viz_dir / "guest_frequency_pareto",
+def _build_stacked_pareto(
+    pareto_top: pd.DataFrame,
+    episode_appearances: pd.DataFrame,
+    guest_appearance_counts: pd.DataFrame,
+) -> go.Figure:
+    guest_ep = episode_appearances[episode_appearances["role"] == "guest"].copy()
+
+    # Per-show total appearances (denominator for segment percentages)
+    show_totals = (
+        guest_ep.groupby("show_id").size().reset_index(name="show_total")
+    )
+    # Use program_name if available, else show_id
+    if "program_name" in guest_ep.columns:
+        show_labels = (
+            guest_ep[["show_id", "program_name"]]
+            .drop_duplicates()
+            .set_index("show_id")["program_name"]
+            .to_dict()
+        )
+    else:
+        show_labels = {}
+
+    # Per-guest per-show appearances (for top-N guests only)
+    top_ceids = set(pareto_top["canonical_entity_id"].dropna())
+    guest_show = (
+        guest_ep[guest_ep["canonical_entity_id"].isin(top_ceids)]
+        .groupby(["canonical_entity_id", "show_id"])
+        .size()
+        .reset_index(name="show_appearances")
+        .merge(show_totals, on="show_id", how="left")
+    )
+    guest_show["pct_of_show"] = (
+        guest_show["show_appearances"] / guest_show["show_total"].clip(lower=1) * 100
+    ).round(1)
+
+    total_all = max(int(guest_ep.shape[0]), 1)
+    label_order = pareto_top["canonical_label"].tolist()
+    ceid_to_label = pareto_top.set_index("canonical_entity_id")["canonical_label"].to_dict()
+
+    # Ordered list of shows (by total appearances desc, so dominant show is bottom)
+    ordered_shows = (
+        show_totals.sort_values("show_total", ascending=False)["show_id"].tolist()
+    )
+    show_color_map = {
+        sid: _PALETTE[i % len(_PALETTE)]
+        for i, sid in enumerate(ordered_shows)
     }
+
+    fig = go.Figure()
+    for show_id in ordered_shows:
+        show_data = guest_show[guest_show["show_id"] == show_id].copy()
+        # Build a row for every top guest (fill 0 if not on this show)
+        merged = pd.DataFrame({"canonical_entity_id": list(top_ceids)})
+        merged["canonical_label"] = merged["canonical_entity_id"].map(ceid_to_label)
+        merged = merged.merge(
+            show_data[["canonical_entity_id", "show_appearances", "pct_of_show"]],
+            on="canonical_entity_id",
+            how="left",
+        )
+        merged["show_appearances"] = merged["show_appearances"].fillna(0).astype(int)
+        merged["pct_of_show"] = merged["pct_of_show"].fillna(0.0)
+        # Restore pareto sort order
+        merged = merged.set_index("canonical_label").reindex(label_order).reset_index()
+
+        display_name = show_labels.get(show_id, show_id)
+        text_labels = [
+            f"{int(v)} ({p:.1f}%)" if v > 0 else ""
+            for v, p in zip(merged["show_appearances"], merged["pct_of_show"])
+        ]
+        fig.add_trace(go.Bar(
+            name=display_name,
+            x=merged["canonical_label"],
+            y=merged["show_appearances"],
+            marker_color=show_color_map[show_id],
+            text=text_labels,
+            textposition="inside",
+            insidetextanchor="middle",
+            hovertemplate=(
+                f"<b>{display_name}</b><br>"
+                "%{x}: %{y:,} appearances (%{customdata:.1f}% of show)<extra></extra>"
+            ),
+            customdata=merged["pct_of_show"],
+        ))
+
+    # Annotations: total + % of all above each bar
+    annotations = []
+    for _, row in pareto_top.iterrows():
+        total = int(row["appearance_count"])
+        pct_all = total / total_all * 100
+        annotations.append(dict(
+            x=row["canonical_label"],
+            y=total,
+            text=f"<b>{total}</b> ({pct_all:.1f}%)",
+            xanchor="center",
+            yanchor="bottom",
+            showarrow=False,
+            font=dict(size=9),
+            yshift=3,
+        ))
+
+    unique_guests = len(guest_appearance_counts)
+    fig.update_layout(
+        title=dict(
+            text=(
+                "Top Guests by Appearances — Stacked by Broadcasting Program<br>"
+                f"<sup>{unique_guests:,} unique guests · {total_all:,} total guest appearances</sup>"
+            ),
+            x=0.5,
+        ),
+        barmode="stack",
+        xaxis=dict(title="Guest", tickangle=-40, automargin=True),
+        yaxis=dict(title="Appearances", rangemode="tozero"),
+        template="plotly_white",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.06,
+            xanchor="right",
+            x=1,
+            title_text="Show",
+        ),
+        annotations=annotations,
+        height=max(560, 32 * len(pareto_top) + 240),
+        margin=dict(t=160, b=120),
+    )
+    return fig
 
 
 def build_source_coverage_dashboards(
