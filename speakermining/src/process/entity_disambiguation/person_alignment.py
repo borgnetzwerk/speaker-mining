@@ -64,6 +64,21 @@ def build_aligned_persons(
         for _, row in aligned_episodes.iterrows()
     }
 
+    # Episode-level FS context: propagated to ZDF persons that have no direct FS guest
+    # match but whose episode was successfully merged with an FS episode.
+    episode_fs_context: dict[str, dict[str, str]] = {}
+    for _, ep_row in aligned_episodes.iterrows():
+        ep_id = str(ep_row.get("alignment_unit_id", ""))
+        if not ep_id:
+            continue
+        ctx: dict[str, str] = {}
+        for col in ("fernsehserien_de_id_fernsehserien_de", "episode_url_fernsehserien_de", "program_name_fernsehserien_de"):
+            val = str(ep_row.get(col, "")).strip()
+            if val:
+                ctx[col] = val
+        if ctx:
+            episode_fs_context[ep_id] = ctx
+
     fs_guest_index = _build_fs_guest_index(fs_guests)
     wikidata_by_id, wikidata_by_label_norm = _indexed_wikidata_persons()
     wikidata_persons_norm = normalized.get("wikidata_persons", pd.DataFrame()).copy()
@@ -145,6 +160,11 @@ def build_aligned_persons(
         row.update(prefixed_row_values(person, suffix="zdf"))
         if fs_match_row is not None:
             row.update(prefixed_row_values(fs_match_row, suffix="fernsehserien_de"))
+        elif episode_id in episode_fs_context:
+            # No direct FS guest match, but the episode itself was aligned to FS.
+            # Propagate show-level FS columns so Phase 50 can filter by show correctly.
+            for key, val in episode_fs_context[episode_id].items():
+                row[key] = val
         if wd_id and wd_id in wd_norm_by_id:
             row.update(prefixed_row_values(wd_norm_by_id[wd_id], suffix="wikidata"))
 

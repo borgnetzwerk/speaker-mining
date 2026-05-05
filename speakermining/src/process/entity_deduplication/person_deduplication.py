@@ -33,6 +33,7 @@ _PRESERVED_MEMBER_COLUMNS = [
     "guest_role_fernsehserien_de",
     "guest_description_fernsehserien_de",
     "source_event_sequence_fernsehserien_de",
+    "episode_id_zdf",
 ]
 
 _MATCH_TIER_RANK = {"exact": 0, "high": 1, "medium": 2, "unresolved": 3}

@@ -68,6 +68,7 @@ DEDUP_CLUSTER_MEMBERS_COLUMNS = [
     "guest_role_fernsehserien_de",
     "guest_description_fernsehserien_de",
     "source_event_sequence_fernsehserien_de",
+    "episode_id_zdf",
 ]
 
 STRATEGY_MANUAL_RECONCILIATION = "manual_reconciliation"

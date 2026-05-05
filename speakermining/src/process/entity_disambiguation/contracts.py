@@ -17,6 +17,8 @@ NORMALIZED_EXAMPLES_DIR = NORMALIZED_DIR / "examples"
 SCHEMA_EXAMPLES_DIR = ALIGNED_DIR / "examples" / "schema_harmonization"
 LAYERED_EXAMPLES_DIR = ALIGNED_DIR / "examples" / "layered_alignment"
 
+# FIXME: Once Wikidata V4 issues are resolved, go back to reading the real one, not the archive
+# TEMPORARY FIX: Read Wikidata from archive.
 INPUT_FILES = {
     "setup_broadcasting_programs": SETUP_DIR / "broadcasting_programs.csv",
     "zdf_episodes": MENTION_DIR / "episodes.csv",
@@ -24,18 +26,18 @@ INPUT_FILES = {
     "zdf_publications": MENTION_DIR / "publications.csv",
     "zdf_topics": MENTION_DIR / "topics.csv",
     "zdf_seasons": MENTION_DIR / "seasons.csv",
-    "wikidata_programs": CANDIDATE_DIR / "wikidata" / "projections" / "core_broadcasting_programs.json",
-    "wikidata_series": CANDIDATE_DIR / "wikidata" / "projections" / "core_series.json",
-    "wikidata_episodes": CANDIDATE_DIR / "wikidata" / "projections" / "core_episodes.json",
-    "wikidata_persons": CANDIDATE_DIR / "wikidata" / "projections" / "core_persons.json",
-    "wikidata_topics": CANDIDATE_DIR / "wikidata" / "projections" / "core_topics.json",
-    "wikidata_roles": CANDIDATE_DIR / "wikidata" / "projections" / "core_roles.json",
-    "wikidata_organizations": CANDIDATE_DIR / "wikidata" / "projections" / "core_organizations.json",
-    "wikidata_triples": CANDIDATE_DIR / "wikidata" / "projections" / "triples.csv",
-    "wikidata_properties": CANDIDATE_DIR / "wikidata" / "projections" / "properties.csv",
-    "wikidata_classes": CANDIDATE_DIR / "wikidata" / "projections" / "classes.csv",
-    "wikidata_aliases_en": CANDIDATE_DIR / "wikidata" / "projections" / "aliases_en.csv",
-    "wikidata_aliases_de": CANDIDATE_DIR / "wikidata" / "projections" / "aliases_de.csv",
+    "wikidata_programs": CANDIDATE_DIR / "wikidata" / "projections" / "archive" / "core_broadcasting_programs.json",
+    "wikidata_series": CANDIDATE_DIR / "wikidata" / "projections" / "archive" / "core_series.json",
+    "wikidata_episodes": CANDIDATE_DIR / "wikidata" / "projections" / "archive" / "core_episodes.json",
+    "wikidata_persons": CANDIDATE_DIR / "wikidata" / "projections" / "archive" / "core_persons.json",
+    "wikidata_topics": CANDIDATE_DIR / "wikidata" / "projections" / "archive" / "core_topics.json",
+    "wikidata_roles": CANDIDATE_DIR / "wikidata" / "projections" / "archive" / "core_roles.json",
+    "wikidata_organizations": CANDIDATE_DIR / "wikidata" / "projections" / "archive" / "core_organizations.json",
+    "wikidata_triples": CANDIDATE_DIR / "wikidata" / "projections" / "archive" / "triples.csv",
+    "wikidata_properties": CANDIDATE_DIR / "wikidata" / "projections" / "archive" / "properties.csv",
+    "wikidata_classes": CANDIDATE_DIR / "wikidata" / "projections" / "archive" / "classes.csv",
+    "wikidata_aliases_en": CANDIDATE_DIR / "wikidata" / "projections" / "archive" / "aliases_en.csv",
+    "wikidata_aliases_de": CANDIDATE_DIR / "wikidata" / "projections" / "archive" / "aliases_de.csv",
     "fs_episode_metadata": CANDIDATE_DIR / "fernsehserien_de" / "projections" / "episode_metadata_normalized.csv",
     "fs_episode_broadcasts": CANDIDATE_DIR / "fernsehserien_de" / "projections" / "episode_broadcasts_normalized.csv",
     "fs_episode_guests": CANDIDATE_DIR / "fernsehserien_de" / "projections" / "episode_guests_normalized.csv",

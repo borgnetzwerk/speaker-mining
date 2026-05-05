@@ -20,10 +20,14 @@ from .utils import (
 )
 
 
-def _indexed_wikidata_episodes() -> tuple[dict[str, dict[str, Any]], dict[str, list[str]]]:
+def _indexed_wikidata_episodes() -> tuple[
+    dict[str, dict[str, Any]], dict[str, list[str]], dict[str, list[str]], dict[str, str]
+]:
     entities = read_json_dict(INPUT_FILES["wikidata_episodes"])
     by_id: dict[str, dict[str, Any]] = {}
     by_label_norm: dict[str, list[str]] = defaultdict(list)
+    by_date: dict[str, list[str]] = defaultdict(list)
+    series_by_qid: dict[str, str] = {}
 
     for qid, item in entities.items():
         label = label_from_wikidata_item(item)
@@ -36,15 +40,40 @@ def _indexed_wikidata_episodes() -> tuple[dict[str, dict[str, Any]], dict[str, l
         if label:
             by_label_norm[normalize_text(label)].append(qid)
 
-    return by_id, by_label_norm
+        claims = item.get("claims", {})
+        for stmt in claims.get("P577", []):
+            try:
+                time_val = stmt["mainsnak"]["datavalue"]["value"]["time"]
+                date_str = time_val[1:11]  # "+2020-11-08T00:00:00Z" → "2020-11-08"
+                by_date[date_str].append(qid)
+            except (KeyError, TypeError, IndexError):
+                pass
+        for stmt in claims.get("P179", []):
+            try:
+                series_by_qid[qid] = stmt["mainsnak"]["datavalue"]["value"]["id"]
+                break
+            except (KeyError, TypeError):
+                pass
+
+    return by_id, by_label_norm, by_date, series_by_qid
 
 
-def _match_fernsehserien_episode(zdf_episode: pd.Series, fs_metadata: pd.DataFrame) -> pd.Series | None:
+def _match_fernsehserien_episode(
+    zdf_episode: pd.Series, fs_metadata: pd.DataFrame, show_norm: str = ""
+) -> pd.Series | None:
     zdf_date = parse_date(zdf_episode.get("publikationsdatum", ""))
     if pd.isna(zdf_date):
         return None
 
-    candidates = fs_metadata[fs_metadata["premiere_date"].map(parse_date) == zdf_date]
+    # Restrict to the correct show before applying the date filter so that episodes
+    # from different shows that aired on the same date cannot cross-match.
+    scope = fs_metadata
+    if show_norm:
+        scoped = fs_metadata[fs_metadata["program_name"].map(normalize_text) == show_norm]
+        if not scoped.empty:
+            scope = scoped
+
+    candidates = scope[scope["premiere_date"].map(parse_date) == zdf_date]
     if candidates.empty:
         return None
 
@@ -67,7 +96,22 @@ def build_aligned_episodes(normalized: dict[str, pd.DataFrame]) -> tuple[pd.Data
     fs_metadata["premiere_date"] = fs_metadata["premiere_date"].fillna("")
     fs_metadata["episode_title_norm"] = fs_metadata["episode_title"].map(normalize_text)
 
-    wikidata_by_id, wikidata_by_label_norm = _indexed_wikidata_episodes()
+    wikidata_by_id, wikidata_by_label_norm, wikidata_by_date, wikidata_series_by_qid = _indexed_wikidata_episodes()
+    # Reverse index: episode QID → P577 date string (first date wins)
+    date_by_qid: dict[str, str] = {qid: d for d, qids in wikidata_by_date.items() for qid in qids}
+
+    # Build series QID → FS show ID from broadcasting_programs, then invert to
+    # FS show ID → set[series QID] for the date+series Wikidata match below.
+    broadcasting_programs = normalized.get("setup_broadcasting_programs", pd.DataFrame()).copy()
+    series_qid_to_show_id: dict[str, str] = {}
+    for _, prog_row in broadcasting_programs.iterrows():
+        wqid = str(prog_row.get("wikidata_id", "")).strip()
+        fsid = str(prog_row.get("fernsehserien_de_id", "")).strip()
+        if wqid and wqid not in ("", "NONE") and fsid and fsid not in ("", "NONE"):
+            series_qid_to_show_id[wqid] = fsid
+    fs_show_id_to_series_qids: dict[str, set[str]] = defaultdict(set)
+    for sq, fsid in series_qid_to_show_id.items():
+        fs_show_id_to_series_qids[fsid].add(sq)
 
     pub_by_episode = zdf_publications.sort_values(by=["episode_id", "publication_index"]).groupby("episode_id")
     guest_by_url = fs_guests.sort_values(by=["episode_url", "guest_order"]).groupby("episode_url")
@@ -83,6 +127,18 @@ def build_aligned_episodes(normalized: dict[str, pd.DataFrame]) -> tuple[pd.Data
     used_fs_ids: set[str] = set()
     used_wikidata_ids: set[str] = set()
 
+    # Build show-level look-up maps from FS metadata (one row per show).
+    fs_show_norm_to_id: dict[str, str] = {}
+    fs_show_id_to_name: dict[str, str] = {}
+    for _, srow in fs_metadata.drop_duplicates(subset=["fernsehserien_de_id"]).iterrows():
+        norm = normalize_text(str(srow.get("program_name", "")))
+        sid = str(srow.get("fernsehserien_de_id", "")).strip()
+        name = str(srow.get("program_name", "")).strip()
+        if norm and sid:
+            fs_show_norm_to_id[norm] = sid
+        if sid and name:
+            fs_show_id_to_name[sid] = name
+
     max_publications = 0
     max_guests = 0
     max_broadcasts = 0
@@ -92,7 +148,18 @@ def build_aligned_episodes(normalized: dict[str, pd.DataFrame]) -> tuple[pd.Data
         zdf_label = ep.get("sendungstitel", "")
         zdf_desc = ep.get("infos", "")
 
-        fs_match = _match_fernsehserien_episode(ep, fs_metadata)
+        # Derive the normalised show name from the ZDF episode title so that the FS
+        # match is restricted to episodes of the same programme.
+        zdf_show_norm = normalize_text(zdf_label)
+        # sendungstitel contains e.g. "Markus Lanz 03.06.2008"; try matching the longest
+        # known FS programme name that is a substring of the normalised title.
+        matched_show_norm = max(
+            (sn for sn in fs_show_norm_to_id if sn and sn in zdf_show_norm),
+            key=len,
+            default="",
+        )
+
+        fs_match = _match_fernsehserien_episode(ep, fs_metadata, show_norm=matched_show_norm)
         fs_id = ""
         fs_label = ""
         fs_desc = ""
@@ -102,8 +169,32 @@ def build_aligned_episodes(normalized: dict[str, pd.DataFrame]) -> tuple[pd.Data
             fs_label = str(fs_match.get("episode_title", ""))
             fs_desc = str(fs_match.get("description_text", ""))
 
-        wd_ids = wikidata_by_label_norm.get(normalize_text(zdf_label), [])
-        wd_id = wd_ids[0] if len(wd_ids) == 1 else ""
+        # Date-based Wikidata matching is the primary strategy (precision-first).
+        # Filter Wikidata candidates by P577 date and then by P179 series membership
+        # so that episodes from the correct show are preferred.
+        zdf_date = parse_date(ep.get("publikationsdatum", ""))
+        zdf_date_str = zdf_date.strftime("%Y-%m-%d") if not pd.isna(zdf_date) else ""
+        wd_id = ""
+        wd_match_strategy = ""
+        if zdf_date_str:
+            date_candidates = wikidata_by_date.get(zdf_date_str, [])
+            if date_candidates and matched_show_norm:
+                target_fs_id = fs_show_norm_to_id.get(matched_show_norm, "")
+                target_series_qids = fs_show_id_to_series_qids.get(target_fs_id, set())
+                if target_series_qids:
+                    series_filtered = [q for q in date_candidates if wikidata_series_by_qid.get(q) in target_series_qids]
+                    if len(series_filtered) == 1:
+                        wd_id = series_filtered[0]
+                        wd_match_strategy = "date_and_series_wikidata"
+            if not wd_id and len(date_candidates) == 1:
+                wd_id = date_candidates[0]
+                wd_match_strategy = "date_only_wikidata"
+        if not wd_id:
+            # Fallback: unique label match (exact string equality after normalisation)
+            wd_ids = wikidata_by_label_norm.get(normalize_text(zdf_label), [])
+            if len(wd_ids) == 1:
+                wd_id = wd_ids[0]
+                wd_match_strategy = "label_wikidata"
         wd_item = wikidata_by_id.get(wd_id, {}) if wd_id else {}
         if wd_id:
             used_wikidata_ids.add(wd_id)
@@ -136,8 +227,8 @@ def build_aligned_episodes(normalized: dict[str, pd.DataFrame]) -> tuple[pd.Data
             "entity_class": "episode",
             "match_confidence": round(match_conf, 3),
             "match_tier": match_tier,
-            "match_strategy": "date_backbone_plus_title_signals",
-            "evidence_summary": "date-aligned fs episode" if fs_id else ("unique label-equal wikidata episode" if wd_id else "no candidate above threshold"),
+            "match_strategy": "date_backbone_plus_title_signals" if fs_id else (wd_match_strategy or "unresolved"),
+            "evidence_summary": "date-aligned fs episode" if fs_id else (f"wikidata episode via {wd_match_strategy}" if wd_id else "no candidate above threshold"),
             "unresolved_reason_code": unresolved_code,
             "unresolved_reason_detail": unresolved_detail,
             "inference_flag": str(inference_flag).lower(),
@@ -159,6 +250,10 @@ def build_aligned_episodes(normalized: dict[str, pd.DataFrame]) -> tuple[pd.Data
         row.update(prefixed_row_values(ep, suffix="zdf"))
         if fs_match is not None:
             row.update(prefixed_row_values(fs_match, suffix="fernsehserien_de"))
+        elif matched_show_norm and matched_show_norm in fs_show_norm_to_id:
+            # For ZDF episodes without an FS episode match, populate the FS show ID so
+            # that Phase 50 can still identify which show the episode belongs to.
+            row["fernsehserien_de_id_fernsehserien_de"] = fs_show_norm_to_id[matched_show_norm]
         if wd_id and wd_id in wd_norm_by_id:
             row.update(prefixed_row_values(wd_norm_by_id[wd_id], suffix="wikidata"))
 
@@ -253,6 +348,40 @@ def build_aligned_episodes(normalized: dict[str, pd.DataFrame]) -> tuple[pd.Data
 
         row.update(prefixed_row_values(fs_row, suffix="fernsehserien_de"))
 
+        # Try to match this FS-only episode against Wikidata by date + series.
+        # This handles shows not in ZDF Archive (e.g. Maischberger on Das Erste).
+        _fs_date = parse_date(str(fs_row.get("premiere_date", "")))
+        if not pd.isna(_fs_date):
+            _fs_date_str = _fs_date.strftime("%Y-%m-%d")
+            _fs_show_id = str(fs_row.get("fernsehserien_de_id", "")).strip()
+            _target_series_qids = fs_show_id_to_series_qids.get(_fs_show_id, set())
+            _wd_match_id = ""
+            _wd_match_strategy_fs = ""
+            if _target_series_qids:
+                _date_cands = wikidata_by_date.get(_fs_date_str, [])
+                _series_filtered = [
+                    q for q in _date_cands
+                    if wikidata_series_by_qid.get(q) in _target_series_qids and q not in used_wikidata_ids
+                ]
+                if len(_series_filtered) == 1:
+                    _wd_match_id = _series_filtered[0]
+                    _wd_match_strategy_fs = "date_and_series_wikidata"
+            if _wd_match_id:
+                _wd_item_m = wikidata_by_id.get(_wd_match_id, {})
+                used_wikidata_ids.add(_wd_match_id)
+                row["wikidata_id"] = _wd_match_id
+                row["label_wikidata"] = _wd_item_m.get("label", "")
+                row["description_wikidata"] = _wd_item_m.get("description", "")
+                row["alias_wikidata"] = _wd_item_m.get("aliases", "")
+                row["match_confidence"] = 0.80
+                row["match_tier"] = HIGH_TIER
+                row["match_strategy"] = _wd_match_strategy_fs
+                row["evidence_summary"] = f"fs episode matched to wikidata via {_wd_match_strategy_fs}"
+                row["unresolved_reason_code"] = ""
+                row["unresolved_reason_detail"] = ""
+                if _wd_match_id in wd_norm_by_id:
+                    row.update(prefixed_row_values(wd_norm_by_id[_wd_match_id], suffix="wikidata"))
+
         rows.append(row)
         evidence_rows.append(
             {
@@ -302,6 +431,18 @@ def build_aligned_episodes(normalized: dict[str, pd.DataFrame]) -> tuple[pd.Data
         }
         if wd_id in wd_norm_by_id:
             row.update(prefixed_row_values(wd_norm_by_id[wd_id], suffix="wikidata"))
+
+        # Populate FS show context and canonical date from Wikidata indexes so
+        # Phase 50 can identify which show this episode belongs to even without
+        # an FS or ZDF counterpart.
+        _wd_series_qid = wikidata_series_by_qid.get(wd_id, "")
+        _wd_fs_show_id = series_qid_to_show_id.get(_wd_series_qid, "")
+        if _wd_fs_show_id:
+            row["fernsehserien_de_id_fernsehserien_de"] = _wd_fs_show_id
+            row["program_name_fernsehserien_de"] = fs_show_id_to_name.get(_wd_fs_show_id, "")
+        _wd_date_str = date_by_qid.get(wd_id, "")
+        if _wd_date_str:
+            row["premiere_date_date_fernsehserien_de"] = _wd_date_str
 
         rows.append(row)
         evidence_rows.append(
