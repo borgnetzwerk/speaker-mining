@@ -130,22 +130,70 @@ def build_person_catalogue(
     member_df["role"] = guest_role_series.astype(str).map(role_map).fillna("guest")
     member_df.loc[member_df["wikidata_id"].isin(moderator_qids), "role"] = "moderator"
 
-    # Map each cluster member to the alignment_unit_id of its episode.
-    # Primary: FS episode URL → alignment_unit_id via aligned_episodes.
-    # Fallback: episode_id_zdf equals the alignment_unit_id for ZDF-sourced episodes.
+    # Map each cluster member to alignment_unit_id(s) using ALL available sources.
+    #
+    # No single source is authoritative for episode assignment.  ZDF Archive,
+    # fernsehserien.de, and Wikidata are equal contributors.  Each source is
+    # queried independently and the results are unioned.
+    #
+    # IMPORTANT: fernsehserien_de_id (the alignment-context URL) is NEVER used
+    # for episode assignment.  That column originates from Phase-31 alignment
+    # context and can be wrong for rows from
+    # data/31_entity_disambiguation/manual/reconciled_data_summary.csv (a
+    # manually curated file that will never be regenerated and carries stale
+    # FS URLs for some persons).  reconciled_data_summary.csv is authoritative
+    # for person identity only — not for episode assignment.
     _ae = aligned_episodes
     fs_url_to_auid = (
         _ae[_ae["fernsehserien_de_id"].astype(str).str.strip() != ""]
         .set_index("fernsehserien_de_id")["alignment_unit_id"]
         .to_dict()
     )
-    member_df["episode_auid"] = member_df["fernsehserien_de_id"].astype(str).map(fs_url_to_auid).fillna("")
+
+    _source_frames = []
+
+    # Source: ZDF Archive — episode_id_zdf IS the alignment_unit_id
     if "episode_id_zdf" in member_df.columns:
-        _zdf_mask = member_df["episode_auid"].str.strip() == ""
-        member_df.loc[_zdf_mask, "episode_auid"] = (
-            member_df.loc[_zdf_mask, "episode_id_zdf"].fillna("").astype(str)
+        _zdf = member_df.copy()
+        _zdf["episode_auid"] = _zdf["episode_id_zdf"].fillna("").astype(str).str.strip()
+        _source_frames.append(_zdf[_zdf["episode_auid"] != ""])
+
+    # Source: fernsehserien.de guest data — episode_url_fernsehserien_de → alignment_unit_id
+    if "episode_url_fernsehserien_de" in member_df.columns:
+        _fs = member_df.copy()
+        _fs["episode_auid"] = (
+            _fs["episode_url_fernsehserien_de"].fillna("").astype(str).map(fs_url_to_auid).fillna("")
         )
-    member_df["episode_auid"] = member_df["episode_auid"].astype(str).str.strip()
+        _source_frames.append(_fs[_fs["episode_auid"].str.strip() != ""])
+
+    if _source_frames:
+        member_df = pd.concat(_source_frames, ignore_index=True)
+        member_df["episode_auid"] = member_df["episode_auid"].astype(str).str.strip()
+        # Deduplicate (person, episode) pairs from multi-source aggregation.
+        # When the same person appears in the same episode via multiple sources,
+        # keep the row whose role is most specific (lower priority = more specific).
+        member_df = (
+            member_df[member_df["canonical_entity_id"].notna()]
+            .sort_values("role", key=lambda s: s.map(lambda r: role_priority.get(r, 9)))
+            .drop_duplicates(subset=["canonical_entity_id", "episode_auid"])
+            .reset_index(drop=True)
+        )
+    else:
+        member_df["episode_auid"] = ""
+
+    # Derive show_id from aligned_episodes — the ONLY reliable source for
+    # which show an episode belongs to.  This overrides any show_id value
+    # inherited from cluster_members, which may be stale.
+    _auid_to_show_id = (
+        _ae.set_index("alignment_unit_id")["fernsehserien_de_id_fernsehserien_de"]
+        .astype(str).str.strip().to_dict()
+    )
+    member_df["show_id"] = (
+        member_df["episode_auid"]
+        .map(_auid_to_show_id)
+        .fillna(member_df.get("show_id", pd.Series("", index=member_df.index)).fillna("").astype(str))
+        .astype(str).str.strip()
+    )
 
     # In-scope episodes: all alignment_unit_ids whose show is in in_scope_show_ids.
     in_scope_episode_ids = set(
@@ -199,22 +247,22 @@ def build_person_catalogue(
     catalogue["appearance_count"] = catalogue["appearance_count"].fillna(0).astype(int)
 
     # TASK-F16: Assign data quality tier (1–4) based on source reconciliation depth.
-    # Tier 1: Wikidata QID + entity doc in core_persons cache — full property coverage.
-    # Tier 2: Wikidata QID present but no entity doc — Wikidata-mentioned only.
-    # Tier 3: No Wikidata QID but cluster_size > 1 — matched across multiple sources.
-    # Tier 4: No Wikidata QID and cluster_size == 1 — single non-Wikidata source only.
+    # Tier 1: Wikidata QID + at least one other source match (cluster_size > 1 + QID).
+    #         Entry exists in ≥2 databases, at least one being Wikidata — highest confidence.
+    # Tier 2: Wikidata QID but no other source match (cluster_size == 1 + QID).
+    #         Wikidata-only; limited cross-validation.
+    # Tier 3: No Wikidata QID but matched across 2+ non-Wikidata sources (ZDF + FS).
+    # Tier 4: No Wikidata QID and single non-Wikidata source only.
     def _quality_tier(row: pd.Series) -> int:
         qid = str(row.get("wikidata_id", "")).strip()
-        if qid and core_persons.get(qid):
-            return 1
-        if qid:
-            return 2
+        has_qid = bool(qid and qid.lower() not in ("", "nan"))
         try:
-            if int(row.get("cluster_size", 1)) > 1:
-                return 3
+            cluster_size = int(row.get("cluster_size", 1))
         except (ValueError, TypeError):
-            pass
-        return 4
+            cluster_size = 1
+        if has_qid:
+            return 1 if cluster_size > 1 else 2
+        return 3 if cluster_size > 1 else 4
     catalogue["data_quality_tier"] = catalogue.apply(_quality_tier, axis=1)
 
     _get_cached = None

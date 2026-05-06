@@ -426,6 +426,7 @@ Claim-level temporal qualification is tracked (`is_temporal` flag, optional `eff
 - `TEMPORAL_QUALIFIER_PIDS`, `has_temporal_claims`, `infer_temporal_properties_from_values` exist in `config.py`.
 - `extract_item_values` captures `qualifier_pids`.
 - `is_temporal` flag is not yet added to per-property DataFrames.
+   * **Clarification:** Remember: is_temporal is a claim-level quality.  
 - `effective_at` filtering in `compute_carrier_stats` is not implemented.
 - "Look to the past" analyses are not implemented.
 
@@ -440,6 +441,7 @@ Claim-level temporal qualification is tracked (`is_temporal` flag, optional `eff
 ---
 
 ### TASK-F12 — Data Quality and Coverage Follow-Ups
+   * **Clarification:** Only proceed with this task (TASK-12) once all other visualizations are implemented.
 
 **What it should achieve:**
 Age outlier detection and remediation before publication, fernsehserien.de ID linkage quality verification, all analysis basis data copied into the analysis output folder, and ongoing implementation-vs-spec compliance review.
@@ -460,6 +462,7 @@ Age outlier detection and remediation before publication, fernsehserien.de ID li
 ---
 
 ### TASK-F13 — Documentation and Structural Compliance
+   * **Clarification:** Only proceed with this task (TASK-13) once all other visualizations are implemented.
 
 **What it should achieve:**
 Consistent taxonomy and function labels across all docs and code. This file (`03_intermediate_review.md`) is the binding reference for next-step decisions. `open-tasks.md` is the canonical implementation queue.
@@ -478,6 +481,7 @@ Consistent taxonomy and function labels across all docs and code. This file (`03
 ---
 
 ### TASK-F14 — Lower-Priority Exploratory Angles
+   * **Clarification:** Only proceed with this task (TASK-14) once all other visualizations are implemented.
 
 **What it should achieve:**
 Poisson distribution applicability check for guest frequency. Party trajectory deep dives. Experimental visual variants not blocking baseline.
@@ -536,6 +540,7 @@ Every person in the catalogue carries a `data_quality_tier` (1–4) based on sou
 ---
 
 ### TASK-F17 — Structured Output Folder Documentation
+   * **Clarification:** Only proceed with this task (TASK-F17) once all other visualizations are implemented.
 
 **What it should achieve:**
 Each `data/50_analysis/<scope>/README.md` is auto-generated and GitHub-navigable. Opening the folder on GitHub shows embedded visualizations, top-line stats, and top-guest tables — no file clicks needed.
@@ -557,6 +562,7 @@ Each `data/50_analysis/<scope>/README.md` is auto-generated and GitHub-navigable
 ---
 
 ### TASK-F18 — GitIgnore Tuning for GitHub Publication
+   * **Clarification:** Only proceed with this task (TASK-F18) once all other visualizations are implemented.
 
 **What it should achieve:**
 A `data/50_analysis/.gitignore` that allows GDPR-safe, size-appropriate, single-format outputs into git while excluding matrices, HTML duplicates, PDF duplicates, and person-level data.

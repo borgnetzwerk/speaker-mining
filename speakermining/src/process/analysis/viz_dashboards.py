@@ -40,11 +40,10 @@ def build_guest_frequency_pareto_outputs(
 ) -> dict[str, pd.DataFrame | Path]:
     """Write guest frequency and Pareto outputs and return the generated tables.
 
-    When *episode_appearances* is supplied the Pareto bar chart becomes a stacked
-    bar where each segment represents one broadcasting show.  Each segment is
-    labelled with its appearance count and percentage of that show's total
-    appearances; the overall total + its percentage of all appearances is
-    annotated above each full bar.
+    Always produces two independent charts:
+    - ``guest_frequency_pareto``: classic vertical Pareto (bars + cumulative line).
+    - ``guest_frequency_stacked``: horizontal stacked bar by broadcasting show.
+      Only written when *episode_appearances* is supplied with a ``show_id`` column.
     """
 
     all_dir = _ensure_path(output_dir)
@@ -80,13 +79,18 @@ def build_guest_frequency_pareto_outputs(
     pareto_table["canonical_label"] = pareto_table["canonical_label"].fillna(pareto_table["carrier"])
     pareto_top = pareto_table.head(top_n).copy()
 
-    if episode_appearances is not None and not episode_appearances.empty and "show_id" in episode_appearances.columns:
-        fig = _build_stacked_pareto(pareto_top, episode_appearances, guest_appearance_counts)
-    else:
-        fig = _build_simple_pareto(pareto_top, guest_appearance_counts)
+    # Chart 1: classic vertical Pareto (always produced)
+    fig_pareto = _build_simple_pareto(pareto_top, guest_appearance_counts)
+    apply_font(fig_pareto)
+    save_fig(fig_pareto, viz_dir / "guest_frequency_pareto")
 
-    apply_font(fig)
-    save_fig(fig, viz_dir / "guest_frequency_pareto")
+    # Chart 2: horizontal stacked bar by show (only when episode data is available)
+    stacked_path = None
+    if episode_appearances is not None and not episode_appearances.empty and "show_id" in episode_appearances.columns:
+        fig_stacked = _build_stacked_pareto(pareto_top, episode_appearances, guest_appearance_counts)
+        apply_font(fig_stacked)
+        save_fig(fig_stacked, viz_dir / "guest_frequency_stacked")
+        stacked_path = viz_dir / "guest_frequency_stacked"
 
     atomic_write_csv(all_dir / "guest_frequency_distribution.csv", frequency_distribution)
     atomic_write_csv(all_dir / "guest_frequency_pareto.csv", pareto_table)
@@ -96,6 +100,7 @@ def build_guest_frequency_pareto_outputs(
         "pareto_table": pareto_table,
         "pareto_top": pareto_top,
         "figure_path": viz_dir / "guest_frequency_pareto",
+        "stacked_figure_path": stacked_path,
     }
 
 
@@ -179,7 +184,7 @@ def _build_stacked_pareto(
     ).round(1)
 
     total_all = max(int(guest_ep.shape[0]), 1)
-    label_order = pareto_top["canonical_label"].tolist()
+    label_order = list(reversed(pareto_top["canonical_label"].tolist()))
     ceid_to_label = pareto_top.set_index("canonical_entity_id")["canonical_label"].to_dict()
 
     # Ordered list of shows (by total appearances desc, so dominant show is bottom)
@@ -214,15 +219,16 @@ def _build_stacked_pareto(
         ]
         fig.add_trace(go.Bar(
             name=display_name,
-            x=merged["canonical_label"],
-            y=merged["show_appearances"],
+            y=merged["canonical_label"],
+            x=merged["show_appearances"],
+            orientation="h",
             marker_color=show_color_map[show_id],
             text=text_labels,
             textposition="inside",
             insidetextanchor="middle",
             hovertemplate=(
                 f"<b>{display_name}</b><br>"
-                "%{x}: %{y:,} appearances (%{customdata:.1f}% of show)<extra></extra>"
+                "%{y}: %{x:,} appearances (%{customdata:.1f}% of show)<extra></extra>"
             ),
             customdata=merged["pct_of_show"],
         ))
@@ -233,14 +239,14 @@ def _build_stacked_pareto(
         total = int(row["appearance_count"])
         pct_all = total / total_all * 100
         annotations.append(dict(
-            x=row["canonical_label"],
-            y=total,
+            y=row["canonical_label"],
+            x=total,
             text=f"<b>{total}</b> ({pct_all:.1f}%)",
-            xanchor="center",
-            yanchor="bottom",
+            xanchor="left",
+            yanchor="middle",
             showarrow=False,
             font=dict(size=9),
-            yshift=3,
+            xshift=4,
         ))
 
     unique_guests = len(guest_appearance_counts)
@@ -253,8 +259,8 @@ def _build_stacked_pareto(
             x=0.5,
         ),
         barmode="stack",
-        xaxis=dict(title="Guest", tickangle=-40, automargin=True),
-        yaxis=dict(title="Appearances", rangemode="tozero"),
+        yaxis=dict(title="Guest", automargin=True),
+        xaxis=dict(title="Appearances", rangemode="tozero"),
         template="plotly_white",
         legend=dict(
             orientation="h",
@@ -265,8 +271,8 @@ def _build_stacked_pareto(
             title_text="Show",
         ),
         annotations=annotations,
-        height=max(560, 32 * len(pareto_top) + 240),
-        margin=dict(t=160, b=120),
+        height=max(400, 30 * len(pareto_top) + 200),
+        margin=dict(t=140, r=200),
     )
     return fig
 

@@ -37,6 +37,10 @@ from .universal_stats import (
     build_value_episode_matrix,
     build_frequency_distribution,
     build_pareto_table,
+    compute_value_combinations,
+    compute_cross_property_combinations,
+    add_dominance_ratio,
+    build_property_type_summary,
 )
 from .viz_base import (
     PALETTE,
@@ -59,3 +63,39 @@ from .viz_dashboards import (
     build_source_coverage_dashboards,
 )
 from .readme_generator import generate_all_readmes
+from .viz_cross_property import (
+    build_cross_property_stacked_bars,
+    build_property_top_persons_chart,
+)
+from .viz_comparison import (
+    build_cross_show_comparison,
+    build_all_cross_show_comparisons,
+)
+from .viz_coverage import build_property_coverage_dashboard
+from .viz_scalar import (
+    build_birth_year_chart,
+    build_age_distribution_chart,
+    build_age_vs_appearances_scatter,
+    build_all_scalar_charts,
+)
+from .viz_treemap import (
+    build_property_treemap,
+    build_all_treemaps,
+)
+from .viz_radar import (
+    build_property_radar_chart,
+    build_all_radar_charts,
+)
+from .viz_persons import (
+    build_cooccurrence_heatmap,
+    build_relevance_chart,
+)
+from .viz_binary import (
+    build_all_binary_presence,
+    build_binary_presence_chart,
+    compute_binary_presence,
+)
+from .person_analysis import (
+    compute_top_guests_by_show,
+    compute_person_relevance,
+)

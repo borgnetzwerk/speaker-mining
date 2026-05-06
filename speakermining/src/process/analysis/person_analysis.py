@@ -7,6 +7,8 @@ TASK-B22: Generate person-level insights:
 3. REQ-PER03: Individuals within category stacked bar (property value subdivisions)
 """
 
+import math
+
 import pandas as pd
 from pathlib import Path
 
@@ -88,6 +90,88 @@ def compute_guest_specialization(
     primary.columns = ["canonical_entity_id", "canonical_label", "wikidata_id", "primary_show", "primary_show_appearances", "total_appearances", "specialization_pct"]
     
     return primary.sort_values("specialization_pct", ascending=False).reset_index(drop=True)
+
+
+def compute_person_relevance(
+    guest_catalogue: pd.DataFrame,
+    episode_appearances: pd.DataFrame,
+    core_persons: dict | None = None,
+    total_shows: int | None = None,
+) -> pd.DataFrame:
+    """Compute per-guest claim count, show diversity, and relevance score.
+
+    Relevance score formula (documented in analysis config):
+        relevance_score = appearance_count × log(1 + claim_count) × show_diversity
+
+    where:
+        claim_count    = number of Wikidata property claims (0 for non-Wikidata persons)
+        show_diversity = unique shows guest appeared in / total configured shows
+
+    Args:
+        guest_catalogue: Person catalogue filtered to role == "guest".
+            Required columns: canonical_entity_id, wikidata_id, canonical_label,
+            appearance_count.
+        episode_appearances: Episode-level appearances frame.
+            Required columns: canonical_entity_id, show_id, role.
+        core_persons: Wikidata entity cache {qid: entity_doc}. Used for claim_count.
+            Pass None to skip claim counting (claim_count will be 0).
+        total_shows: Denominator for show_diversity. If None, derived from
+            episode_appearances show_id cardinality.
+
+    Returns:
+        DataFrame with columns: canonical_entity_id, canonical_label, wikidata_id,
+        appearance_count, claim_count, show_diversity, relevance_score.
+        Sorted descending by relevance_score.
+    """
+    if guest_catalogue is None or guest_catalogue.empty:
+        return pd.DataFrame()
+
+    df = guest_catalogue.copy()
+    df["wikidata_id"] = df["wikidata_id"].fillna("").astype(str).str.strip()
+    df["appearance_count"] = pd.to_numeric(df.get("appearance_count", 0), errors="coerce").fillna(0).astype(int)
+
+    # Claim count from Wikidata entity docs
+    if core_persons:
+        def _claim_count(qid: str) -> int:
+            doc = core_persons.get(qid)
+            if not doc:
+                return 0
+            return len(doc.get("claims", {}))
+        df["claim_count"] = df["wikidata_id"].map(_claim_count)
+    else:
+        df["claim_count"] = 0
+
+    # Show diversity: unique shows / total shows
+    if episode_appearances is not None and not episode_appearances.empty and "show_id" in episode_appearances.columns:
+        guest_ep = episode_appearances[episode_appearances.get("role", pd.Series(dtype=str)) == "guest"] if "role" in episode_appearances.columns else episode_appearances
+        n_total_shows = total_shows or max(int(guest_ep["show_id"].nunique()), 1)
+        show_per_guest = (
+            guest_ep.groupby("canonical_entity_id")["show_id"]
+            .nunique()
+            .reset_index(name="unique_shows")
+        )
+        df = df.merge(show_per_guest, on="canonical_entity_id", how="left")
+        df["unique_shows"] = df["unique_shows"].fillna(1).astype(int)
+        df["show_diversity"] = (df["unique_shows"] / n_total_shows).round(4)
+    else:
+        df["show_diversity"] = 1.0
+
+    df["relevance_score"] = (
+        df["appearance_count"]
+        * df["claim_count"].apply(lambda c: math.log1p(c))
+        * df["show_diversity"]
+    ).round(4)
+
+    keep_cols = [
+        "canonical_entity_id", "canonical_label", "wikidata_id",
+        "appearance_count", "claim_count", "show_diversity", "relevance_score",
+    ]
+    keep_cols = [c for c in keep_cols if c in df.columns]
+    return (
+        df[keep_cols]
+        .sort_values("relevance_score", ascending=False)
+        .reset_index(drop=True)
+    )
 
 
 def compute_guest_property_profile(

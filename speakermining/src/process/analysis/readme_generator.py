@@ -92,21 +92,32 @@ def generate_all_readme(
         lines.append(_md_table(per_show_stats[display_cols].sort_values("guest_appearances", ascending=False)))
     lines.append("")
 
-    # Pareto visualization
+    # Pareto and stacked pareto visualizations
     pareto_png = viz_dir / "guest_frequency_pareto.png"
-    pareto_img = _embed_png(pareto_png, all_dir, "Top guests by appearances (stacked by show)")
-    if pareto_img:
-        lines.append("## Top Guests by Appearances\n")
-        lines.append(pareto_img)
+    stacked_png = viz_dir / "guest_frequency_stacked.png"
+    pareto_section_opened = False
+    for path, caption in [
+        (stacked_png, "Top guests by appearances — stacked by broadcasting program (horizontal)"),
+        (pareto_png, "Top guests by appearances — cumulative Pareto"),
+    ]:
+        img = _embed_png(path, all_dir, caption)
+        if img:
+            if not pareto_section_opened:
+                lines.append("## Top Guests by Appearances\n")
+                pareto_section_opened = True
+            lines.append(img)
 
     # Top guests table
     if top_guests_combined is not None and not top_guests_combined.empty:
+        if not pareto_section_opened:
+            lines.append("## Top Guests by Appearances\n")
         lines.append("### Top 10 Guests (All Shows Combined)\n")
-        display_cols = [c for c in ["canonical_label", "wikidata_id", "appearance_count", "show_id"] if c in top_guests_combined.columns]
+        id_col = "canonical_entity_id" if "canonical_entity_id" in top_guests_combined.columns else None
+        display_cols = [c for c in ["canonical_label", "wikidata_id", "appearance_count"] if c in top_guests_combined.columns]
         top10 = (
             top_guests_combined
             .sort_values("appearance_count", ascending=False)
-            .drop_duplicates(subset=["canonical_entity_id"] if "canonical_entity_id" in top_guests_combined.columns else display_cols[:1])
+            .drop_duplicates(subset=[id_col] if id_col else display_cols[:1])
             .head(10)
         )
         lines.append(_md_table(top10[display_cols]))
@@ -131,6 +142,7 @@ def generate_all_readme(
     src_overall = viz_dir / "source_coverage" / "coverage_overall.png"
     src_stacked = viz_dir / "source_coverage" / "coverage_by_show_stacked.png"
     src_cmp = viz_dir / "source_coverage" / "coverage_comparison_by_show.png"
+    src_imgs = []
     for path, caption in [
         (src_overall, "overall Wikidata reconciliation coverage"),
         (src_stacked, "coverage by show (stacked)"),
@@ -138,9 +150,10 @@ def generate_all_readme(
     ]:
         img = _embed_png(path, all_dir, caption)
         if img:
-            if lines[-1] != "## Source Coverage\n":
-                lines.append("## Source Coverage\n")
-            lines.append(img)
+            src_imgs.append(img)
+    if src_imgs:
+        lines.append("## Source Coverage\n")
+        lines.extend(src_imgs)
 
     readme_path = all_dir / "README.md"
     readme_path.write_text("\n".join(lines), encoding="utf-8")

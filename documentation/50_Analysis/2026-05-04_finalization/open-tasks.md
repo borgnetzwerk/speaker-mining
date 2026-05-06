@@ -7,6 +7,20 @@ Policy for this file:
 - Track source lineage explicitly so old context remains auditable.
 - Mark tasks as `Open`, `Partial`, `Blocked`, `Low priority`, or `Resolved`.
 
+---
+
+## Cross-Cutting Principle: ALL ↔ Per-Show Symmetry
+
+**Added 2026-05-05 (additional input):**
+
+Every analysis, visualization, and README that is created for "ALL" must also be created per show — and vice versa. If a chart exists for the combined dataset, it must also exist for each individual show. If a chart is produced per show, it must also be produced for the combined view.
+
+- Example: All property analysis is currently done only for ALL, but must also be done for each show individually.
+- This applies to: carrier stats CSVs, episode stats CSVs, value×episode matrices, all visualization types, and README files.
+- This principle overrides any implementation that produces only one scope variant.
+
+---
+
 ## TASK-F01 - Guest Role Separation and Appearance Accounting
 **Priority:** Immediate  
 **Status:** Partial
@@ -109,6 +123,22 @@ Policy for this file:
 - Property outputs run successfully for all 16 enabled properties, including `P21`, with guest-level rows retained for carrier statistics.
 - Remaining work: confirm the downstream combination tables and any per-property diagnostics still aggregate from the same guest-preserving base.
 
+**Progress (2026-05-06 session 3):**
+- `compute_value_combinations(frame, value_column, carrier_column)` added to `universal_stats.py`. For multi-value properties (P106 occupation, P102 party), counts how many unique guests carry each pair of values simultaneously. Writes `{pid}_value_combinations.csv` to the property output directory.
+- `compute_cross_property_combinations(frame_A, frame_B, ...)` also added to `universal_stats.py`. For any two property frames, counts unique guests and total appearances per (A-value, B-value) pair. Both functions exported from `__init__.py`.
+- Notebook cell `397db0ec` (section 13h) wired: loops over all item-type properties and writes combination tables automatically.
+
+**Progress (2026-05-06 session 4):**
+- `add_dominance_ratio(carrier_stats)` added to `universal_stats.py`. Computes `dominance_ratio = total_appearances / unique_guests` per value, flags values above `5 × median ratio` as `is_outlier`. Re-writes enriched `carrier_stats.csv` for every property directory.
+- `build_property_type_summary(property_stats, analysis_properties)` added to `universal_stats.py`. Writes `all/property_type_summary.csv` with counts per type (item/string/quantity/time/derived), with_data vs without_data, and coverage_pct.
+- Both functions exported from `__init__.py`. Notebook cells `302b49bb`/`c36a55b4` (section 13j) wired.
+
+**Progress (2026-05-06 session 5):**
+- Cross-property combination tables wired into notebook (section 13h2, cells `0adca777`/`2c4402f6`). Iterates all ordered item-property pairs and writes `{pidA}_{pidB}_cross_combinations.csv` to `all/cross_combinations/`.
+
+**Remaining work:**
+- (none — all TASK-F04 scope items implemented)
+
 ---
 
 ## TASK-F05 - Visualization Infrastructure Hardening
@@ -123,11 +153,17 @@ Policy for this file:
 5. Add language variants (DE/EN) with fully localized chart text — language convention: EN uses lowercase labels ("distribution", "appearances"), DE uses German capitalization rules ("Verteilung", "Auftritte").
 6. Include episode-count and broadcasting-program context in titles/subtitles.
 7. Keep "Unknown" visually and physically separate from the main bars. It must not appear as a competing bar that distorts the proportions of meaningful values. Implement as a secondary axis panel, footnote, or visually distinct separator.
+8. **Stacked bar chart orientation:** Default to horizontal stacked bar charts wherever applicable. Vertical stacked bar charts with inline labels force readers to rotate their view; horizontal bars avoid this entirely. Exceptions: timelines (left-to-right expected), and any chart where the X axis is inherently temporal.
+9. **"No data" display restructuring:** Replace the current "n=... unique persons — ... appearances — ... no data" header with a three-line breakdown:
+   - `N guest appearances of N unique persons` (total)
+   - `no property data on N appearances of N unique persons` (Tier 1+2 guests who happen to have no claim for this property)
+   - `no Wikidata entry on N appearances of N unique persons` (Tier 3+4 guests)
 
 **Primary sources:**
 - 2026-04-30 TASK-B08, TASK-B20
 - 2026-05-04 additional input (`Visualizations are not very dynamic yet`)
 - 2026-05-06 additional input (`On Visualizations`)
+- 2026-05-05 additional input (`Current state and lessons learned`)
 
 ---
 
@@ -143,6 +179,28 @@ Policy for this file:
 **Primary sources:**
 - 2026-04-30 TASK-B09, TASK-B13
 - 2026-05-04 additional input (`Stacked Bar charts`)
+
+**Progress (2026-05-06):**
+- `viz_cross_property.py` created with two chart families:
+  - `build_cross_property_stacked_bars(frame_A, frame_B, ...)`: For each top value of property A, a horizontal stacked bar showing the B-value distribution of guests carrying that A-value. Two charts per pair: unique guests + appearances.
+  - `build_property_top_persons_chart(frame_A, episode_appearances, ...)`: For each top value of property A, a horizontal stacked bar of the top-N individual guests (Y-axis), segmented by broadcasting show. Produces one chart per top value (e.g., one chart for "female", one for "male").
+- Both functions exported from `analysis/__init__.py`.
+- Notebook cell `cp_code_01` added after cell `bd07bd04` (universal visualizations). Runs the following cross pairs: P21×P106, P21×P102, P21×P512, P106×P102, P27×P21, P27×P106. Property×person charts for P21, P106, P102.
+- `property_frames = {}` dict added to cell `cf470247` (property loop) so each property's `standard_frame` is available for cross-property calls.
+
+**Progress (2026-05-06 session 2):**
+- **Hardcoded pairs removed.** Notebook cell `cp_code_01` now builds `CROSS_PROPERTY_PAIRS` and `PROPERTY_VALUE_CHARTS` dynamically from `analysis_properties` DataFrame — every ordered permutation of item-type properties is automatically included. With 11 item-type properties, this yields 110 ordered cross-property pairs (220 charts: unique + appearances each) and 11 property×person chart sets. No manual list maintenance required.
+- **Legend position fixed.** Both `_build_cross_fig` and the by-value per-person chart layout changed from horizontal legend above chart (`y=1.06`, overlapping title) to vertical legend on the right side (`orientation="v"`, `x=1.02`). Top margin reduced from 140 to 100 (title/subtitle only). Right margin set to 220 to accommodate legend text.
+- **Legend sort order fixed.** `legendrank=i` added to every `go.Bar` trace (`i` from `enumerate(b_order)` / `enumerate(ordered_shows)`). `b_order[0]` is the most-frequent B value (sorted descending), so it gets `legendrank=0` → appears at top of legend. Previously Plotly's default for stacked bars placed the most-frequent segment at the bottom of the legend.
+- **Segment label rotation fixed.** `textangle=0` added to every `go.Bar` trace. Forces all inside-bar labels to render horizontally regardless of segment width.
+
+**Progress (2026-05-06 session 2 — continued):**
+- **Combined chart.** Each (A, B) pair now produces ONE chart instead of two. The chart uses Plotly subplots: top panel = unique guests stacked bar, bottom panel = appearances stacked bar. Shared legend (`legendgroup`) links both panels. File: `cross_{A_id}_{B_id}.png`. Total output: 110 charts (down from 220).
+
+**Remaining work:**
+- Wire ColorRegistry for consistent colors per property value across all charts.
+- Add these cross-property charts to per-show runs (ALL ↔ per-show symmetry).
+- Investigate whether `guest_label` column is always available in frames (or always `canonical_label`) — cell handles both via rename guard.
 
 ---
 
@@ -179,42 +237,33 @@ Policy for this file:
 **Progress update (2026-05-04):**
 - Birthyear carry-over for catalogue generation has been stabilized to prevent notebook failure in downstream age/scalar calculations.
 
+**Progress (2026-05-06 session 3):**
+- **`viz_scalar.py`** created with two chart families:
+  - `build_birth_year_chart`: vertical grouped bar chart, X = birth year or decade, Y = unique guest count. Produces two outputs: by-year and by-decade. Uses P569 frame from `property_frames`.
+  - `build_age_distribution_chart`: violin + box chart for appearance age, with median line overlay. Two outputs: combined and per-show (one violin per show).
+  - `build_all_scalar_charts`: convenience wrapper that looks up P569 and AGE frames and produces all variants automatically.
+- **`viz_treemap.py`** created:
+  - `build_property_treemap`: Plotly `go.Treemap` for one item-type property. Each tile = one property value, area proportional to unique guest count. Top-N values, writes `treemap_{pid}.png`.
+  - `build_all_treemaps`: loops over all item-type PIDs.
+- **`viz_radar.py`** created:
+  - `build_property_radar_chart`: `go.Scatterpolar` radar chart. One polygon per show + dashed black combined average. Axes = top-N property values. Shows % of unique guests for each value. Writes `radar_{pid}.png`.
+  - `build_all_radar_charts`: loops over all item-type PIDs.
+- All three modules exported from `analysis/__init__.py`.
+- Notebook cells `96a3c4c3`/`3b9029fe` (section 13e), `00806ebc`/`01e3b720` (section 13f), `2217001a`/`25912bf6` (section 13g) wired and call the new modules automatically.
 
-To retrieve a person's birth-year, we must derive it from birth-date, if available.
+**Progress (2026-05-06 session 4):**
+- **`viz_binary.py`** created with string binary presence analysis:
+  - `compute_binary_presence`: per-show and combined coverage — % of unique guests with at least one non-Unknown value for a string property. Writes `{pid}_binary_presence.csv` to the property directory.
+  - `build_binary_presence_chart`: grouped bar chart, X = shows, Y = coverage %, bars = string properties. Writes `visualizations/string_property_coverage.png`.
+  - `build_all_binary_presence`: auto-detects string-type properties from `analysis_properties`, runs both functions for all of them.
+- Notebook cells `de7f364f`/`0d7f87ca` (section 13i) wired.
 
-```
----------------------------------------------------------------------------
-KeyError                                  Traceback (most recent call last)
-Cell In[4], line 145
-    139     catalogue["birthyear"] = ""
-    141 CATALOGUE_COLS = [
-    142     "canonical_entity_id", "wikidata_id", "canonical_label", "cluster_size",
-    143     "cluster_strategy", "cluster_confidence", "role", "appearance_count", "birthyear",
-    144 ]
---> 145 catalogue = catalogue[CATALOGUE_COLS]
+**Progress (2026-05-06 session 5):**
+- `build_age_vs_appearances_scatter` added to `viz_scalar.py`. Scatter plot: X = age at first appearance, Y = total appearances, dots colored by dominant show. Writes `visualizations/scatter_age_vs_appearances.png`. Exported from `__init__.py`. Wired into notebook section 13e (cell `3b9029fe` updated).
 
-File c:\workspace\git\borgnetzwerk\speaker-mining\.venv\Lib\site-packages\pandas\core\frame.py:4384, in DataFrame.__getitem__(self, key)
-   4382     if is_iterator(key):
-   4383         key = list(key)
--> 4384     indexer = self.columns._get_indexer_strict(key, "columns")[1]
-   4386 # take() does not accept boolean indexers
-   4387 if getattr(indexer, "dtype", None) == bool:
-
-File c:\workspace\git\borgnetzwerk\speaker-mining\.venv\Lib\site-packages\pandas\core\indexes\base.py:6302, in Index._get_indexer_strict(self, key, axis_name)
-   6299 else:
-   6300     keyarr, indexer, new_indexer = self._reindex_non_unique(keyarr)
--> 6302 self._raise_if_missing(keyarr, indexer, axis_name)
-   6304 keyarr = self.take(indexer)
-   6305 if isinstance(key, Index):
-   6306     # GH 42790 - Preserve name from an Index
-
-File c:\workspace\git\borgnetzwerk\speaker-mining\.venv\Lib\site-packages\pandas\core\indexes\base.py:6355, in Index._raise_if_missing(self, key, indexer, axis_name)
-   6352     raise KeyError(f"None of [{key}] are in the [{axis_name}]")
-   6354 not_found = list(ensure_index(key)[missing_mask.nonzero()[0]].unique())
--> 6355 raise KeyError(f"{not_found} not in index")
-
-KeyError: "['birthyear'] not in index"
-```
+**Remaining work:**
+- Birth year vs gender frequency scatter (cross-scalar).
+- Stacked area charts (time series of property value prevalence — needs timeline module, blocked on TASK-F03).
 
 ---
 
@@ -247,6 +296,22 @@ KeyError: "['birthyear'] not in index"
     * One horizontal stacked bar chart
     * And one pareto.
 
+**Progress (2026-05-05 — additional input):**
+- Confirmed: the stacked Pareto and the classic Pareto must be two independent charts, not a mode-switched single function. `_build_stacked_pareto` should produce a **horizontal** stacked bar (guests on Y-axis, appearances on X-axis, segments = shows). The classic Pareto line chart remains vertical for the cumulative-frequency reading it implies.
+
+**Progress (2026-05-06):**
+- `_build_stacked_pareto` in `viz_dashboards.py` fully converted to horizontal orientation: `orientation="h"` added to `go.Bar`, x/y axes swapped, `label_order` reversed (top-to-bottom for chart), annotations repositioned to right-of-bar (`xanchor="left"`, `xshift=4`), layout axes (`xaxis`=Appearances, `yaxis`=Guest), height scaled as `max(400, 30*n+200)`, margin `r=200` to accommodate right-side annotations.
+- README generator (`readme_generator.py`) fixed: duplicate "## Source Coverage" heading bug resolved (heading now added once before a loop, not inside); new stacked horizontal Pareto (`guest_frequency_stacked.png`) now also embedded; top-guests table deduplication improved (deduplicate by `canonical_entity_id`, drop `show_id` column from display).
+
+**Progress (2026-05-06 session 2):**
+- **Cross-show comparison** (`viz_comparison.py` — new module). `build_cross_show_comparison` and `build_all_cross_show_comparisons` implemented. For each item-type property, one grouped bar chart: X = shows (sorted by size), Y = % of unique guests carrying that property value, bars grouped by top-N values. Wired into notebook cell `8e53b788` after the cross-property cell; runs automatically for all item-type properties.
+- **Property coverage heatmap** (`viz_coverage.py` — new module). `build_property_coverage_dashboard` implemented. Heatmap: rows = properties, columns = shows, cell = % of guest-episode pairs with a non-Unknown value. Also writes `property_coverage_dashboard.csv`. Wired into notebook cell `f5ca9f17`. Answers "which properties have good coverage in which shows?"
+- Both modules exported from `analysis/__init__.py`.
+
+**Remaining work:**
+- Scope items 1, 5: episode-level property pipeline (duration, guest count, description) still open.
+- Source coverage: add unique-to-source episode count (episodes appearing exclusively in one source).
+
 ---
 
 ## TASK-F10 - Person-Level and Relevance Analyses
@@ -266,6 +331,17 @@ KeyError: "['birthyear'] not in index"
 - 2026-04-29 TASK-A10
 - 2026-05-04 additional input (`Per Person`)
 - 2026-05-06 additional input (`Empty properties for highly relevant individuals`)
+
+**Progress (2026-05-06 session 4):**
+- **`viz_persons.py`** created:
+  - `build_cooccurrence_heatmap`: `go.Heatmap` of top-N guests × top-N guests (sorted by appearance count), colored by co-appearance count. Writes `visualizations/cooccurrence_heatmap.png`.
+  - `build_relevance_chart`: horizontal bar chart of top-N guests by relevance score. Writes `visualizations/guest_relevance_ranking.png`.
+- **`compute_person_relevance`** added to `person_analysis.py`. Formula: `relevance_score = appearance_count × log(1 + claim_count) × show_diversity`. Counts Wikidata claims from `core_persons`, computes `show_diversity = unique shows / total shows`. Writes `all/guest_relevance_scores.csv`.
+- Notebook cells `b7723ad7`/`ad8c1806` (section 13k) wired. Co-occurrence heatmap reads `co_occurrence_summary` from section 16 (requires section 16 to run first).
+
+**Remaining work:**
+- Within-category per-person chart (for each property value, who are the top guests?). Currently partially covered by `build_property_top_persons_chart` in `viz_cross_property.py` — needs dedicated section.
+- Report empty properties for top-N guests (scope item 6).
 
 ---
 
@@ -295,6 +371,24 @@ KeyError: "['birthyear'] not in index"
 4. Ensure all analysis basis data used at runtime is copied into analysis output space.
 5. ~~Investigate "PRECISELY 19,000 appearances with gender"~~ — **Resolved (2026-05-05 session 3)**. No hardcoded 19,000 value exists anywhere in the codebase (`grep` confirms zero matches). Current pipeline produces 24,467 P21 appearance rows, which is a natural non-round number. The 19,000 figure was from an earlier pipeline version with different expansion logic. No bug present.
 6. Investigate apparent duplicate QIDs for semantically-equivalent values: "Doktor phil" vs "Doktor Philosophiae", "Evangelisch-lutherische Kirche" vs "Evangelisch-lutherische kirche" (capitalization variant), "Evangelische Kirche". These split the same real-world concept across multiple QIDs, distorting property value distributions.
+7. **CRITICAL — Wrong-episode-mapping resurfaced (2026-05-05 — root cause confirmed):**
+   `data/50_analysis/couchwissen/occurrence_matrix.csv` is populated with guests who never appeared on couchwissen.
+   
+   **Root cause (confirmed):** `data/31_entity_disambiguation/manual/reconciled_data_summary.csv` is the ONLY remaining source of wrong data. It contains `pm_77b63df9a94a` (Phoebe Gaa) with `fernsehserien_de_id = https://www.fernsehserien.de/couchwissen/folgen/3x01-alles-steht-kopf-filmgespraech-1762580`. This wrong URL was written during manual matching and will never be corrected (this file is manually curated and permanent). `aligned_episodes.csv` IS correct — the couchwissen episode (`episode_fs_3fcfcf781422`) is correctly scoped to couchwissen.
+
+   **Authority split:** `reconciled_data_summary.csv` is authoritative for *person-to-person matching across sources only*. It is NOT authoritative for episode assignment. Episode assignment authority lies exclusively in `aligned_episodes.csv`.
+
+   **Correct architecture for Phase 50 (`occurrence_matrix.py`):**
+   - No single source is authoritative for episode assignment. ZDF, FS, and Wikidata are equal contributors.
+   - `reconciled_data_summary.csv` is authoritative for **person identity** only (QID, canonical label). It is NOT authoritative for which episode a person appeared in.
+   - **Episode assignment must aggregate from ALL sources independently:**
+     - Source 1 (ZDF): `episode_id_zdf` IS the alignment_unit_id — use directly.
+     - Source 2 (FS): `episode_url_fernsehserien_de` (the guest-data URL) → look up alignment_unit_id in aligned_episodes.
+     - Source 3 (Wikidata): episodes from `data/31_entity_disambiguation/raw_import` and `data/31_entity_disambiguation/normalized`.
+   - **NEVER use `fernsehserien_de_id`** (the alignment-context URL from cluster_members). This field comes from `reconciled_data_summary.csv` for manually reconciled persons and carries stale, wrong FS URLs.
+   - **`show_id`** must be derived from `aligned_episodes.csv` (via `alignment_unit_id` → `fernsehserien_de_id_fernsehserien_de`), not from cluster_members.
+   - **Implemented (2026-05-05):** `build_person_catalogue` in `occurrence_matrix.py` now aggregates from ZDF and FS sources independently, deduplicates (person, episode) pairs, and derives `show_id` from `aligned_episodes.csv`.
+   - **Still needed:** Add Wikidata as a 3rd source using raw_import/normalized episode data.
 
 **Primary sources:**
 - 2026-04-29 TASK-A09, TASK-A11, TASK-A13
@@ -397,11 +491,18 @@ Rules:
 - `data_quality_tier` added to `CATALOGUE_COLS` in notebook cell `5687e84e` so the column survives the trim.
 - Notebook cells `d4f8a231` (markdown) and `e5c9b342` (code) inserted after dataset overview to write `person_quality_tiers.csv` and expose `wikidata_guest_ceids` set for downstream filtering.
 
+**Progress (2026-05-06 session 4):**
+- **Quality tier definition corrected** in `build_person_catalogue` (`occurrence_matrix.py`). Previous implementation used `cluster_strategy == "singleton"` to detect Tier 2 (Wikidata-only), which was unreliable. New implementation uses `cluster_size` as the discriminator:
+  - Tier 1: `has_qid AND cluster_size > 1` — Wikidata + at least one other source (ZDF or FS match).
+  - Tier 2: `has_qid AND cluster_size == 1` — Wikidata-only, no cross-source validation.
+  - Tier 3: `no_qid AND cluster_size > 1` — matched across non-Wikidata sources.
+  - Tier 4: `no_qid AND cluster_size == 1` — single non-Wikidata source.
+  This correctly reflects the spec: "Tier 1 = exists in at least two databases, at least one being Wikidata."
+
 **Remaining work:**
-  * **Clarification:** First: Rework the definition and implementation of TASK-F16 to correctly reflect the intended quality tiers, just as the `> **Clarification:**` block above specifies: Wikidata + other(s), Wikidata solo, others, other solo.
 - Apply `data_quality_tier.isin([1, 2])` filter to property stats expansion inputs so only Wikidata-reconciled persons enter visualization statistics.
-  * Still textually document within the documentation how many Tier 3 / Tier 4 entries are not part of this visualization.
 - Add per-show tier breakdown to `person_quality_tiers.csv`.
+- Document in README/analysis outputs how many Tier 3 / 4 entries are excluded from visualizations.
 
 **Primary sources:**
 - 2026-05-06 additional input (`On "unique" persons`)
@@ -416,7 +517,8 @@ Rules:
 Generate a `README.md` in each output folder that, when navigated on GitHub, immediately shows the most relevant data and embedded visualizations — no file-clicking required.
 
 Rules:
-- Each `data/50_analysis/<scope>/README.md` (where scope = `all`, per-show directories) is auto-generated from the analysis outputs.
+- **Every folder** in `data/50_analysis` needs its own README — including per-property subdirectories. This is a binding principle: if a folder exists, it has a README.
+- Each `data/50_analysis/<scope>/README.md` (where scope = `all`, per-show directories, per-property subdirectories) is auto-generated from the analysis outputs.
 - Embeds PNG visualizations inline using relative Markdown image links.
 - Includes top-level summary stats (episode count, guest count, show name, date range).
 - Includes the top-10 rows of the most important tables (top guests, property distributions).
