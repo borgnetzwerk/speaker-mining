@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 
@@ -29,16 +31,82 @@ def apply_font(fig, font_family: str | None = None, font_size: int = FONT_SIZE_B
     return fig
 
 
-def save_fig(fig, path: str | Path, html: bool = True) -> None:
-    """Export a Plotly figure as PNG and PDF, with optional HTML."""
+def _figure_checksum(fig) -> str:
+    try:
+        return hashlib.md5(fig.to_json().encode()).hexdigest()
+    except Exception:
+        return ""
 
+
+def _load_viz_cache(viz_dir: Path) -> dict:
+    cache_path = viz_dir / ".viz_cache.json"
+    if cache_path.exists():
+        try:
+            return json.loads(cache_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_viz_cache(viz_dir: Path, cache: dict) -> None:
+    try:
+        (viz_dir / ".viz_cache.json").write_text(
+            json.dumps(cache, indent=2), encoding="utf-8"
+        )
+    except Exception:
+        pass
+
+
+def save_fig(fig, path: str | Path, html: bool = True) -> None:
+    """Export a Plotly figure as PNG and PDF, with optional HTML.
+
+    Skips writing if the figure checksum matches the cached value and the PNG
+    already exists (checksum-based caching sidecar per output directory).
+    """
     base = Path(path)
     base.parent.mkdir(parents=True, exist_ok=True)
+
+    checksum = _figure_checksum(fig)
+    if checksum:
+        cache = _load_viz_cache(base.parent)
+        if cache.get(base.name) == checksum and (base.parent / (base.name + ".png")).exists():
+            print(f"  Cached: {base.name}.png (unchanged)")
+            return
+    else:
+        cache = {}
+
     fig.write_image(str(base) + ".png", scale=3)
     fig.write_image(str(base) + ".pdf")
     if html:
         fig.write_html(str(base) + ".html")
+
+    if checksum:
+        cache[base.name] = checksum
+        _save_viz_cache(base.parent, cache)
+
     print(f"  Saved: {base.name}.png / .pdf" + (" / .html" if html else ""))
+
+
+def wrap_labels(labels: list[str], max_chars: int = 25) -> list[str]:
+    """Insert <br> at word boundaries so Plotly tick labels stay within max_chars per line."""
+    result = []
+    for label in labels:
+        if len(label) <= max_chars:
+            result.append(label)
+            continue
+        words = label.split()
+        lines: list[str] = []
+        current = ""
+        for word in words:
+            if current and len(current) + 1 + len(word) > max_chars:
+                lines.append(current)
+                current = word
+            else:
+                current = f"{current} {word}" if current else word
+        if current:
+            lines.append(current)
+        result.append("<br>".join(lines))
+    return result
 
 
 def sort_bars_descending(frame, value_column: str):

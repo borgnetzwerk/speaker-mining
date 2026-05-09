@@ -14,17 +14,9 @@ from typing import Dict, Optional, Tuple
 import pandas as pd
 import plotly.graph_objects as go
 
-from .viz_base import apply_font, save_fig
+from .viz_base import apply_font, save_fig, wrap_labels
 from .universal_stats import UNKNOWN_LABEL
-
-
-_PALETTE = [
-    "#E69F00", "#56B4E9", "#009E73", "#F0E442",
-    "#0072B2", "#D55E00", "#CC79A7", "#44AA99",
-    "#88CCEE", "#DDCC77", "#AA4499", "#332288",
-]
-UNKNOWN_COLOR = "#999999"
-OTHER_COLOR = "#CCCCCC"
+from .color_registry import PALETTE, UNKNOWN_COLOR, OTHER_COLOR
 
 
 def _hex_to_rgba(color: str, alpha: float) -> str:
@@ -48,7 +40,7 @@ def _assign_colors(labels: list) -> list[str]:
         elif s == "Other":
             colors.append(OTHER_COLOR)
         else:
-            colors.append(_PALETTE[palette_idx % len(_PALETTE)])
+            colors.append(PALETTE[palette_idx % len(PALETTE)])
             palette_idx += 1
     return colors
 
@@ -105,20 +97,27 @@ def make_universal_chart(
     if plot_df.empty:
         return go.Figure()
 
+    # Separate Other aggregation row from plot data — shown as subtitle annotation only
+    other_mask = plot_df["value"].astype(str) == "Other"
+    other_df = plot_df[other_mask]
+    plot_df = plot_df[~other_mask].reset_index(drop=True)
+
     scope_text = "Combined" if scope == "all" else f"Show: {scope}"
     colors = _assign_colors(plot_df["value"].tolist())
+    y_labels = wrap_labels(plot_df["value"].tolist())
 
     unknown_mask = stats["value"].astype(str).str.startswith("Unknown")
     n_unique = int(stats[~unknown_mask]["person_count"].sum())
     n_appearances = int(stats[~unknown_mask]["appearance_count"].sum())
     n_empty = int(unknown_df["person_count"].sum()) if not unknown_df.empty else 0
+    n_other_app = int(other_df["appearance_count"].sum()) if not other_df.empty else 0
 
     fig = go.Figure()
 
     # Appearances bars (slightly transparent to distinguish from unique-persons bars)
     fig.add_trace(go.Bar(
         name="Appearances",
-        y=plot_df["value"],
+        y=y_labels,
         x=plot_df["appearance_count"],
         orientation="h",
         marker_color=[_hex_to_rgba(c, 0.6) for c in colors],
@@ -130,7 +129,7 @@ def make_universal_chart(
     # Unique-persons bars (opaque)
     fig.add_trace(go.Bar(
         name="Unique Persons",
-        y=plot_df["value"],
+        y=y_labels,
         x=plot_df["person_count"],
         orientation="h",
         marker_color=colors,
@@ -139,12 +138,14 @@ def make_universal_chart(
         hovertemplate="%{y}: %{x:,} unique persons<extra></extra>",
     ))
 
+    has_wrapped = any("<br>" in lbl for lbl in y_labels)
     fig.update_layout(
         title=dict(
             text=(
                 f"{property_label} Distribution — {scope_text}<br>"
                 f"<sup>n={n_unique:,} unique persons · {n_appearances:,} appearances"
-                f" · {n_empty:,} no data</sup>"
+                + (f" · +{n_other_app:,} in other values" if n_other_app > 0 else "")
+                + f" · {n_empty:,} no data</sup>"
             ),
             x=0.5,
         ),
@@ -152,9 +153,10 @@ def make_universal_chart(
         yaxis=dict(autorange="reversed", title=property_label),
         barmode="group",
         hovermode="y unified",
-        height=max(400, 35 * len(plot_df) + 150),
+        height=max(400, (45 if has_wrapped else 35) * len(plot_df) + 180),
         template="plotly_white",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5),
+        margin=dict(b=100),
     )
     apply_font(fig)
     return fig

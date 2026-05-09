@@ -27,17 +27,9 @@ import plotly.graph_objects as go
 
 from plotly.subplots import make_subplots
 
-from .viz_base import apply_font, save_fig
+from .viz_base import apply_font, save_fig, wrap_labels
 from .universal_stats import UNKNOWN_LABEL
-
-# Colour palette (colour-blind friendly)
-_PALETTE = [
-    "#E69F00", "#56B4E9", "#009E73", "#F0E442",
-    "#0072B2", "#D55E00", "#CC79A7", "#44AA99",
-    "#88CCEE", "#DDCC77", "#AA4499", "#332288",
-]
-_UNKNOWN_COLOR = "#999999"
-_OTHER_COLOR = "#CCCCCC"
+from .color_registry import PALETTE as _PALETTE, UNKNOWN_COLOR as _UNKNOWN_COLOR, OTHER_COLOR as _OTHER_COLOR
 
 
 def _top_values(counts_by_value: pd.Series, top_n: int) -> list[str]:
@@ -83,11 +75,25 @@ def _build_cross_fig(
             color_map[b_val] = _PALETTE[palette_idx % len(_PALETTE)]
             palette_idx += 1
 
-    # Reversed Y order so the top A value appears at the top of the chart
+    # Collect per-A-value Other counts before restricting the trace list
+    other_per_a: dict[str, int] = {}
+    if "Other" in b_order and "Other" in pivot.columns:
+        for a in a_order:
+            if a in pivot.index:
+                v = int(pivot.loc[a, "Other"])
+                if v > 0:
+                    other_per_a[a] = v
+
     y_reversed = list(reversed(a_order))
+    y_base = wrap_labels(y_reversed)
+    y_display = [
+        f"{lbl}<br><sup>({other_per_a[a]:,} other)</sup>" if a in other_per_a else lbl
+        for lbl, a in zip(y_base, y_reversed)
+    ]
+    has_wrapped = any("<br>" in lbl for lbl in y_display)
 
     fig = go.Figure()
-    for i, b_val in enumerate(b_order):
+    for i, b_val in enumerate(bv for bv in b_order if bv != "Other"):
         y_vals = [pivot.loc[a, b_val] for a in y_reversed]
         pct_vals = [
             pivot.loc[a, b_val] / row_totals[a] * 100
@@ -99,7 +105,7 @@ def _build_cross_fig(
         ]
         fig.add_trace(go.Bar(
             name=str(b_val),
-            y=y_reversed,
+            y=y_display,
             x=y_vals,
             orientation="h",
             marker_color=color_map[b_val],
@@ -130,15 +136,15 @@ def _build_cross_fig(
         yaxis=dict(title=prop_A_label, automargin=True),
         template="plotly_white",
         legend=dict(
-            orientation="v",
-            yanchor="top",
-            y=1.0,
-            xanchor="left",
-            x=1.02,
+            orientation="h",
+            yanchor="bottom",
+            y=-0.3,
+            xanchor="center",
+            x=0.5,
             title_text=prop_B_label,
         ),
-        height=max(400, 30 * len(a_order) + 180),
-        margin=dict(t=100, r=220),
+        height=max(400, (40 if has_wrapped else 30) * len(a_order) + 200),
+        margin=dict(t=100, r=80, b=150),
     )
     apply_font(fig)
     return fig
@@ -175,9 +181,42 @@ def _build_combined_cross_fig(
             color_map[b_val] = _PALETTE[palette_idx % len(_PALETTE)]
             palette_idx += 1
 
+    # Collect Other counts per A-value from both pivots for Y-axis annotations
+    other_per_a_unique: dict[str, int] = {}
+    other_per_a_app: dict[str, int] = {}
+    if "Other" in b_order:
+        if "Other" in unique_pivot.columns:
+            for a in a_order:
+                if a in unique_pivot.index:
+                    v = int(unique_pivot.loc[a, "Other"])
+                    if v > 0:
+                        other_per_a_unique[a] = v
+        if "Other" in app_pivot.columns:
+            for a in a_order:
+                if a in app_pivot.index:
+                    v = int(app_pivot.loc[a, "Other"])
+                    if v > 0:
+                        other_per_a_app[a] = v
+
     y_reversed = list(reversed(a_order))
+    y_base = wrap_labels(y_reversed)
+
+    def _annotate(lbl: str, a: str) -> str:
+        u = other_per_a_unique.get(a, 0)
+        ap = other_per_a_app.get(a, 0)
+        if u == 0 and ap == 0:
+            return lbl
+        parts = []
+        if u > 0:
+            parts.append(f"{u:,} unique other")
+        if ap > 0:
+            parts.append(f"{ap:,} app other")
+        return f"{lbl}<br><sup>({', '.join(parts)})</sup>"
+
+    y_display = [_annotate(lbl, a) for lbl, a in zip(y_base, y_reversed)]
     n_a = len(a_order)
-    row_h = max(180, 28 * n_a + 60)
+    has_wrapped = any("<br>" in lbl for lbl in y_display)
+    row_h = max(180, (32 if has_wrapped else 28) * n_a + 60)
 
     fig = make_subplots(
         rows=2, cols=1,
@@ -186,7 +225,7 @@ def _build_combined_cross_fig(
         subplot_titles=("Unique Guests", "Appearances"),
     )
 
-    for i, b_val in enumerate(b_order):
+    for i, b_val in enumerate(bv for bv in b_order if bv != "Other"):
         color = color_map[b_val]
 
         y_u = [unique_pivot.loc[a, b_val] for a in y_reversed]
@@ -199,7 +238,7 @@ def _build_combined_cross_fig(
 
         fig.add_trace(go.Bar(
             name=str(b_val),
-            y=y_reversed, x=y_u,
+            y=y_display, x=y_u,
             orientation="h",
             marker_color=color,
             text=text_u, textposition="inside", insidetextanchor="middle",
@@ -213,7 +252,7 @@ def _build_combined_cross_fig(
 
         fig.add_trace(go.Bar(
             name=str(b_val),
-            y=y_reversed, x=y_a,
+            y=y_display, x=y_a,
             orientation="h",
             marker_color=color,
             text=text_a, textposition="inside", insidetextanchor="middle",
@@ -237,13 +276,13 @@ def _build_combined_cross_fig(
         barmode="stack",
         template="plotly_white",
         legend=dict(
-            orientation="v",
-            yanchor="top", y=1.0,
-            xanchor="left", x=1.02,
+            orientation="h",
+            yanchor="bottom", y=-0.2,
+            xanchor="center", x=0.5,
             title_text=prop_B_label,
         ),
-        height=row_h * 2 + 160,
-        margin=dict(t=100, r=220),
+        height=row_h * 2 + 200,
+        margin=dict(t=100, r=80, b=150),
     )
     fig.update_xaxes(rangemode="tozero")
     fig.update_yaxes(automargin=True)
@@ -374,7 +413,9 @@ def build_cross_property_stacked_bars(
     viz_dir = output_dir / "visualizations"
     viz_dir.mkdir(parents=True, exist_ok=True)
 
-    prefix = f"cross_{prop_A_id}_{prop_B_id}"
+    a_slug = prop_A_label.lower().replace(" ", "_").replace("/", "_")[:15]
+    b_slug = prop_B_label.lower().replace(" ", "_").replace("/", "_")[:15]
+    prefix = f"cross_{prop_A_id}_{a_slug}_{prop_B_id}_{b_slug}"
 
     # Single combined chart: unique guests (top) + appearances (bottom)
     fig_combined = _build_combined_cross_fig(
@@ -518,7 +559,8 @@ def build_property_top_persons_chart(
             .sort_values("total_appearances", ascending=True)["canonical_entity_id"]
             .tolist()
         ]
-        y_labels = [label_map.get(p, p) for p in person_order_asc]
+        y_labels = wrap_labels([label_map.get(p, p) for p in person_order_asc])
+        has_wrapped = any("<br>" in lbl for lbl in y_labels)
 
         fig = go.Figure()
         for i, show_id in enumerate(ordered_shows):
@@ -538,7 +580,7 @@ def build_property_top_persons_chart(
                 y=y_vals,
                 x=x_vals,
                 orientation="h",
-                marker_color=show_color_map.get(show_id, "#999999"),
+                marker_color=show_color_map.get(show_id, _UNKNOWN_COLOR),
                 text=text_labels,
                 textposition="inside",
                 insidetextanchor="middle",
@@ -565,17 +607,18 @@ def build_property_top_persons_chart(
             yaxis=dict(title="Guest", automargin=True),
             template="plotly_white",
             legend=dict(
-                orientation="v",
-                yanchor="top",
-                y=1.0,
-                xanchor="left",
-                x=1.02,
+                orientation="h",
+                yanchor="bottom",
+                y=-0.3,
+                xanchor="center",
+                x=0.5,
                 title_text="Show",
             ),
-            height=max(400, 30 * n_shown + 180),
-            margin=dict(t=100, r=220),
+            height=max(400, (40 if has_wrapped else 30) * n_shown + 200),
+            margin=dict(t=100, r=80, b=150),
         )
         apply_font(fig)
-        save_fig(fig, viz_dir / f"top_persons_{prop_A_id}_{val_slug}")
+        a_short = prop_A_label.lower().replace(" ", "_").replace("/", "_")[:15]
+        save_fig(fig, viz_dir / f"top_persons_{prop_A_id}_{a_short}_{val_slug}")
 
     print(f"  Property×Person [{prop_A_label}]: charts written to {viz_dir.name}/")

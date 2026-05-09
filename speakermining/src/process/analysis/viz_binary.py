@@ -19,13 +19,10 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from .viz_base import apply_font, save_fig
+from .color_registry import PALETTE as _PALETTE
 
 
 _UNKNOWN_PREFIX = "Unknown"
-_PALETTE = [
-    "#0072B2", "#E69F00", "#009E73", "#56B4E9",
-    "#D55E00", "#CC79A7", "#F0E442", "#44AA99",
-]
 
 
 def _scope_text(scope: str) -> str:

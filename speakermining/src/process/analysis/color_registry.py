@@ -13,6 +13,21 @@ from .config import load_party_colors
 UNKNOWN_COLOR = "#999999"
 OTHER_COLOR = "#CCCCCC"
 
+TIER_COLORS = {
+    1: "#009E73",   # green — Wikidata + cross-source
+    2: "#56B4E9",   # blue  — Wikidata only
+    3: "#E69F00",   # orange — multi non-Wikidata
+    4: "#CC79A7",   # pink  — single non-Wikidata
+    0: "#999999",   # gray  — unclassified / no tier
+}
+
+TIER_LABELS = {
+    1: "Tier 1 (Wikidata + other source)",
+    2: "Tier 2 (Wikidata only)",
+    3: "Tier 3 (multi non-Wikidata)",
+    4: "Tier 4 (single non-Wikidata)",
+}
+
 PALETTE = [
     "#E69F00",
     "#56B4E9",

@@ -124,6 +124,22 @@ Every chart produced by the pipeline must satisfy all of the following:
 
 ---
 
+### PRINCIPLE-9: Every Guest Visualization Must Also Have a By-Appearance Version
+
+**Origin:** Additional input (2026-05-09, archived).
+
+Every visualization generated from a "by guest" perspective (unique guest counts) must also be generated from a "by appearance" perspective (episode × person pair counts). The reverse also holds: every appearance-based visualization implies a guest-based counterpart.
+
+**Binding implementation rules:**
+
+1. **Combine where possible.** The preferred form is one combined visualization that shows both perspectives with minimal label duplication:
+   - Side by side: two subplots with the same Y-axis order; labels only on the left subplot (but order identical, so left labels apply to both).
+   - Or within one plot as a grouped bar chart.
+2. **Never drop one perspective.** A treemap, radar chart, or bar chart that only shows unique guests is incomplete. The appearance-count version must also be produced.
+3. **File naming:** the combined file uses a shared name (e.g. `treemap_{pid}_{label}.png`). If separate files are unavoidable, append `_guests` and `_appearances` suffixes respectively.
+
+---
+
 ### PRINCIPLE-8: Show Everything — Every CSV Gets a Visualization
 
 **Origin:** Additional input "General principle: Show everything we found" (2026-05-06, archived).
@@ -288,9 +304,20 @@ Shared chart helpers cover: label formatting, dynamic width/height, line-breakin
 
 4. **Language variant support.** Add `LABELS_DE` and `LABELS_EN` dicts in `viz_base.py` (or a new `viz_i18n.py`). Every hardcoded string (axis titles, legend entries, "Unknown", "Other", "Appearances", "Unique guests", etc.) is looked up by key. Chart-building functions accept a `lang="de"` parameter, defaulting to German. A second call with `lang="en"` produces the English variant.
 
-5. **ColorRegistry wiring.** In `viz_universal.py`, import and use `ColorRegistry` for color assignment instead of the local cycling palette.
+5. **ColorRegistry wiring — no local palette duplication.** In every visualization module (`viz_universal.py`, `viz_treemap.py`, `viz_comparison.py`, `viz_cross_property.py`, `viz_radar.py`, `viz_scalar.py`, `viz_binary.py`, `viz_coverage.py`), import and use `ColorRegistry.get_color()` for all color assignment. The local `_PALETTE`, `_UNKNOWN_COLOR`, and `_OTHER_COLOR` constants must be removed from individual modules. No module may define its own palette — the `ColorRegistry` singleton is the only source of color assignments. Wikidata colors (P462 / P6364 / P465) seed the registry first; the fallback palette fills remaining slots.
 
 6. **Scope metadata.** In every chart title or subtitle: include episode count and show label(s). Pass these as parameters from the notebook call site. Update `add_scope_label` in `viz_base.py` to format "Show A: N eps | Show B: M eps" strings.
+
+7. **File naming convention.** Every output file must include BOTH the property PID and a shortened property label (max ~25 chars, spaces replaced by underscores). Pattern: `{chart_type}_{pid}_{short_label}.png`. Existing files that use only the PID or only a slug must be updated. Example: `treemap_P106_occupation.png`, `comparison_P21_sex_or_gender.png`.
+
+8. **Bar space must dominate the chart.** Bar space must occupy the majority of chart width — currently only 10–20% is bars, which is a fundamental layout flaw. Layout rules:
+   - Y-axis labels on the left (mandatory).
+   - Legend at the bottom, horizontal, up to two rows if needed. Never on the right side (right-side legends compress bar space).
+   - All other chrome (title, subtitle, legend) must be sized to leave maximum space for bars.
+
+9. **Unknown/Other must not compete with meaningful bars.** For all bar charts, Unknown and Other segments must NOT appear as competing bars in the main bar space. They must be rendered as a separate annotation, footnote text, or visually distinct separator below the main bars. The highest meaningful bar gets 100% of bar width; "no data" bars distorting this scale is a bug.
+
+10. **Label line breaks.** Long Y-axis labels AND legend labels must be broken at word boundaries using Plotly's `<br>` tag. A per-label character limit (e.g., 25 chars per line) must be enforced. Chart height must be increased when wrapped labels add a second line. This applies to all horizontal bar charts and any chart with named axes.
 
 ---
 
@@ -359,7 +386,7 @@ Birth year analyses aggregate by year (not exact date). Quantity and string prop
 
 4. **String binary presence.** For string properties (e.g., Wikimedia Commons category P18, IMDB ID P345): compute per-guest whether they have a value (binary 1/0). Analyze what other properties predict presence. Write `{property}_binary_presence.csv`. Visualize as a comparison bar chart between "has value" and "no value" groups across other properties.
 
-5. **Treemaps.** For item-type properties: a treemap where each tile is a value, area proportional to unique guest count. Per show and combined. Use Plotly `go.Treemap`. Module: `viz_treemap.py`.
+5. **Treemaps — dual perspective.** For item-type properties: always produce TWO treemaps per scope — one sized by unique guest count, one sized by total appearances. Both must be in the same output file (subplots) or at minimum both files written. Tile area may not represent only one perspective. Module: `viz_treemap.py`. Applies PRINCIPLE-9.
 
 6. **Radar charts.** Per show and combined. For each property: the show's percentage for the top value (e.g., % male, % journalist, % SPD). Layer individual show radar over the combined average. Use Plotly `go.Scatterpolar`. Module: `viz_radar.py`.
 
@@ -383,9 +410,20 @@ Episode-level dashboards (frequency distribution, guest count per episode, episo
 
 1. **Fix moderator contamination in Pareto** (see TASK-F01, step 1). This is the immediate blocker.
 
-2. **Implement `viz_comparison.py`.** Cross-show comparison: for each property value (e.g., P21/Q6581072 = female), a grouped bar showing the percentage across each show. This answers "is the gender distribution different between Markus Lanz and Caren Miosga?"
+2. **`viz_comparison.py` — correct and extend.** The cross-show comparison module exists but has the following binding defects to fix:
+   - **% does not add to 100 %**: For categorical properties like P21 (sex or gender), the sum of all value percentages per show must equal 100 %. This requires normalizing by show guest totals correctly. Current implementation may double-count guests with multiple values (e.g., a guest appearing in multiple episodes counted once per episode).
+   - **Show order must be descending by episode count** (not by guest count or alphabetically). The show order must be derived from the total number of episodes in `aligned_episodes.csv` for that show, and must remain constant across all cross-show comparison charts.
+   - **All cross-show comparisons must be stacked bar charts** (100%-stacked), not grouped bars. Each bar = one show; segments = property values; total bar = 100 %. This is consistent with TASK-F05 item 8 (horizontal stacked bars preferred).
+   - **Sub-group comparisons**: each group is its own separate visualization, analogous to the "All shows" combined chart. Groups are defined in `data/00_setup/show_groups.csv` (config-driven, not hardcoded). The file has columns: `group_id`, `group_label`, `language`, `show_type`. Each group row produces a chart file suffixed with the `group_id` (e.g. `comparison_P21_sex_or_gender_german_talk_shows.png`). Show membership in a group is derived from `data/00_setup/broadcasting_programs.csv` columns `language` and `show_type` (added 2026-05-09). Default groups: All German talk shows, All German podcasts, All German, All English.
+     * **Clarification (2026-05-09):** Sub-groups are NOT extra bars in the same chart. They are their own independent visualizations. Group definitions must be configurable via `data/00_setup/show_groups.csv`.
+     - **Clarifiation:** The subgroups are created as their own visualizations. Similar to our "All shows" visualization, we require an additional visualization per group. 
+     - **Clarification:** We must also be able to define additional groups via setup config files.
 
-3. **Implement `viz_coverage.py`.** Property coverage dashboard: which properties are covered for what fraction of guests. A heatmap where rows = properties, columns = shows, cell = coverage percentage. Write `property_coverage_dashboard.csv`.
+3. **`viz_coverage.py` — split into two distinct concepts.** The current property coverage dashboard wrongly merges two different metrics into one. They must be separated:
+   - **AVERAGE values per property** (decimal, 0 to ∞): the average number of values an appearance carries for this property. Example: if a guest appearing in one episode has 3 occupations, that appearance contributes 3 to the average. Shown as a bar chart or heatmap with decimal cells.
+   - **Binary property coverage** (percentage, 0–100 %): for each (appearance or guest), was at least one non-Unknown value found? The count of appearances where `value != Unknown` / total appearances. It does not matter how many values — presence/absence only.
+   - **Each of these two concepts must also be produced in two variants**: (a) by guest (unique guest as unit), (b) by appearance (guest-episode pair as unit). That yields 4 outputs total: avg-values-by-guest, avg-values-by-appearance, binary-coverage-by-guest, binary-coverage-by-appearance.
+   - **Data availability column in the property table**: for each property, add a column showing how many entries had Wikidata data (Tier 1+2) vs. total entries (Tier 1–4). This answers "how much of the missing coverage is due to lacking Wikidata reconciliation?"
 
 4. **Episode-specific property pipeline.** Apply the same analysis pipeline to episode-level properties: duration (P2047), air date (P577), guest count (derived), description (P836). These are episode-scoped, not guest-scoped, so the data flow differs: the occurrence matrix columns (episodes) are the subjects.
 
@@ -493,9 +531,17 @@ Poisson distribution applicability check for guest frequency. Party trajectory d
 ### TASK-F15 — PageRank Node Visualizations
 
 **What it should achieve:**
-Person node-graph visualization sized and colored by PageRank score. Class node-graph. Combined view. Exported using the same chart/output contract.
+Person node-graph visualization sized and colored by in-link count (PageRank-style). Class node-graph. Combined view. Exported using the same chart/output contract.
 
-**Status:** Open, low priority. Blocked on: (a) PageRank score computation not implemented, (b) node-graph library choice not finalized (NetworkX + Plotly or pyvis). No immediate next steps until baseline pipeline is stable.
+**Binding definition (added 2026-05-09):**
+
+Step 1 — Build the node set. Create one node for every **instance** in the dataset. Instances include: episodes, guests, moderators, broadcasting programs (and any other non-class entities). The only exclusion criterion is: the entity `is a class` (P31/Q16889133 or equivalent). Classes are not nodes.
+
+Step 2 — Build the edge set. Link every node that is connected via a claim. A claim `(subject, property, object)` where both subject and object are nodes creates a directed edge from subject to object.
+
+Step 3 — Size nodes by in-link count. Count the number of edges pointing **toward** each node from any other node. Node area/radius is proportional to this in-link count. The node with the most in-links is the largest.
+
+**Status:** Open, low priority. Blocked on: (a) PageRank/in-link score computation not implemented, (b) node-graph library choice not finalized (NetworkX + Plotly or pyvis). No immediate next steps until baseline pipeline is stable.
 
 ---
 

@@ -13,16 +13,12 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from .viz_base import apply_font, save_fig
+from .color_registry import PALETTE
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
-
-_PALETTE = [
-    "#0072B2", "#E69F00", "#009E73", "#56B4E9",
-    "#D55E00", "#CC79A7", "#F0E442",
-]
 
 
 def _scope_text(scope: str) -> str:
@@ -80,7 +76,7 @@ def build_birth_year_chart(
     fig = go.Figure(go.Bar(
         x=counts["_group"],
         y=counts["unique_guests"],
-        marker_color=_PALETTE[0],
+        marker_color=PALETTE[0],
         text=counts["unique_guests"].astype(str),
         textposition="outside",
     ))
@@ -159,7 +155,7 @@ def build_age_distribution_chart(
                 box_visible=True,
                 meanline_visible=True,
                 points="outliers",
-                marker_color=_PALETTE[i % len(_PALETTE)],
+                marker_color=PALETTE[i % len(PALETTE)],
             ))
         title_text = f"Age at Appearance by Show<br><sup>{_scope_text(scope)}</sup>"
     else:
@@ -170,7 +166,7 @@ def build_age_distribution_chart(
             box_visible=True,
             meanline_visible=True,
             points="outliers",
-            marker_color=_PALETTE[0],
+            marker_color=PALETTE[0],
         ))
         title_text = f"Age at Appearance Distribution<br><sup>{_scope_text(scope)}</sup>"
 
@@ -281,7 +277,7 @@ def build_age_vs_appearances_scatter(
                 y=sub["appearance_count"].tolist(),
                 mode="markers",
                 name=label,
-                marker=dict(color=_PALETTE[i % len(_PALETTE)], size=5, opacity=0.6),
+                marker=dict(color=PALETTE[i % len(PALETTE)], size=5, opacity=0.6),
                 hovertemplate=(
                     "<b>%{text}</b><br>"
                     "Age at debut: %{x:.0f}<br>"
@@ -295,7 +291,7 @@ def build_age_vs_appearances_scatter(
             y=guest_cat["appearance_count"].tolist(),
             mode="markers",
             name="Guests",
-            marker=dict(color=_PALETTE[0], size=5, opacity=0.6),
+            marker=dict(color=PALETTE[0], size=5, opacity=0.6),
         ))
 
     fig.update_layout(

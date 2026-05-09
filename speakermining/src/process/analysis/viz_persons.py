@@ -12,12 +12,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from .viz_base import apply_font, save_fig
-
-
-_PALETTE = [
-    "#0072B2", "#E69F00", "#009E73", "#56B4E9",
-    "#D55E00", "#CC79A7", "#F0E442",
-]
+from .color_registry import PALETTE
 
 
 def _scope_text(scope: str) -> str:
@@ -167,7 +162,7 @@ def build_relevance_chart(
         x=scores,
         y=labels,
         orientation="h",
-        marker_color=_PALETTE[0],
+        marker_color=PALETTE[0],
         text=[f"{s:.1f}" for s in scores],
         textposition="outside",
         hovertemplate=(

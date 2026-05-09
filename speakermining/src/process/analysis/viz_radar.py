@@ -16,14 +16,10 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from .viz_base import apply_font, save_fig
+from .color_registry import PALETTE
 
 
 _UNKNOWN_PREFIX = "Unknown"
-_PALETTE = [
-    "#0072B2", "#E69F00", "#009E73", "#56B4E9",
-    "#D55E00", "#CC79A7", "#F0E442", "#44AA99",
-    "#88CCEE", "#DDCC77", "#AA4499", "#332288",
-]
 _COMBINED_COLOR = "#000000"
 
 
@@ -159,7 +155,7 @@ def build_property_radar_chart(
             theta=theta,
             mode="lines+markers",
             name=display,
-            line=dict(color=_PALETTE[i % len(_PALETTE)], width=2),
+            line=dict(color=PALETTE[i % len(PALETTE)], width=2),
             marker=dict(size=5),
             hovertemplate=(
                 f"<b>{display}</b><br>"
@@ -212,7 +208,8 @@ def build_property_radar_chart(
 
     viz_dir = output_dir / "visualizations"
     viz_dir.mkdir(parents=True, exist_ok=True)
-    save_fig(fig, viz_dir / f"radar_{prop_id}")
+    short_label = prop_label.lower().replace(" ", "_").replace("/", "_")[:25]
+    save_fig(fig, viz_dir / f"radar_{prop_id}_{short_label}")
     print(f"  Radar [{prop_label}]: {len(top_vals)} axes × {len(rows_show)} shows → {viz_dir.name}/")
 
 

@@ -9,6 +9,18 @@ Policy for this file:
 
 ---
 
+## Cross-Cutting Principle: Guest ↔ Appearance Symmetry
+
+**Added 2026-05-09 (additional input):**
+
+Every visualization generated from a "by guest" perspective (unique guest count) must also exist from a "by appearance" perspective (guest × episode pair count), and vice versa. The preferred form is one combined visualization that minimizes label duplication: side-by-side subplots with identical Y-axis order (labels only on the left), or a grouped bar chart showing both metrics in one panel.
+
+- Example: treemaps are currently only by guest — an appearances treemap must also be produced.
+- Example: universal bar charts already show both metrics (grouped bar) — this is the correct pattern.
+- This principle (PRINCIPLE-9 in `03_intermediate_review.md`) applies to all visualization types: treemaps, radar charts, bar charts, stacked bar charts.
+
+---
+
 ## Cross-Cutting Principle: ALL ↔ Per-Show Symmetry
 
 **Added 2026-05-05 (additional input):**
@@ -159,11 +171,30 @@ Every analysis, visualization, and README that is created for "ALL" must also be
    - `no property data on N appearances of N unique persons` (Tier 1+2 guests who happen to have no claim for this property)
    - `no Wikidata entry on N appearances of N unique persons` (Tier 3+4 guests)
 
+**New items (2026-05-09 additional input):**
+- **No local palette duplication.** Every visualization module must load colors from `ColorRegistry`. No module may define its own `_PALETTE`, `_UNKNOWN_COLOR`, or `_OTHER_COLOR` constants. ColorRegistry is the only source of color assignments across the entire pipeline.
+- **File naming convention.** Every output file must include BOTH the property PID and a shortened property label (≤25 chars, spaces → underscores). Pattern: `{chart_type}_{pid}_{short_label}.png`. Files named with only a PID or only a slug violate this rule.
+- **Bars must dominate layout.** Currently bar space is only 10–20% of chart width — this is wrong. Labels go on the left, legends go at the bottom (horizontal, up to two rows if needed). The bars must take up the majority of available width. No right-side legends that compress bar space.
+- **Unknown/Other separation.** Unknown and Other must NOT share bar space with meaningful values. The highest meaningful bar gets 100% of bar width. Unknown/Other are displayed as a separate annotation, footnote, or visually distinct section — not as a competing segment that takes 80% of the space.
+- **Legend sort order.** Legends must always show the highest-count item on top, not in reverse or alphabetical order.
+- **Label line breaks.** Long axis labels AND legend labels must be broken at word boundaries using `<br>`. A maximum character count per line must be enforced.
+- **Show groups via members column.** Group membership in `show_groups.csv` is now defined via a pipe-separated `members` column listing fernsehserien_de_ids directly. The `show_type` column has been removed from `broadcasting_programs.csv`; group membership no longer derives from language+show_type filtering.
+- **Cross stacked bars: dual-subplot layout.** For cross-show comparison, Appearances chart is on the LEFT subplot, unique guests on the RIGHT — this is the PRINCIPLE-9 order. Only the left subplot has Y-axis labels (since order is identical, left labels apply to both). The current single chart must be restructured as two side-by-side subplots.
+
+**Progress (2026-05-09 session 3):**
+- `wrap_labels(labels, max_chars=25)` added to `viz_base.py`. Inserts `<br>` at word boundaries so Plotly tick labels stay within 25 chars per line.
+- `viz_universal.py`: Y-axis labels now passed through `wrap_labels()`; chart height adapts (`45px × row` when labels wrap, `35px × row` otherwise). Legend moved from top-right to bottom-horizontal.
+- `viz_comparison.py`: Legend moved to bottom-horizontal with `margin.b=150` to accommodate it. Unknown/Other are now subscript annotations in Y-axis labels, never bar segments. Bars show only top-N meaningful values (bars may be < 100% for shows with many unknowns).
+- `viz_comparison.py`: Dual-subplot layout implemented: LEFT = by appearances, RIGHT = by unique guests. `make_subplots(shared_yaxes=True)` ensures label deduplication. Both panels share the same Y-axis with labels only on the left.
+- `viz_cross_property.py`: `wrap_labels()` applied to Y-axis labels in `_build_cross_fig`, `_build_combined_cross_fig`, and `build_property_top_persons_chart`. Legend moved from right-side to bottom-horizontal in all three functions. Height adapts to wrapped labels.
+- **Caching sidecar** implemented in `viz_base.save_fig`. Before writing, computes `md5(fig.to_json())` checksum, compares against `.viz_cache.json` in the output directory. If checksum matches and PNG exists, skips writing entirely ("Cached: …"). On write, updates the sidecar. Zero configuration required — purely file-system-driven.
+
 **Primary sources:**
 - 2026-04-30 TASK-B08, TASK-B20
 - 2026-05-04 additional input (`Visualizations are not very dynamic yet`)
 - 2026-05-06 additional input (`On Visualizations`)
 - 2026-05-05 additional input (`Current state and lessons learned`)
+- 2026-05-09 additional input (`Do not reproduce color palettes`, `Always keep property PID AND label in file name`)
 
 ---
 
@@ -261,6 +292,12 @@ Every analysis, visualization, and README that is created for "ALL" must also be
 **Progress (2026-05-06 session 5):**
 - `build_age_vs_appearances_scatter` added to `viz_scalar.py`. Scatter plot: X = age at first appearance, Y = total appearances, dots colored by dominant show. Writes `visualizations/scatter_age_vs_appearances.png`. Exported from `__init__.py`. Wired into notebook section 13e (cell `3b9029fe` updated).
 
+**New items (2026-05-09 additional input):**
+- **Treemaps must generate both perspectives.** Both by-appearances and by-unique-guests panels must be present in the same combined subplot. Panel order: **Appearances LEFT, unique guests RIGHT** (PRINCIPLE-9 canonical order).
+
+**Progress (2026-05-09 session 2):**
+- `viz_treemap.py` updated: panels swapped to Appearances LEFT, unique guests RIGHT.
+
 **Remaining work:**
 - Birth year vs gender frequency scatter (cross-scalar).
 - Stacked area charts (time series of property value prevalence — needs timeline module, blocked on TASK-F03).
@@ -308,9 +345,41 @@ Every analysis, visualization, and README that is created for "ALL" must also be
 - **Property coverage heatmap** (`viz_coverage.py` — new module). `build_property_coverage_dashboard` implemented. Heatmap: rows = properties, columns = shows, cell = % of guest-episode pairs with a non-Unknown value. Also writes `property_coverage_dashboard.csv`. Wired into notebook cell `f5ca9f17`. Answers "which properties have good coverage in which shows?"
 - Both modules exported from `analysis/__init__.py`.
 
+**New items (2026-05-09 additional input):**
+- **Source coverage must show data quality tiers.** The source coverage dashboard must break down episode and guest counts by quality tier (Tier 1–4) rather than treating all sources as undifferentiated. How many of our guests come from Tier 1 (Wikidata + cross-source match)? How many from Tier 3/4 (no Wikidata)?
+- **Gender/sex comparison does not add to 100 %.** The cross-show comparison for P21 (sex or gender) currently shows per-value percentages that do not sum to 100 % per show. Root cause: normalization by total unique guests rather than unique guests with a known gender value, or double-counting from multi-episode appearances. Must be fixed so each show's bar totals 100 %.
+- **Show order must be descending by episode count.** Across all cross-show comparison charts, the ordering of shows on the axis must be fixed and identical: always descending by the total number of episodes we have for that show (from `aligned_episodes.csv`). The current implementation sorts by guest count or is unstable.
+- **All cross-show comparisons must be 100%-stacked bar charts.** Currently rendered as grouped bars. Must be converted to horizontal 100%-stacked bars (consistent with TASK-F05 item 8). Each bar = one show, segments = property values summing to 100 %.
+- **Sub-group comparisons.** Each group is a separate visualization (not extra rows in the same chart), analogous to how "All shows" is its own chart. Group definitions live in `data/00_setup/show_groups.csv` (config-driven). Show membership derives from `language` and `show_type` columns in `broadcasting_programs.csv`. Default groups: All German talk shows, All German podcasts, All German, All English. *(Clarification 2026-05-09)*
+- **Property coverage comparison must be split into two distinct concepts** (current implementation conflates them):
+  1. **Average values per property** (decimal ≥ 0): average number of property values an appearance carries. Written as a separate CSV and chart.
+  2. **Binary property coverage** (0–100 %): share of appearances/guests where at least one non-Unknown value is present. Written as a separate CSV and chart.
+  Both concepts must exist in two variants: by guest and by appearance (4 outputs total).
+- **Data availability column in property table.** For each property, add a statistic showing how many entries had Wikidata data (Tier 1+2) vs. total entries (Tier 1–4). This is the "how much missing coverage is due to no Wikidata reconciliation?" column.
+
+**Progress (2026-05-09 session 1):**
+- `viz_comparison.py` rewritten: 100%-stacked horizontal bar charts, % normalized so bars sum to 100% (Unknown is an explicit last segment), show order is descending by episode count (loaded from `per_show_statistics.csv`). Each property generates one chart for all shows + one chart per group from `show_groups.csv`.
+- `data/00_setup/show_groups.csv` created with 4 default groups (All German talk shows, All German podcasts, All German, All English).
+- `data/00_setup/broadcasting_programs.csv` extended with `language` and `show_type` columns for group membership derivation.
+- `viz_coverage.py` rewritten: now produces 4 separate coverage concepts (avg-values and binary-coverage, each by guest and by appearance). Legacy `property_coverage_heatmap.png` retained for backward compat.
+- `viz_dashboards.py` updated: `build_source_coverage_dashboards` now accepts optional `person_catalogue` + `episode_appearances` to generate a tier-breakdown stacked bar chart (`coverage_tier_breakdown_by_show.png`) and `guest_quality_tiers_by_show.csv`.
+
+**Progress (2026-05-09 session 2):**
+- **Math bug fixed** in `viz_coverage.py`: `compute_property_coverage` now uses `["value"].nunique()` instead of `.size()` for the avg-values-by-guest computation. Root cause: `standard_frame` has one row per (guest, episode, value); grouping by (guest, show) with `.size()` inflated values by the episode count. Richard Dawkins with 25 occupations and 30 appearances was showing 81.36 avg occupations on StarTalk instead of ~25.
+- **Color palette centralized**: `color_registry.py` now exports `TIER_COLORS` and `TIER_LABELS`. All viz modules (`viz_comparison`, `viz_universal`, `viz_cross_property`, `viz_radar`, `viz_scalar`, `viz_binary`, `viz_persons`, `viz_dashboards`) now import from `color_registry` instead of defining local `_PALETTE`, `_UNKNOWN_COLOR`, `_OTHER_COLOR` copies.
+- **Show groups restructured**: `show_groups.csv` now uses a pipe-separated `members` column (fernsehserien_de_ids) for explicit group membership. `show_type` column removed from `broadcasting_programs.csv`. `viz_comparison.py` updated to use member-based grouping.
+- **Tier constants moved**: `_TIER_COLORS` and `_TIER_LABELS` removed from `viz_dashboards.py`; now imported from `color_registry.TIER_COLORS` / `TIER_LABELS`.
+
+**Progress (2026-05-09 session 3):**
+- **Legacy heatmap removed** from `viz_coverage.py`: the backward-compat `property_coverage_heatmap.png` (identical to `binary_appearance` variant) is no longer written. Only the 4 named variants are produced.
+- **Log scale for avg heatmaps**: `_make_heatmap` now accepts `use_log=True`. When set, z-values are transformed with `np.log1p`; colorbar shows tick labels at original values (0, 0.25, 0.5, 1, 2, 3, 5, 10, …). Avg heatmaps use `colorscale="Oranges"` + log scale; binary heatmaps use `colorscale="Blues"` + linear 0–100%.
+- **Unknown/Other bars eliminated** from cross-show comparison: bars no longer extend beyond 100%. Unknown and Other counts appear as `<br><sup>(N unknown, M other)</sup>` annotations in Y-axis labels.
+- **Dual-subplot cross-show comparison**: `viz_comparison.py` now produces two side-by-side panels per chart — Appearances (LEFT) and Unique guests (RIGHT) per PRINCIPLE-9. `make_subplots(shared_yaxes=True)` keeps labels on the left only.
+
 **Remaining work:**
 - Scope items 1, 5: episode-level property pipeline (duration, guest count, description) still open.
 - Source coverage: add unique-to-source episode count (episodes appearing exclusively in one source).
+- Wire new `person_catalogue` and `episode_appearances` parameters in notebook call to `build_source_coverage_dashboards`.
 
 ---
 
@@ -432,13 +501,20 @@ Every analysis, visualization, and README that is created for "ALL" must also be
 **Status:** Open
 
 **Scope:**
-1. Implement person node-graph visualization sized/colored by rank score.
+1. Implement person node-graph visualization sized/colored by in-link count.
 2. Implement class node-graph visualization.
 3. Implement combined node-graph view where useful.
 4. Export using the same chart/output contract as the rest of analysis visualizations.
 
+**Binding definition (added 2026-05-09):**
+
+- **Step 1 — Node set:** Create one node for every *instance* (not class) in the dataset. Instances include: episodes, guests, moderators, broadcasting programs. Exclusion criterion: entity `is a class`. Classes are not nodes.
+- **Step 2 — Edge set:** Link every node connected via a claim. A claim `(subject, property, object)` where both subject and object are nodes creates a directed edge.
+- **Step 3 — Node size:** Count the number of edges pointing toward each node. Node area is proportional to in-link count. The node with the most in-links is the largest.
+
 **Primary sources:**
 - 2026-04-29 TASK-A03
+- 2026-05-09 additional input (`Definition Page-Rank Visualization`)
 
 ---
 

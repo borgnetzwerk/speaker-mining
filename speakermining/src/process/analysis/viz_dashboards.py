@@ -22,8 +22,10 @@ from .universal_stats import (
     build_frequency_distribution,
     build_pareto_table,
 )
-from .viz_universal import _PALETTE
 from .viz_base import PALETTE, apply_font, save_fig
+from .color_registry import TIER_COLORS, TIER_LABELS
+
+_PALETTE = list(PALETTE.values())
 
 
 def _ensure_path(path: str | Path) -> Path:
@@ -277,6 +279,82 @@ def _build_stacked_pareto(
     return fig
 
 
+def _build_tier_breakdown_chart(
+    episode_appearances: pd.DataFrame,
+    person_catalogue: pd.DataFrame,
+    source_viz_dir: Path,
+) -> None:
+    """Stacked bar chart: unique guests per show broken down by quality tier."""
+    if person_catalogue is None or person_catalogue.empty:
+        return
+    if "data_quality_tier" not in person_catalogue.columns:
+        return
+    if episode_appearances is None or episode_appearances.empty:
+        return
+
+    guest_ep = episode_appearances[episode_appearances["role"] == "guest"].copy()
+    if guest_ep.empty:
+        return
+
+    # Join catalogue tiers onto guest appearances
+    tier_map = (
+        person_catalogue[["canonical_entity_id", "data_quality_tier"]]
+        .drop_duplicates("canonical_entity_id")
+        .set_index("canonical_entity_id")["data_quality_tier"]
+        .astype(str)
+    )
+    guest_ep = guest_ep.copy()
+    guest_ep["tier"] = guest_ep["canonical_entity_id"].map(tier_map).fillna("0")
+
+    show_meta = (
+        guest_ep[["show_id", "program_name"]].drop_duplicates()
+        .set_index("show_id")["program_name"].to_dict()
+    )
+    # Sort shows by total guest appearances descending
+    show_totals = guest_ep.groupby("show_id")["canonical_entity_id"].nunique().sort_values(ascending=False)
+    show_order = list(show_totals.index)
+
+    fig = go.Figure()
+    for tier_num in [1, 2, 3, 4]:
+        tier_str = str(tier_num)
+        tier_data = guest_ep[guest_ep["tier"] == tier_str]
+        counts = tier_data.groupby("show_id")["canonical_entity_id"].nunique().reindex(show_order, fill_value=0)
+        show_labels = [show_meta.get(s, s) for s in show_order]
+        fig.add_trace(go.Bar(
+            name=TIER_LABELS[tier_num],
+            y=show_labels,
+            x=counts.values,
+            orientation="h",
+            marker_color=TIER_COLORS[tier_num],
+            legendrank=tier_num,
+            hovertemplate=f"<b>{TIER_LABELS[tier_num]}</b><br>%{{y}}: %{{x:,}} unique guests<extra></extra>",
+        ))
+
+    fig.update_layout(
+        title=dict(
+            text="Guest Quality Tiers by Show<br><sup>Unique guests per data quality tier</sup>",
+            x=0.5,
+        ),
+        barmode="stack",
+        xaxis_title="Unique guests",
+        yaxis_title="Show",
+        template="plotly_white",
+        legend=dict(orientation="v", yanchor="top", y=1.0, xanchor="left", x=1.02),
+        height=max(400, 35 * len(show_order) + 180),
+        margin=dict(t=100, r=280, b=60, l=160),
+    )
+    apply_font(fig)
+    save_fig(fig, source_viz_dir / "coverage_tier_breakdown_by_show")
+
+    # Also write the tier summary CSV
+    tier_pivot = (
+        guest_ep.groupby(["show_id", "tier"])["canonical_entity_id"]
+        .nunique()
+        .reset_index(name="unique_guests")
+    )
+    tier_pivot.to_csv(source_viz_dir.parent.parent / "guest_quality_tiers_by_show.csv", index=False)
+
+
 def build_source_coverage_dashboards(
     reconciled_df: pd.DataFrame,
     episode_meta_df: pd.DataFrame,
@@ -285,8 +363,17 @@ def build_source_coverage_dashboards(
     *,
     overall_stats: pd.DataFrame | None = None,
     per_show_stats: pd.DataFrame | None = None,
+    person_catalogue: pd.DataFrame | None = None,
+    episode_appearances: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Write source-coverage dashboards and return the show-level coverage table."""
+    """Write source-coverage dashboards and return the show-level coverage table.
+
+    Args:
+        person_catalogue: Optional catalogue with data_quality_tier column.
+            When provided, produces additional tier-breakdown chart.
+        episode_appearances: Optional full episode_appearances frame.
+            Required alongside person_catalogue for the tier chart.
+    """
 
     all_dir = _ensure_path(output_dir)
     viz_dir = _ensure_path(viz_dir)
@@ -426,5 +513,9 @@ def build_source_coverage_dashboards(
     )
     apply_font(fig)
     save_fig(fig, source_viz_dir / "coverage_comparison_by_show")
+
+    # Quality-tier breakdown (only when catalogue and appearances are provided)
+    if person_catalogue is not None and episode_appearances is not None:
+        _build_tier_breakdown_chart(episode_appearances, person_catalogue, source_viz_dir)
 
     return coverage_by_show
