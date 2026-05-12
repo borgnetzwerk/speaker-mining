@@ -71,7 +71,7 @@ from .viz_comparison import (
     build_cross_show_comparison,
     build_all_cross_show_comparisons,
 )
-from .viz_coverage import build_property_coverage_dashboard
+from .viz_coverage import build_property_coverage_dashboard, compute_global_property_coverage
 from .viz_scalar import (
     build_birth_year_chart,
     build_age_distribution_chart,

@@ -42,10 +42,10 @@ _TR: dict[str, dict[str, str]] = {
         "appearances": "Appearances",
         "with_wikidata": "w/ Wikidata",
         "guest_gender": "Guest Gender",
-        "male": "Male",
-        "female": "Female",
+        "male": "Male Guest",
+        "female": "Female Guest",
         "other": "Other",
-        "eps_without_gender": "Eps w/o Gender",
+        "eps_without_gender": "Episodes without ...",
         "guest_age": "Guest Age",
         "min": "Min",
         "median": "Median",
@@ -68,6 +68,7 @@ _TR: dict[str, dict[str, str]] = {
         "03b_xaxis": "% male (of known gender)",
         "total": "Total",
         "02_trend": "Overall trend",
+        "05_col_avg": "Avg.",
         "wikidata_entry": "Wikidata entry",
     },
     "de": {
@@ -80,10 +81,10 @@ _TR: dict[str, dict[str, str]] = {
         "appearances": "Auftritte",
         "with_wikidata": "m. Wikidata",
         "guest_gender": "Geschlecht",
-        "male": "Männlich",
-        "female": "Weiblich",
+        "male": "männlichen Gast",
+        "female": "weiblichen Gast",
         "other": "Andere",
-        "eps_without_gender": "Folgen o. Geschlecht",
+        "eps_without_gender": "Folgen ohne ...",
         "guest_age": "Alter",
         "min": "Min",
         "median": "Median",
@@ -106,6 +107,7 @@ _TR: dict[str, dict[str, str]] = {
         "03b_xaxis": "% männlich (bekanntes Geschlecht)",
         "total": "Gesamt",
         "02_trend": "Gesamttrend",
+        "05_col_avg": "Ø",
         "wikidata_entry": "Wikidata-Eintrag",
     },
 }
@@ -115,6 +117,42 @@ def _t(lang: str, key: str, **fmt) -> str:
     """Return translated string, falling back to English."""
     s = _TR.get(lang, _TR["en"]).get(key, _TR["en"].get(key, key))
     return s.format(**fmt) if fmt else s
+
+
+def _wrap_label_html(text: str, max_chars: int = 10) -> str:
+    """Insert <br> at word boundaries so no line exceeds max_chars (for HTML tables)."""
+    if len(text) <= max_chars:
+        return text
+    words = text.split(" ")
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        if current and len(current) + 1 + len(word) > max_chars:
+            lines.append(current)
+            current = word
+        else:
+            current = (current + " " + word).strip()
+    if current:
+        lines.append(current)
+    return "<br>".join(lines)
+
+
+def _wrap_label_plotly(text: str, max_chars: int = 30) -> str:
+    """Insert \\n at word boundaries so no line exceeds max_chars (for Plotly tick labels)."""
+    if len(text) <= max_chars:
+        return text
+    words = text.split(" ")
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        if current and len(current) + 1 + len(word) > max_chars:
+            lines.append(current)
+            current = word
+        else:
+            current = (current + " " + word).strip()
+    if current:
+        lines.append(current)
+    return "\n".join(lines)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -169,7 +207,7 @@ def build_show_color_registry(
     *,
     party_colors_path: str | Path | None = None,
 ) -> tuple[dict[str, str], list[str]]:
-    """Assign palette colors to shows ordered by total appearances descending."""
+    """Assign palette colors to shows ordered by episode count descending."""
     sentinel_ids = {"NONE"}
 
     if party_colors_path is not None:
@@ -190,9 +228,12 @@ def build_show_color_registry(
     if not available:
         available = list(PALETTE)
 
+    sort_col = "episode_count" if "episode_count" in per_show_stats.columns else "guest_appearances"
     ordered = (
         per_show_stats
-        .sort_values("guest_appearances", ascending=False)
+        .assign(_sort=lambda d: pd.to_numeric(d[sort_col], errors="coerce").fillna(0))
+        .sort_values("_sort", ascending=False)
+        .drop(columns=["_sort"])
         .reset_index(drop=True)
     )
 
@@ -485,10 +526,10 @@ td.td-program {
 td.td-number { padding: 3px 10px; text-align: right; white-space: nowrap; }
 
 /* ── bar cells (padding managed by inner div) ─────────────── */
-td.td-bar { padding: 0 !important; }
+td.td-bar { padding: 0 !important; overflow: visible; }
 .bar-wrap {
   display: flex; align-items: center;
-  height: 28px; min-width: 80px;
+  height: 28px; min-width: 85px;
 }
 .bar-label {
   position: relative; z-index: 1;
@@ -509,6 +550,7 @@ def build_show_stats_table(
     wikidata_pct_by_show: pd.DataFrame | None = None,
     eps_without_gender_by_show: pd.DataFrame | None = None,
     unresolved_by_show: pd.DataFrame | None = None,
+    global_unique_guests: int | None = None,
     lang: str = "en",
     short_labels: dict | None = None,
 ) -> None:
@@ -528,11 +570,8 @@ def build_show_stats_table(
     df = df[~df["show_id"].astype(str).str.strip().isin(SENTINEL)]
     df = df.drop_duplicates(subset=["show_id"]).copy()
 
-    ordered_ids = _sort_by_order(df["show_id"].tolist(), show_order)
-    order_map = {sid: i for i, sid in enumerate(ordered_ids)}
-    df = df[df["show_id"].isin(set(ordered_ids))].copy()
-    df["_order"] = df["show_id"].map(order_map)
-    df = df.sort_values("_order").drop(columns=["_order"]).reset_index(drop=True)
+    df["_epc"] = pd.to_numeric(df.get("episode_count", 0), errors="coerce").fillna(0)
+    df = df.sort_values("_epc", ascending=False).drop(columns=["_epc"]).reset_index(drop=True)
 
     for extra, cols in [
         (eps_without_gender_by_show, ["eps_without_male", "eps_without_female"]),
@@ -574,10 +613,16 @@ def build_show_stats_table(
             f"rgba({r},{g},{b},0.82) {pct:.1f}%,"
             f"{row_bg} {pct:.1f}%)"
         )
+        lum = 0.299 * r + 0.587 * g + 0.114 * b
         if pct >= 50:
-            label_style = f"color:white; padding-left:5px;"
+            # Label sits inside the bar — use white only for very dark bars.
+            txt_color = "white" if lum < 60 else "#333"
+            space = 55 - int(pct) if pct < 55 else 5
+            label_style = f"color:{txt_color}; padding-left:{space}px;"
         else:
-            label_style = f"color:#333; padding-left:calc({pct:.1f}% + 5px);"
+            # Label sits to the right of the bar — always dark.
+            space = int(pct) - 45 if pct > 45 else 5
+            label_style = f"color:#333; padding-left:calc({pct:.1f}% + {space}px);"
         return (
             f'<td class="td-bar">'
             f'<div class="bar-wrap" style="background:{grad};">'
@@ -604,7 +649,7 @@ def build_show_stats_table(
         return f'<td class="td-number"><b>{text}</b></td>'
 
     # ── header rows ───────────────────────────────────────────────────────────
-    bp  = T("broadcasting_program")
+    bp  = T("broadcasting_program").replace(" ", "<br>", 1)
     eps = T("episodes")
     gst = T("guests")
     app = T("appearances")
@@ -629,12 +674,19 @@ def build_show_stats_table(
     )
 
     # ── total row ─────────────────────────────────────────────────────────────
+    # global_unique_guests: cross-show deduplicated person count from notebook.
+    # Summing per-show unique counts overcounts guests appearing on multiple shows,
+    # so we show the true value when provided, or "—" to signal it's unavailable.
+    if global_unique_guests is not None:
+        _uniq_cell = f'<td class="td-number"><b>{int(global_unique_guests):,}</b></td>'
+    else:
+        _uniq_cell = '<td class="td-number" title="Cross-show unique count not available; per-show sum overcounts shared guests."><b>—</b></td>'
     total_row = (
         '<tr class="total-row">'
         + f'<td class="td-program" style="border-left-color:#888;"><b>{T("total")}</b></td>'
         + f'<td class="td-number"><b>{int(tot_eps_sum):,}</b></td>'
         + f'<td class="td-number"><b>{int(tot_app_sum):,}</b></td>'
-        + f'<td class="td-number"><b>{int(tot_uniq_sum):,}</b></td>'
+        + _uniq_cell
         + _tot_bar_td(tot_m_sum, tot_eps_sum)
         + _tot_bar_td(tot_f_sum, tot_eps_sum)
         + '</tr>'
@@ -669,12 +721,12 @@ def build_show_stats_table(
 <body>
 <table>
 <colgroup>
-  <col style="min-width:130px;">
-  <col style="width:58px;">
-  <col style="width:82px;">
-  <col style="width:68px;">
-  <col style="min-width:95px;">
-  <col style="min-width:95px;">
+  <col>
+  <col>
+  <col>
+  <col>
+  <col>
+  <col>
 </colgroup>
 <thead>{header_html}</thead>
 <tbody>{"".join(rows_html)}</tbody>
@@ -744,7 +796,7 @@ def build_age_ridge_plot(
 
     x_min = max(15, int(df["age"].min()) - 2)
     x_max = min(104, int(df["age"].max()) + 2)
-    tick_vals = list(range(x_min - x_min % 5, x_max + 6, 5))
+    tick_vals = list(range(x_min - x_min % 10, x_max + 11, 10))
     x_grid = np.linspace(x_min, x_max, 300)
 
     T = lambda k, **fmt: _t(lang, k, **fmt)
@@ -808,11 +860,11 @@ def build_age_ridge_plot(
             ),
         ))
 
-        # Median bar — solid vertical line crossing the full row height
+        # Median bar — solid black vertical line crossing the full row height
         fig.add_shape(
             type="line",
             x0=med, y0=y_base, x1=med, y1=y_base + RIDGE_H,
-            line=dict(color=color, width=2.0),
+            line=dict(color="#000000", width=2.0),
             layer="above",
         )
 
@@ -832,6 +884,7 @@ def build_age_ridge_plot(
             title=T("01_xaxis"),
             range=[x_min, x_max],
             tickvals=tick_vals,
+            tickangle=0,
             tickfont=dict(size=11),
             title_font=dict(size=12),
             showline=True,
@@ -843,6 +896,7 @@ def build_age_ridge_plot(
             side="top",
             range=[x_min, x_max],
             tickvals=tick_vals,
+            tickangle=0,
             tickfont=dict(size=11),
             showgrid=False,
             zeroline=False,
@@ -860,9 +914,9 @@ def build_age_ridge_plot(
             automargin=True,
         ),
         template="plotly_white",
-        height=90 + n * 52,
-        width=860,
-        margin=dict(l=20, r=30, t=50, b=55),
+        height=40 + n * 52,
+        width=350,
+        margin=dict(l=0, r=10, t=28, b=36),
         showlegend=False,
     )
     stem = f"01_age_ridge_plot_{lang}"
@@ -973,9 +1027,11 @@ def build_gender_over_time(
     rolling_window: int = 3,
     min_year: int = 2003,
     max_year: int = 2025,
+    start_year: int = 2004,
     lang: str = "en",
     short_labels: dict | None = None,
     episode_coverage: pd.DataFrame | None = None,
+    episode_counts_by_show: dict[str, int] | None = None,
 ) -> None:
     """Viz 2: Male guest share over time — one line per show, academic-paper ready.
 
@@ -1032,7 +1088,16 @@ def build_gender_over_time(
     # would be omitted from all_years and Plotly would draw through the gap
     # at the wrong x position.
     all_years = list(range(min_year, max_year + 1))
+    x_start = max(min_year, start_year)
     show_ids = _sort_by_order(df["show_id"].unique().tolist(), show_order)
+    # Sort show_ids by episode count desc for legend ordering
+    if episode_counts_by_show:
+        show_ids_legend_order = sorted(
+            show_ids, key=lambda s: episode_counts_by_show.get(s, 0), reverse=True
+        )
+    else:
+        show_ids_legend_order = list(show_ids)
+    _show_legend_rank = {sid: i for i, sid in enumerate(show_ids_legend_order)}
 
     T = lambda k, **fmt: _t(lang, k, **fmt)
 
@@ -1044,17 +1109,19 @@ def build_gender_over_time(
 
     if _cov:
         # 5:1 height ratio — sub-panel is exactly 1/5th the main panel height.
-        MAIN_H, SUB_H = 520, 104
+        # shared_xaxes=False so tick labels are rendered at the bottom of the
+        # top subplot (between the two panels), not at the bottom of the page.
+        MAIN_H, SUB_H = 468, 104
         fig = make_subplots(
             rows=2, cols=1,
-            shared_xaxes=True,
-            vertical_spacing=0.03,
+            shared_xaxes=False,
+            vertical_spacing=0.12,
             row_heights=[MAIN_H, SUB_H],
         )
         _r1 = {"row": 1, "col": 1}
         _r2 = {"row": 2, "col": 1}
     else:
-        MAIN_H, SUB_H = 520, 0
+        MAIN_H, SUB_H = 468, 0
         fig = go.Figure()
         _r1 = {}
         _r2 = {}
@@ -1065,15 +1132,20 @@ def build_gender_over_time(
         else:
             fig.add_trace(trace)
 
-    # 50 % parity reference — only in the main panel.
-    # annotation_position="top right" keeps text inside the right margin.
-    _hline_kw = dict(line_dash="dot", line_color="#c0392b", line_width=1.2,
-                     annotation_text=_t(lang, "02_50pct"),
-                     annotation_position="top right")
-    if _cov:
-        fig.add_hline(y=50, row=1, col=1, **_hline_kw)
-    else:
-        fig.add_hline(y=50, **_hline_kw)
+    _n_shows = len(show_ids)
+    # 50 % parity reference as a Scatter trace so it appears in the legend (last).
+    _parity_trace = go.Scatter(
+        x=all_years,
+        y=[50] * len(all_years),
+        mode="lines",
+        name=_t(lang, "02_50pct"),
+        showlegend=True,
+        legendgroup="__parity__",
+        legendrank=_n_shows + 20,
+        line=dict(color="#c0392b", width=1.2, dash="dot"),
+        hoverinfo="skip",
+    )
+    _add(_parity_trace, row=1)
 
     for sid in show_ids:
         for i_g, gender in enumerate(genders_to_plot):
@@ -1096,6 +1168,7 @@ def build_gender_over_time(
                     name=show_name if i_g == 0 else None,
                     showlegend=(i_g == 0),
                     legendgroup=sid,
+                    legendrank=_show_legend_rank.get(sid, 999),
                     line=dict(
                         color=show_colors.get(sid, UNKNOWN_COLOR),
                         width=1.8,
@@ -1127,6 +1200,7 @@ def build_gender_over_time(
                 name=T("02_trend"),
                 showlegend=True,
                 legendgroup="__trend__",
+                legendrank=_n_shows + 10,
                 line=dict(color="#222222", width=2.8, dash="dot"),
                 hovertemplate=f"{T('02_trend')} · %{{x}}<br>%{{y:.1f}}%<extra></extra>",
             ), row=1)
@@ -1156,12 +1230,15 @@ def build_gender_over_time(
 
     # Layout
     total_height = MAIN_H + SUB_H + (20 if _cov else 0)
-    xaxis_shared = dict(title="", tickangle=0, dtick=2, tickfont=dict(size=12))
+    _x_range = [x_start - 0.5, max_year + 0.5]
+    xaxis_upper = dict(title="", tickangle=0, dtick=2, tickfont=dict(size=12),
+                       range=_x_range, showgrid=True)
+    xaxis_lower = dict(showticklabels=False, dtick=2, range=_x_range, showgrid=True)
     fig.update_layout(
         template="plotly_white",
         height=total_height,
-        width=1050,
-        margin=dict(l=70, r=100, t=120, b=60),
+        width=840,
+        margin=dict(l=70, r=40, t=90, b=50),
         legend=dict(
             orientation="h",
             x=0.5, xanchor="center",
@@ -1170,21 +1247,21 @@ def build_gender_over_time(
         ),
     )
     if _cov:
-        fig.update_xaxes(xaxis_shared, row=2, col=1)
-        fig.update_xaxes(showticklabels=False, row=1, col=1)
+        fig.update_xaxes(xaxis_upper, row=1, col=1)
+        fig.update_xaxes(xaxis_lower, row=2, col=1)
         fig.update_yaxes(
-            title_text=T("02_yaxis"), range=[0, 100], ticksuffix="%",
+            title_text=T("02_yaxis"), range=[0, 100], 
             tickfont=dict(size=12), row=1, col=1,
         )
         fig.update_yaxes(
-            title_text=T("02_coverage_yaxis"),
+            title_text=T("02_coverage_yaxis") + " (%)",
             range=[0, 100], tickvals=[0, 50, 100], ticksuffix="%",
-            tickfont=dict(size=10), title_font=dict(size=10),
+            tickfont=dict(size=12), title_font=dict(size=12),
             row=2, col=1,
         )
     else:
         fig.update_layout(
-            xaxis=xaxis_shared,
+            xaxis=xaxis_upper,
             yaxis=dict(title=T("02_yaxis"), range=[0, 100], ticksuffix="%", tickfont=dict(size=12)),
         )
 
@@ -1202,13 +1279,13 @@ _PARTY_CSS = """
 body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #fff; padding: 16px; }
 table { border-collapse: collapse; font-size: 11px; width: max-content; }
 thead tr.hdr-party th {
-  background: #e0e0e0; font-weight: bold; padding: 5px 8px;
+  background: #e0e0e0; font-weight: bold; padding: 5px 4px;
   border: 1px solid #ccc; text-align: center; white-space: nowrap;
 }
-thead tr.hdr-party th.th-show { text-align: left; background: #d0d8e4; }
+thead tr.hdr-party th.th-show { text-align: left; background: #d0d8e4; padding: 5px 8px; }
 thead tr.hdr-totals td {
   background: #d8e4f0; font-weight: bold; font-size: 10px;
-  padding: 3px 8px; border: 1px solid #c0d0e0; text-align: center; white-space: nowrap;
+  padding: 3px 4px; border: 1px solid #c0d0e0; text-align: center; white-space: nowrap;
 }
 thead tr.hdr-totals td.td-show { text-align: left; font-style: italic; }
 tbody td { border: 1px solid #e8e8e8; height: 26px; vertical-align: middle; }
@@ -1218,10 +1295,10 @@ td.td-show {
   padding: 3px 8px 3px 7px; text-align: left; white-space: nowrap;
   border-left-width: 4px !important;
 }
-td.td-pct { padding: 3px 5px; text-align: center; font-size: 10px; white-space: nowrap; }
+td.td-pct { padding: 3px 4px; text-align: center; font-size: 10px; white-space: nowrap; }
 td.td-bar { padding: 0 !important; }
-.bar-wrap  { display: flex; align-items: center; height: 26px; min-width: 58px; }
-.bar-label { position: relative; z-index: 1; font-size: 10px; white-space: nowrap; padding: 0 4px; }
+.bar-wrap  { display: flex; align-items: center; height: 26px; min-width: 0; }
+.bar-label { position: relative; z-index: 1; font-size: 10px; white-space: nowrap; padding: 0 3px; }
 """
 
 _PARTY_BLUE = (0x43, 0x93, 0xC3)   # #4393c3
@@ -1251,8 +1328,10 @@ def _party_bar_td(pct_val: float, row_bg: str) -> str:
         f"{row_bg} {pct_val:.1f}%)"
     )
     text = f"{pct_val:.1f}&thinsp;%"
+    lum = 0.299 * r + 0.587 * g + 0.114 * b
     if pct_val >= 50:
-        ls = "color:white; padding-left:4px;"
+        txt_color = "white" if lum < 60 else "#333"
+        ls = f"color:{txt_color}; padding-left:4px;"
     else:
         ls = f"color:#333; padding-left:calc({pct_val:.1f}% + 4px);"
     return (
@@ -1284,11 +1363,10 @@ def _build_party_html(
       • row 2 "Unique"      — unique persons per party (may equal row 1 if the
         source dataframe only carries unique_guests)
     """
-    col_w_show   = "min-width:140px;"
-    col_w_party  = "width:72px;"
+    col_w_show = "min-width:140px;"
 
     hdr_th = "".join(
-        f'<th style="{col_w_party}">{a}</th>' for a in abbrev_parties
+        f'<th>{a}</th>' for a in abbrev_parties
     )
     hdr_total_tds = "".join(
         f'<td class="td-pct"><b>{int(party_totals_all.get(p, 0)):,}</b></td>'
@@ -1341,10 +1419,7 @@ def _build_party_html(
             + '</tr>'
         )
 
-    colgroup = (
-        f'<col style="{col_w_show}">'
-        + "".join(f'<col style="{col_w_party}">' for _ in ordered_parties)
-    )
+    colgroup = f'<col style="{col_w_show}">' + "".join("<col>" for _ in ordered_parties)
     return f"""<!DOCTYPE html>
 <html lang="{lang}">
 <head><meta charset="utf-8"><style>{_PARTY_CSS}</style></head>
@@ -1500,6 +1575,7 @@ def build_gender_breakdown_by_property(
     *,
     top_n: int = 15,
     lang: str = "en",
+    short_labels: dict | None = None,
 ) -> None:
     """Viz 3b: One dot plot per property — male share, dot size = total guests.
 
@@ -1511,8 +1587,9 @@ def build_gender_breakdown_by_property(
         print("  Viz 3b: no property-gender data — skipping")
         return
 
+    _sl = short_labels if short_labels is not None else load_short_labels()
     T = lambda k, **fmt: _t(lang, k, **fmt)
-    male_color = gender_colors.get(_nfc("männlich"), PALETTE[0])
+    male_color = "#4393c3"
 
     for prop_label, df_raw in props.items():
         df = df_raw.copy()
@@ -1537,7 +1614,17 @@ def build_gender_breakdown_by_property(
         else:
             df = df.sort_values("male_pct", ascending=True).reset_index(drop=True)
 
-        labels = df["value"].astype(str).tolist()
+        raw_labels = df["value"].astype(str).tolist()
+        # Apply short label lookup; use value_qid if available for party/occupation lookups
+        if "value_qid" in df.columns:
+            resolved = [
+                _sl.get((str(qid).strip(), lang), "") or _short(val, val, lang, _sl)
+                for val, qid in zip(raw_labels, df["value_qid"].tolist())
+            ]
+        else:
+            resolved = [_short(val, val, lang, _sl) for val in raw_labels]
+        # Wrap long labels with \n (Plotly multi-line tick support)
+        labels = [_wrap_label_plotly(lbl, max_chars=30) for lbl in resolved]
         max_total = float(df["total_count"].max()) or 1.0
         max_size = 40
         sizes = (df["total_count"] / max_total * max_size ** 2).apply(lambda x: max(4, x ** 0.5))
@@ -1565,24 +1652,14 @@ def build_gender_breakdown_by_property(
         ))
         fig.update_xaxes(range=[0, 100], ticksuffix=" %", title_text=T("03b_xaxis"),
                          title_font=dict(size=10), tickfont=dict(size=10))
-        if is_age:
-            fig.update_yaxes(tickfont=dict(size=10))
-        else:
-            fig.update_yaxes(tickfont=dict(size=10))
+        fig.update_yaxes(tickfont=dict(size=10), automargin=True)
 
         actual_n = len(df)
         fig.update_layout(
-            title=dict(
-                text=(
-                    f"<b>{T('03b_title', prop=prop_label)}</b><br>"
-                    f"<sup>{T('03b_sub', n=actual_n)}</sup>"
-                ),
-                x=0.02, font=dict(size=14),
-            ),
             template="plotly_white",
             height=120 + actual_n * 30,
-            width=500,
-            margin=dict(l=160, r=20, t=100, b=60),
+            width=250,
+            margin=dict(l=8, r=20, t=20, b=50),
         )
         slug = "".join(c if c.isalnum() else "_" for c in prop_label.lower()).strip("_")
         stem = f"03b_{slug}_{lang}"
@@ -1750,8 +1827,222 @@ def build_coappearance_network(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Viz 5: Property coverage table (heatmap)
+# Viz 5: Property coverage table — HTML/CSS, rows=shows, columns=properties
 # ──────────────────────────────────────────────────────────────────────────────
+
+_COVERAGE_CSS = """
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #fff; padding: 16px; }
+table { border-collapse: collapse; font-size: 11px; width: max-content; }
+thead th {
+  background: #e0e0e0; font-weight: bold; padding: 5px 4px;
+  border: 1px solid #ccc; text-align: center; white-space: nowrap;
+}
+thead th.th-show { text-align: left; background: #d0d8e4; padding: 5px 8px; white-space: nowrap; }
+thead th.th-prop {
+  writing-mode: vertical-rl; transform: rotate(180deg);
+  text-align: left; vertical-align: bottom; white-space: nowrap;
+  padding: 8px 4px 4px 4px; height: 90px;
+  background: #e0e0e0;
+}
+tbody td { border: 1px solid #e8e8e8; height: 26px; vertical-align: middle; }
+tbody tr:nth-child(odd)  td.td-show { background: #fff; }
+tbody tr:nth-child(even) td.td-show { background: #f7f7f7; }
+tfoot td { border: 1px solid #ccc; height: 26px; vertical-align: middle;
+           background: #d8e4f0; font-weight: bold; font-size: 10px; }
+tfoot td.td-show { text-align: left; font-style: italic; padding: 3px 8px 3px 7px;
+                   border-left-width: 4px !important; }
+td.td-show {
+  padding: 3px 8px 3px 7px; text-align: left; white-space: nowrap;
+  border-left-width: 4px !important;
+}
+td.td-pct { padding: 3px 4px; text-align: center; font-size: 10px; white-space: nowrap; min-width: 40px; }
+td.td-bar { padding: 0 !important; min-width: 40px; }
+.bar-wrap  { display: flex; align-items: center; height: 26px; min-width: 40px; }
+.bar-label { position: relative; z-index: 1; font-size: 10px; white-space: nowrap; padding: 0 3px; }
+"""
+
+
+def _cov_grad_td(pct: float) -> str:
+    """Blue-gradient cell: intensity proportional to raw percentage."""
+    if np.isnan(pct):
+        return '<td class="td-pct" style="background:#f5f5f5;color:#aaa;">—</td>'
+    t = min((pct / 100) ** 0.6, 1.0)
+    r2, g2, b2 = _PARTY_BLUE
+    bg = f"#{int(0xf5 + (r2 - 0xf5) * t):02X}{int(0xf5 + (g2 - 0xf5) * t):02X}{int(0xf5 + (b2 - 0xf5) * t):02X}"
+    fc = "white" if t > 0.45 else "#333"
+    text = f"{pct:.0f}&thinsp;%" if pct >= 0.5 else "0&thinsp;%"
+    return f'<td class="td-pct" style="background:{bg};color:{fc};">{text}</td>'
+
+
+def _cov_bar_td(pct: float, row_bg: str) -> str:
+    """CSS gradient bar cell proportional to raw percentage."""
+    if np.isnan(pct):
+        return '<td class="td-bar"><div class="bar-wrap" style="background:#f5f5f5;"></div></td>'
+    r, g, b = _PARTY_BLUE
+    if pct < 0.5:
+        return (
+            f'<td class="td-bar">'
+            f'<div class="bar-wrap" style="background:{row_bg};">'
+            f'<span class="bar-label" style="color:#aaa;">0&thinsp;%</span>'
+            f'</div></td>'
+        )
+    grad = (
+        f"linear-gradient(to right,"
+        f"rgba({r},{g},{b},0.82) {pct:.1f}%,"
+        f"{row_bg} {pct:.1f}%)"
+    )
+    text = f"{pct:.0f}&thinsp;%"
+    lum = 0.299 * r + 0.587 * g + 0.114 * b
+    if pct >= 50:
+        txt_color = "white" if lum < 60 else "#333"
+        ls = f"color:{txt_color}; padding-left:4px;"
+    else:
+        ls = f"color:#333; padding-left:calc({pct:.1f}% + 4px);"
+    return (
+        f'<td class="td-bar">'
+        f'<div class="bar-wrap" style="background:{grad};">'
+        f'<span class="bar-label" style="{ls}">{text}</span>'
+        f'</div></td>'
+    )
+
+
+def _build_coverage_html(
+    show_ids: list[str],
+    prop_keys: list[str],
+    prop_labels: list[str],
+    show_names: list[str],
+    show_colors: dict[str, str],
+    cov_matrix: dict,
+    col_avgs: dict,
+    show_col_label: str,
+    avg_label: str,
+    lang: str,
+    mode: str,
+) -> str:
+    """Build HTML for the coverage table. mode='gradient'|'bars'."""
+    _td = _cov_grad_td if mode == "gradient" else None
+
+    # Header — property columns use rotated text via writing-mode; wrap at ~10 chars
+    header_cells = f'<th class="th-show">{show_col_label}</th>'
+    for lbl in prop_labels:
+        header_cells += f'<th class="th-prop">{_wrap_label_html(lbl, max_chars=10)}</th>'
+    header_html = f'<tr>{header_cells}</tr>'
+
+    # Data rows
+    rows_html = []
+    for i, (sid, sname) in enumerate(zip(show_ids, show_names)):
+        shex = show_colors.get(sid, "#999999")
+        row_bg = "#f7f7f7" if (i % 2 == 0) else "#ffffff"
+        cells = f'<td class="td-show" style="border-left-color:{shex};">{sname}</td>'
+        for pk in prop_keys:
+            pct = cov_matrix.get((sid, pk), float("nan"))
+            if mode == "gradient":
+                cells += _cov_grad_td(pct)
+            else:
+                cells += _cov_bar_td(pct, row_bg)
+        rows_html.append(f'<tr>{cells}</tr>')
+
+    # Footer: column averages
+    foot_cells = f'<td class="td-show" style="border-left-color:#888;">{avg_label}</td>'
+    for pk in prop_keys:
+        avg = col_avgs.get(pk, float("nan"))
+        if mode == "gradient":
+            foot_cells += _cov_grad_td(avg)
+        else:
+            foot_cells += _cov_bar_td(avg, "#d8e4f0")
+    foot_html = f'<tr>{foot_cells}</tr>'
+
+    return f"""<!DOCTYPE html>
+<html lang="{lang}">
+<head><meta charset="utf-8"><style>{_COVERAGE_CSS}</style></head>
+<body>
+<table>
+<thead>{header_html}</thead>
+<tbody>{"".join(rows_html)}</tbody>
+<tfoot>{foot_html}</tfoot>
+</table>
+</body>
+</html>"""
+
+
+_COVERAGE_CSS_T = _COVERAGE_CSS + """
+thead th.th-show-col {
+  writing-mode: vertical-rl; transform: rotate(180deg);
+  text-align: left; vertical-align: bottom; white-space: nowrap;
+  padding: 8px 4px 4px 4px; height: 90px;
+  border: 1px solid #ccc;
+}
+thead th.th-show { background: white; border: 1px solid #ccc; }
+td.td-show { border-left-width: 1px !important; border-left-color: #ccc !important; }
+tbody td { height: 22px; }
+"""
+
+
+def _build_coverage_html_T(
+    show_ids: list[str],
+    prop_keys: list[str],
+    prop_labels: list[str],
+    show_names: list[str],
+    show_colors: dict[str, str],
+    cov_matrix: dict,
+    col_avgs: dict,
+    show_col_label: str,
+    avg_label: str,
+    lang: str,
+    mode: str,
+) -> str:
+    """Transposed version: rows=properties, cols=shows.
+
+    Column order: Property label | Total (global avg) | Show1 | Show2 | ...
+    Show column headers carry the show's colour as a bottom border (appears at top
+    of the rotated cell, adjacent to the data rows).
+    """
+    # Header: Property | Total | Show1…N (rotated, full-cell show colour)
+    _TOTAL_BG = "#c8d4e4"  # same as total-row in show_stats_table
+    header_cells = f'<th class="th-show"></th>'
+    header_cells += f'<th class="th-show-col" style="background:{_TOTAL_BG};">{avg_label}</th>'
+    for sid, sname in zip(show_ids, show_names):
+        shex = show_colors.get(sid, "#999999")
+        h = shex.lstrip("#")
+        sr, sg, sb = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        bg = f"rgba({sr},{sg},{sb},0.22)"
+        header_cells += (
+            f'<th class="th-show-col" style="background:{bg};">'
+            f'{_wrap_label_html(sname, max_chars=12)}</th>'
+        )
+    header_html = f'<tr>{header_cells}</tr>'
+
+    # Data rows: one per property — Total column first, then shows
+    rows_html = []
+    for i, (pk, plbl) in enumerate(zip(prop_keys, prop_labels)):
+        row_bg = "#f7f7f7" if (i % 2 == 0) else "#ffffff"
+        cells = f'<td class="td-show">{plbl}</td>'
+        avg = col_avgs.get(pk, float("nan"))
+        if mode == "gradient":
+            cells += _cov_grad_td(avg)
+        else:
+            cells += _cov_bar_td(avg, row_bg)
+        for sid in show_ids:
+            pct = cov_matrix.get((sid, pk), float("nan"))
+            if mode == "gradient":
+                cells += _cov_grad_td(pct)
+            else:
+                cells += _cov_bar_td(pct, row_bg)
+        rows_html.append(f'<tr>{cells}</tr>')
+
+    # No tfoot — per-show averages are meaningless and removed per spec.
+    return f"""<!DOCTYPE html>
+<html lang="{lang}">
+<head><meta charset="utf-8"><style>{_COVERAGE_CSS_T}</style></head>
+<body>
+<table>
+<thead>{header_html}</thead>
+<tbody>{"".join(rows_html)}</tbody>
+</table>
+</body>
+</html>"""
+
 
 def build_property_coverage_table(
     coverage_by_show: pd.DataFrame,
@@ -1762,21 +2053,17 @@ def build_property_coverage_table(
     exclude_labels: list[str] | None = None,
     show_labels: dict[str, str] | None = None,
     wikidata_coverage_by_show: dict[str, float] | None = None,
+    episode_counts_by_show: dict[str, int] | None = None,
+    unique_guests_by_show: dict[str, int] | None = None,
+    global_coverage_by_property: dict[str, float] | None = None,
     lang: str = "en",
     short_labels: dict | None = None,
 ) -> None:
-    """Viz 5: Heatmap of property coverage per show — academic-paper ready.
+    """Viz 5: Property coverage table — HTML/CSS, rows=shows, columns=properties.
 
-    No title, no colorbar legend. Column widths are compact (75 px per show).
-    An optional 'Wikidata entry' row (% of guests with a Wikidata ID) can be
-    prepended by passing ``wikidata_coverage_by_show={show_id: pct, ...}``.
-
-    Args:
-        coverage_by_show: property_id, property_label, then one column per
-            show_id with coverage %.
-        show_labels: {show_id → display label} for x-axis.
-        wikidata_coverage_by_show: {show_id → pct} — prepended as first row.
-        exclude_labels: Property labels to exclude.
+    Rows are shows sorted by episode count descending.
+    First column after show name: 'Wikidata guest coverage' (if provided).
+    Two versions exported: gradient and bars.
     """
     _sl = short_labels if short_labels is not None else load_short_labels()
     T = lambda k, **fmt: _t(lang, k, **fmt)
@@ -1797,57 +2084,121 @@ def build_property_coverage_table(
         print("  Viz 5: no data after filtering — skipping")
         return
 
-    show_means = df[show_cols_raw].mean(axis=0).sort_values(ascending=False)
-    show_cols_sorted = show_means.index.tolist()
+    # Determine show order: episode count desc, then show_order fallback
+    available_shows = [s for s in show_cols_raw]
+    if episode_counts_by_show:
+        available_shows = sorted(
+            available_shows,
+            key=lambda s: episode_counts_by_show.get(s, 0),
+            reverse=True,
+        )
+    else:
+        available_shows = _sort_by_order(available_shows, show_order)
 
+    # Build prop_keys / prop_labels: Wikidata coverage first, then properties by mean desc
     df["_mean_cov"] = df[show_cols_raw].mean(axis=1)
-    df = df.sort_values("_mean_cov", ascending=False).reset_index(drop=True)
+    df = df.sort_values("_mean_cov", ascending=False).drop(columns=["_mean_cov"]).reset_index(drop=True)
 
-    labels = df[lbl_col].tolist()
-    z = df[show_cols_sorted].values.astype(float)
+    prop_keys: list[str] = []
+    prop_labels: list[str] = []
 
-    # Prepend Wikidata-entry row
     if wikidata_coverage_by_show:
-        wd_row = np.array([
-            wikidata_coverage_by_show.get(sid, float("nan"))
-            for sid in show_cols_sorted
-        ], dtype=float)
-        z = np.vstack([wd_row[np.newaxis, :], z])
-        labels = [T("wikidata_entry")] + labels
+        prop_keys.append("__wikidata__")
+        prop_labels.append(T("wikidata_entry"))
 
-    n_props, n_shows = len(labels), len(show_cols_sorted)
+    for _, row in df.iterrows():
+        prop_keys.append(str(row[id_col]))
+        prop_labels.append(str(row[lbl_col]))
 
-    # Apply short labels to x-axis; fall back to show_labels or show_id
-    x_labels = []
-    for sid in show_cols_sorted:
-        base = show_labels.get(sid, sid) if show_labels else sid
-        # If short_labels has a short name for this show_id, use it (strip guest count suffix)
-        short = _sl.get((sid, lang), "")
-        x_labels.append(short if short else base)
+    # Build coverage matrix: (show_id, prop_key) → pct
+    cov_matrix: dict = {}
+    for sid in available_shows:
+        if wikidata_coverage_by_show:
+            cov_matrix[(sid, "__wikidata__")] = wikidata_coverage_by_show.get(sid, float("nan"))
+        for _, row in df.iterrows():
+            pk = str(row[id_col])
+            val = row.get(sid, float("nan"))
+            try:
+                cov_matrix[(sid, pk)] = float(val) if pd.notna(val) else float("nan")
+            except (TypeError, ValueError):
+                cov_matrix[(sid, pk)] = float("nan")
 
-    fig = go.Figure(go.Heatmap(
-        z=z,
-        x=x_labels,
-        y=labels,
-        colorscale=[[0, "#f5f5f5"], [0.25, "#b3cde3"], [0.55, "#4393c3"], [1, "#0d4f8b"]],
-        zmin=0, zmax=100,
-        text=[[f"{v:.0f} %" if not np.isnan(v) else "—" for v in row] for row in z],
-        texttemplate="%{text}",
-        textfont=dict(size=10),
-        showscale=False,
-        hovertemplate="Property: %{y}<br>Show: %{x}<br>Coverage: %{z:.1f}%<extra></extra>",
-    ))
+    # Average per property: use pre-computed global coverage (cross-show deduplicated)
+    # when provided by the notebook. Falls back to a weighted mean of per-show
+    # coverages (weighted by unique guests) as an approximation when not available,
+    # with the caveat that guests shared across shows are double-counted in weights.
+    _gcov = global_coverage_by_property or {}
+    _weights = unique_guests_by_show or {}
 
-    fig.update_layout(
-        xaxis=dict(title="", side="top", tickangle=-40, tickfont=dict(size=11)),
-        yaxis=dict(title="", autorange="reversed", tickfont=dict(size=11)),
-        template="plotly_white",
-        height=80 + n_props * 34,
-        width=160 + n_shows * 75,
-        margin=dict(l=220, r=20, t=80, b=20),
+    col_avgs: dict = {}
+    for pk in prop_keys:
+        # Map prop_key back to label for global lookup (wikidata key uses "__wikidata__")
+        if pk in _gcov:
+            col_avgs[pk] = float(_gcov[pk])
+        else:
+            pairs = [
+                (cov_matrix.get((sid, pk), float("nan")), _weights.get(sid, 1))
+                for sid in available_shows
+            ]
+            valid = [(v, w) for v, w in pairs if not np.isnan(v) and w > 0]
+            if valid:
+                total_w = sum(w for _, w in valid)
+                col_avgs[pk] = sum(v * w for v, w in valid) / total_w
+            else:
+                col_avgs[pk] = float("nan")
+
+    # Show display names
+    show_names = [
+        _short(sid, (show_labels.get(sid, sid) if show_labels else sid), lang, _sl)
+        for sid in available_shows
+    ]
+    show_col_label = T("broadcasting_program")
+    avg_label = T("05_col_avg")
+
+    shared = dict(
+        show_ids=available_shows,
+        prop_keys=prop_keys,
+        prop_labels=prop_labels,
+        show_names=show_names,
+        show_colors=show_colors,
+        cov_matrix=cov_matrix,
+        col_avgs=col_avgs,
+        show_col_label=show_col_label,
+        avg_label=avg_label,
+        lang=lang,
     )
-    _save(fig, output_dir, "05_property_coverage_table")
-    print(f"  Viz 5: coverage table ({n_props}×{n_shows}) → {output_dir.name}/")
+    # T version: avg column is first and labelled "Total".
+    shared_T = dict(
+        show_ids=available_shows,
+        prop_keys=prop_keys,
+        prop_labels=prop_labels,
+        show_names=show_names,
+        show_colors=show_colors,
+        cov_matrix=cov_matrix,
+        col_avgs=col_avgs,
+        show_col_label=show_col_label,
+        avg_label=T("total"),
+        lang=lang,
+    )
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Rows=shows (current orientation) + rows=props (transposed)
+    for mode in ("gradient", "bars"):
+        suffix = "_bars" if mode == "bars" else ""
+        # rows=shows, cols=props (rotated headers)
+        stem = f"05_property_coverage_{lang}{suffix}"
+        html_path = output_dir / f"{stem}.html"
+        html_path.write_text(_build_coverage_html(**shared, mode=mode), encoding="utf-8")
+        _render_html_table(html_path, output_dir / f"{stem}.png", output_dir / f"{stem}.pdf")
+        # rows=props, cols=shows (transposed)
+        stem_t = f"05_property_coverage_{lang}_T{suffix}"
+        html_path_t = output_dir / f"{stem_t}.html"
+        html_path_t.write_text(_build_coverage_html_T(**shared_T, mode=mode), encoding="utf-8")
+        _render_html_table(html_path_t, output_dir / f"{stem_t}.png", output_dir / f"{stem_t}.pdf")
+
+    print(f"  Viz 5: coverage table ({len(prop_keys)} props × {len(available_shows)} shows, both orientations) → {output_dir.name}/")
 
 
 # ──────────────────────────────────────────────────────────────────────────────

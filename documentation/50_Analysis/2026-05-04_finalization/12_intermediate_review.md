@@ -488,3 +488,144 @@ Because lines begin and end at different years per show (Presseclub starts 2016,
 | 8 | Lines identical visual weight | Add dash variety; bolder trend line | Small |
 | 9 | 50% line too subtle | Replace with `add_hrect` background band | Small |
 | 10 | No end-of-line anchors | Markers or text at last data point | Small |
+
+## 8. iteration: Minor issues.
+Almost there.
+
+### 00_show_stats_table_en
+* "Broacasting Program" Column label could use a linebreak (Broacasting<br>Program)
+* Space coud be saved - every column only needs to be exactly as wide as the contained text requires.
+* Sorted by Episode count, descending (currently wrongly sorted by appearances)
+
+### 01_age_ridge_plot_en
+* Color the Median line solid black, always.
+* Slim the visualization down - 40% of the current wwith will ave the same effect. 
+
+### 02_gender_over_time_en
+* Reduce white space left, right, top and bottom to a minimum.
+* Shrink the width of the visualization a bit, resulting in larger (relative) font size
+* Reduce the height of the upper plot slightly (~10%)
+* Reintroduce the 50 % parity line
+* Ensure the legend either fits one row, or makes efficient use of the second row. Since we will reduce the overall width, 2 rows are more likely, so: efficiently distribute over the two lines. Also add the "50 % parity" to the legend
+* Align the grids from above and below to use the same granularity
+* Move the x axis year dates to the upper plot
+* Align the font size of the two Y axis (increase font size of "Coverage")
+
+### 03b_age_de
+* Reduce white space left, right, top and bottom to a minimum.
+
+### 05_property_coverage_table
+* Fundamentally: Apply the approach used by the other two tables (HTML/CSS)
+* Needs german and english version
+* Swap rows and columns
+  * Rows: Talk shows sorted by Episode count
+  * Columns: Properties, lead by "Wikidata guest coverage"
+* Slim Columns to only the required space.
+* Once again: create one version with bars, one with filled cells
+  * See 03a_party_by_show_de and 03a_party_by_show_de_bars for reference
+
+
+## 9. iteration: Minor issues.
+just barely missed the target.
+Generally for table columns:
+* reduce column width to the absolute minimum. It should just barely contain the labels within.
+
+### 00_show_stats_table_en
+perfect.
+
+### 01_age_ridge_plot_en
+* Change the x axis labels from every 5 years to every 10
+* rotate the x axis labels back to horizontal
+
+### 02_gender_over_time_en
+* Sort the legend:
+  * First all shows in descending number of episodes
+  * Then the (if possible) a small bit of horizontal space
+  * Then the overal trend
+  * (small white space again)
+  * 50 % parity
+* Align the grids from above and below to use the same granularity
+* Add the  the x axis year dates to the upper plot
+  * Currently, they may be overwritten by the lower plot - it has come excremely close, the order should be:
+    * Legend
+    * Top plot
+      * Top plot X axis labels
+    * (small bit of vertical space, just enough so the top labels are not covered)
+    * Bottom plot
+* lower plot Y axis label should have the 
+* start our x axis with 2004
+
+### 03a_party_by_show_en
+* reduce column width to the absolute minimum. It should just barely contain the labels within.
+
+### 03b_age_de
+* White space to the left still massive - must be reduced.
+* Change color to our blue tone used everywhere else (e.g. 05_property_coverage_table)
+* Use short label where available
+
+### 05_property_coverage_table
+* Rotate Column Axis labels - we are currently wasting excessive amounts of width. ideally, we preserve the 45 % rotation from the old plotly visualization, but if that is impossible, we might need to use 90 % rotation. Overall: The goal is that the colum has no much more with than " 99 % " needs. Old visualization (05_property_coverage_table): 2730x1872 (and even that was to wide); new visualization (05_property_coverage_en_bars): 5535x963 (FAR to wide).
+* If this remains impossible to solve, we might need to swap back rows and colums. Just to be sure: Create both permutations.
+
+## 10. iteration: Finishing touch
+General issue surfaced: Show color is now out of order. It used to by that the show with the highest episode count got the first color from the palette - our last change seems to have changed that. Pleas ensure: The shows get their color allocated in descending epsiode count order.
+
+### 00_show_stats_table_en
+* The "42 (49 %)" of Precht episodes without female guests (last colum) is slightly cut off.
+* The white "32 (53)" is hard to read inside the bar - please ensure the color black is always used even inside the bar, unless the bar is of a a very dark color (e.g. black) 
+
+### 01_age_ridge_plot_en
+perfect.
+Maybe a bit too much whitespace top, left, bot and right.
+
+### 02_gender_over_time_en
+X axis tick labels of the tob plot still not visible.
+
+* Add the x axis year dates to the upper plot
+  * Currently, they may be overwritten by the lower plot - it has come excremely close, the order should be:
+    * Legend
+    * Top plot
+      * Top plot X axis labels
+    * (small bit of vertical space, just enough so the top labels are not covered)
+    * Bottom plot
+* lower plot Y axis label should have the % (or the axis label should have it and not the tick labels)
+  * Ensure the top and bot plot use the same - stay consistent.
+
+### 03a_party_by_show_en
+Columns still to wide - i assume nothing was changed here?
+Still an issue. Columns should be much thinner, reduced to the bare minimum needed.
+
+* reduce column width to the absolute minimum. It should just barely contain the labels within.
+
+### 03b_age_de
+* Reduce width by 50 %.
+* Use rule for short labels for 03b_member_of_political_party_en
+* Generally: Apply rules to reduce the space the labels take:
+  * If short labels are available, use them.
+  * Otherwise, apply linebrakes during " " spaces when the line would otherwise exceed 30 characters.
+
+### 05_property_coverage_table
+* Apply same line break rules here for 90 % rotated labels - they have plenty of space to work with. We should use it to reduce height. Make it more strict, so try to cap at 10 characters if possible (social media followers -> social<br>media<br>followers, place of birth = place of<br>birth)
+* The average per property is a nice addition. The average per show is meaningless and must be removed. Ensure the Average takes the amount of unique people into account, so a show with 2000 unique guests has a different weight onto the average than one with 3.
+
+
+## 11. iteration
+Color issue still persists: 
+Show color is now out of order. It used to by that the show with the highest episode count got the first color from the palette - our last change seems to have changed that. Pleas ensure: The shows get their color allocated in descending epsiode count order.
+
+The expected behaviour:
+
+1. Broadcasting Programs get ordered.
+2. Broadcasting Programs get their colors assigned
+   1. Broadcasting Programs Markus Lanz gets to pick first, requests a color from color_registry, PALETTE is checked, "#E69F00" is assigned to Markus Lanz
+   2. Maischberger gets second, "#56B4E9"
+   3. Hart aber fair third, "#009E73"
+   4. ...
+
+
+### 01_age_ridge_plot_en
+Still bit too much whitespace left.
+
+### 05_property_coverage_table
+* 05_property_coverage_en_T seems to have the most potentail. Let's move the average to the be the first column after Broadcasting Porgram and call ist "Total". Let's also bring back the colored nuance that was available in the non-Transmuted version: We don't need the very first tiny color column for the transposed version, it needs to be aplied to the first row in the columns where the show now resides.
+* row height can be reduced by 15 %

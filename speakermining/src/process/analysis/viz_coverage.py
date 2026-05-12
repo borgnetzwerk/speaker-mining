@@ -213,6 +213,54 @@ def compute_property_coverage(
     return results
 
 
+def compute_global_property_coverage(
+    property_frames: dict,
+    episode_appearances: pd.DataFrame,
+) -> tuple[int, dict[str, float]]:
+    """Compute binary property coverage globally (cross-show deduplicated).
+
+    Applies the same binary-by-guest logic as ``compute_property_coverage`` but
+    without grouping by show, so each unique guest is counted once regardless of
+    how many shows they appeared on.
+
+    Args:
+        property_frames: ``{pid: standard_frame}`` as produced by the notebook.
+        episode_appearances: Full episode appearances table (all roles).
+
+    Returns:
+        ``(n_global_unique_guests, coverage_dict)`` where ``coverage_dict`` maps
+        each ``pid`` to a percentage (0–100) and ``'__wikidata__'`` to the
+        Wikidata reconciliation rate.
+    """
+    guest_ep = episode_appearances[episode_appearances["role"] == "guest"].copy()
+    if guest_ep.empty:
+        return 0, {}
+
+    n_global = int(guest_ep["canonical_entity_id"].nunique())
+    if n_global == 0:
+        return 0, {}
+
+    guest_ids = set(guest_ep["canonical_entity_id"].unique())
+    result: dict[str, float] = {}
+
+    # Wikidata: guests with a non-empty wikidata_id
+    n_wd = int(
+        guest_ep.drop_duplicates("canonical_entity_id")["wikidata_id"]
+        .fillna("").str.strip().ne("").sum()
+    )
+    result["__wikidata__"] = round(n_wd / n_global * 100, 1)
+
+    for pid, frame in property_frames.items():
+        if frame is None or frame.empty or "value" not in frame.columns:
+            continue
+        fg = frame[frame["canonical_entity_id"].isin(guest_ids)]
+        has_val = _has_value(fg["value"])
+        covered = int(fg.loc[has_val, "canonical_entity_id"].nunique())
+        result[pid] = round(covered / n_global * 100, 1)
+
+    return n_global, result
+
+
 def build_property_coverage_dashboard(
     property_frames: dict,
     property_labels: dict,
