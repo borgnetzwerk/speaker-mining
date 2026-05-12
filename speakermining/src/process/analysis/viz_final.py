@@ -27,6 +27,88 @@ from .color_registry import PALETTE, UNKNOWN_COLOR, OTHER_COLOR
 from .config import load_party_colors, load_midlevel_classes, load_loop_resolution
 from .viz_base import apply_font, save_fig
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Bilingual label tables  (lang="en" | lang="de")
+# ──────────────────────────────────────────────────────────────────────────────
+
+_TR: dict[str, dict[str, str]] = {
+    "en": {
+        "broadcasting_program": "Broadcasting Program",
+        "episodes": "Episodes",
+        "span": "Span",
+        "unique": "Unique",
+        "unresolved": "Unresolved",
+        "guests": "Guests",
+        "appearances": "Appearances",
+        "with_wikidata": "w/ Wikidata",
+        "guest_gender": "Guest Gender",
+        "male": "Male",
+        "female": "Female",
+        "other": "Other",
+        "eps_without_gender": "Eps w/o Gender",
+        "guest_age": "Guest Age",
+        "min": "Min",
+        "median": "Median",
+        "max": "Max",
+        "00_title": "Talk Shows \u00b7 Sample &amp; Demographics",
+        "00_sub": "Sorted by total appearances \u00b7 German shows + StarTalk reference \u00b7 2003\u20132025",
+        "01_title": "Age at Appearance \u00b7 by Show",
+        "01_sub": "Sorted by median age \u00b7 box = IQR \u00b7 centre line = median",
+        "01_xaxis": "Age at time of appearance",
+        "02_title": "Male Guest Share over Time",
+        "02_sub": "{w}-yr rolling mean \u00b7 known gender only \u00b7 colour = show",
+        "02_50pct": "50 % parity",
+        "02_yaxis": "Male share of appearances (%)",
+        "03a_title": "Party Affiliation Share \u00b7 by Show",
+        "03a_sub": "% of unique guests with known party \u00b7 ordered by total appearances \u00b7 top {n} parties",
+        "03a_total": "Total guests",
+        "03b_title": "Male Share \u00b7 {prop}",
+        "03b_sub": "Dot = % male (of known gender) \u00b7 size = total guests \u00b7 top {n} \u00b7 50 % parity line",
+        "03b_xaxis": "% male (of known gender)",
+    },
+    "de": {
+        "broadcasting_program": "Sendung",
+        "episodes": "Folgen",
+        "span": "Zeitraum",
+        "unique": "Unique",
+        "unresolved": "Unaufgelöst",
+        "guests": "Gäste",
+        "appearances": "Auftritte",
+        "with_wikidata": "m. Wikidata",
+        "guest_gender": "Geschlecht",
+        "male": "Männlich",
+        "female": "Weiblich",
+        "other": "Andere",
+        "eps_without_gender": "Folgen o. Geschlecht",
+        "guest_age": "Alter",
+        "min": "Min",
+        "median": "Median",
+        "max": "Max",
+        "00_title": "Talkshows \u00b7 Stichprobe &amp; Demografie",
+        "00_sub": "Sortiert nach Auftritten \u00b7 Deutsche Sendungen + StarTalk \u00b7 2003\u20132025",
+        "01_title": "Alter bei Auftritt \u00b7 nach Sendung",
+        "01_sub": "Sortiert nach Median \u00b7 Box = IQR \u00b7 Mittellinie = Median",
+        "01_xaxis": "Alter bei Auftritt",
+        "02_title": "Anteil männlicher Gäste im Zeitverlauf",
+        "02_sub": "{w}-j. gleitender Mittel \u00b7 nur bekanntes Geschlecht \u00b7 Farbe = Sendung",
+        "02_50pct": "50 % Parität",
+        "02_yaxis": "Anteil männlicher Auftritte (%)",
+        "03a_title": "Parteizugehörigkeit \u00b7 nach Sendung",
+        "03a_sub": "% Gäste m. bekannter Partei \u00b7 nach Gesamtauftritten \u00b7 Top {n} Parteien",
+        "03a_total": "Gäste gesamt",
+        "03b_title": "Männeranteil \u00b7 {prop}",
+        "03b_sub": "Punkt = % männlich (bekanntes Geschlecht) \u00b7 Größe = Gäste \u00b7 Top {n} \u00b7 50%-Linie",
+        "03b_xaxis": "% männlich (bekanntes Geschlecht)",
+    },
+}
+
+
+def _t(lang: str, key: str, **fmt) -> str:
+    """Return translated string, falling back to English."""
+    s = _TR.get(lang, _TR["en"]).get(key, _TR["en"].get(key, key))
+    return s.format(**fmt) if fmt else s
+
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Registry builders  (call once at session start; pass results to all charts)
@@ -38,6 +120,8 @@ def build_show_color_registry(
     party_colors_path: str | Path | None = None,
 ) -> tuple[dict[str, str], list[str]]:
     """Assign palette colors to shows ordered by total appearances descending."""
+    sentinel_ids = {"NONE"}
+
     if party_colors_path is not None:
         try:
             party_df = pd.read_csv(party_colors_path, dtype=str).fillna("")
@@ -66,7 +150,7 @@ def build_show_color_registry(
     show_order: list[str] = []
     for i, row in ordered.iterrows():
         sid = str(row.get("show_id", "")).strip()
-        if sid:
+        if sid and sid.upper() not in sentinel_ids:
             show_colors[sid] = available[len(show_order) % len(available)]
             show_order.append(sid)
 
@@ -250,17 +334,14 @@ def build_show_stats_table(
     span_by_show: pd.DataFrame | None = None,
     wikidata_pct_by_show: pd.DataFrame | None = None,
     eps_without_gender_by_show: pd.DataFrame | None = None,
+    unresolved_by_show: pd.DataFrame | None = None,
+    lang: str = "en",
 ) -> None:
-    """Viz 0: Show statistics overview table.
+    """Viz 0: Show statistics table with grouped column headers and colour-bar cells.
 
-    Columns: Broadcasting Program · Episodes · Appearances · Unique Guests ·
-             Wikidata % · Male % · Female % · Other % ·
-             Eps w/o Male · Eps w/o Female · Eps w/o Other ·
-             Age Min/Med/Max · Span
-
-    Args:
-        eps_without_gender_by_show: show_id, eps_without_male, eps_without_female,
-            eps_without_other.
+    Column groups: Broadcasting Program | Episodes (Span/Unique/Unresolved) |
+    Guests (Appearances/Unique/w/ Wikidata) | Guest Gender (M/F/Other %) |
+    Eps w/o Gender (M/F/Other) | Guest Age (Min/Median/Max)
     """
     df = per_show_stats.drop_duplicates(subset=["show_id"]).copy()
     ordered_ids = _sort_by_order(df["show_id"].tolist(), show_order)
@@ -269,121 +350,245 @@ def build_show_stats_table(
     df["_order"] = df["show_id"].map(order_map)
     df = df.sort_values("_order").drop(columns=["_order"]).reset_index(drop=True)
 
-    extra_cols_map = [
-        (gender_by_show,           ["male_pct", "female_pct", "other_pct"]),
-        (age_by_show,              ["min_age", "median_age", "max_age"]),
-        (span_by_show,             ["span_label"]),
-        (wikidata_pct_by_show,     ["wikidata_pct"]),
+    for extra, cols in [
+        (gender_by_show,             ["male_pct", "female_pct", "other_pct"]),
+        (gender_by_show,             ["male_count", "female_count", "other_count"]),
+        (age_by_show,                ["min_age", "median_age", "max_age"]),
+        (span_by_show,               ["span_label"]),
+        (wikidata_pct_by_show,       ["wikidata_pct", "has_wd"]),
         (eps_without_gender_by_show, ["eps_without_male", "eps_without_female", "eps_without_other"]),
-    ]
-    for extra, cols in extra_cols_map:
+        (unresolved_by_show,         ["unresolved"]),
+    ]:
         if extra is not None and not extra.empty:
             present = [c for c in cols if c in extra.columns]
-            df = df.merge(extra[["show_id"] + present], on="show_id", how="left")
+            if present:
+                df = df.merge(extra[["show_id"] + present], on="show_id", how="left")
         for c in cols:
             if c not in df.columns:
                 df[c] = float("nan") if c != "span_label" else "—"
 
-    def _pct(v: object) -> str:
+    def _pct(v):
         try:
             fv = float(v)
-            if pd.isna(fv):
-                return "—"
-            return f"{fv:.0f} % {_mini_bar(fv)}"
+            return f"{fv:.0f}%" if not pd.isna(fv) else "—"
         except (TypeError, ValueError):
             return "—"
 
-    def _age(v: object) -> str:
+    def _int(v):
+        try:
+            return f"{int(float(v)):,}" if pd.notna(v) and float(v) >= 0 else "—"
+        except (TypeError, ValueError):
+            return "—"
+
+    def _age(v):
         try:
             return f"{float(v):.0f}" if pd.notna(v) else "—"
         except (TypeError, ValueError):
             return "—"
 
-    def _int(v: object) -> str:
+    def _bar_cell(count_val, pct_val, show_hex: str) -> str:
+        """Format '{count} ({pct}%)' with pct available for fill_color logic."""
         try:
-            return f"{int(float(v)):,}" if pd.notna(v) else "—"
+            c = int(float(count_val)) if pd.notna(count_val) else None
+            p = float(pct_val) if pd.notna(pct_val) else None
         except (TypeError, ValueError):
             return "—"
+        if c is None or p is None:
+            return "—"
+        return f"{c:,}\n({p:.0f}%)"
+
+    def _eps_bar_cell(count_val, total_eps) -> str:
+        try:
+            c = int(float(count_val)) if pd.notna(count_val) else None
+            t = int(float(total_eps)) if pd.notna(total_eps) else None
+        except (TypeError, ValueError):
+            return "—"
+        if c is None or t is None or t == 0:
+            return "—" if c is None else f"{c:,}"
+        p = c / t * 100
+        return f"{c:,}\n({p:.0f}%)"
+
+    def _blend(hex_color: str, pct: float, opacity: float = 0.85) -> str:
+        """Blend hex_color toward white, scaled by pct/100 × opacity."""
+        try:
+            h = hex_color.lstrip("#")
+            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+            t = min(pct / 100, 1.0) * opacity
+            r2 = int(r * t + 255 * (1 - t))
+            g2 = int(g * t + 255 * (1 - t))
+            b2 = int(b * t + 255 * (1 - t))
+            return f"#{r2:02X}{g2:02X}{b2:02X}"
+        except Exception:
+            return "#f5f5f5"
 
     n = len(df)
-    row_fills = ["#f7f7f7" if i % 2 == 0 else "#ffffff" for i in range(n)]
+    row_fills_base = ["#f7f7f7" if i % 2 == 0 else "#ffffff" for i in range(n)]
 
-    # Two-level header: use <br> to group Age and Gender subcolumns
-    header_vals = [
-        "<b>Broadcasting<br>Program</b>",
-        "<b>Episodes</b>",
-        "<b>Appear-<br>ances</b>",
-        "<b>Unique<br>Guests</b>",
-        "<b>Wikidata<br>%</b>",
-        # Gender group
-        "<b>Gender ·<br>Male %</b>",
-        "<b>Gender ·<br>Female %</b>",
-        "<b>Gender ·<br>Other %</b>",
-        "<b>Eps<br>w/o ♂</b>",
-        "<b>Eps<br>w/o ♀</b>",
-        "<b>Eps<br>w/o other</b>",
-        # Age group
-        "<b>Age ·<br>Min</b>",
-        "<b>Age ·<br>Median</b>",
-        "<b>Age ·<br>Max</b>",
-        "<b>Span</b>",
-    ]
+    T = lambda k, **fmt: _t(lang, k, **fmt)
 
-    cell_vals = [
+    # ── column definitions ────────────────────────────────────────────────────
+    # Each entry: (header, cell_values_list, col_width, fill_list_or_None)
+    cols_def = []
+
+    # Broadcasting Program
+    cols_def.append((
+        f"<b>{T('broadcasting_program')}</b>",
         df["program_name"].tolist(),
-        df["episode_count"].apply(_int).tolist(),
-        df["guest_appearances"].apply(_int).tolist(),
-        df["unique_guests"].apply(_int).tolist(),
-        df["wikidata_pct"].apply(_pct).tolist(),
-        df["male_pct"].apply(_pct).tolist(),
-        df["female_pct"].apply(_pct).tolist(),
-        df["other_pct"].apply(_pct).tolist(),
-        df["eps_without_male"].apply(_int).tolist(),
-        df["eps_without_female"].apply(_int).tolist(),
-        df["eps_without_other"].apply(_int).tolist(),
-        df["min_age"].apply(_age).tolist(),
-        df["median_age"].apply(_age).tolist(),
-        df["max_age"].apply(_age).tolist(),
+        190, None,
+    ))
+    # Episodes · Span
+    cols_def.append((
+        f"<b>{T('episodes')}<br>{T('span')}</b>",
         df["span_label"].fillna("—").tolist(),
-    ]
-    n_cols = len(header_vals)
-    col_widths = [200, 65, 70, 65, 80, 95, 95, 80, 70, 70, 85, 50, 60, 50, 85]
+        85, None,
+    ))
+    # Episodes · Unique
+    cols_def.append((
+        f"<b>{T('episodes')}<br>{T('unique')}</b>",
+        df["episode_count"].apply(_int).tolist(),
+        60, None,
+    ))
+    # Episodes · Unresolved
+    cols_def.append((
+        f"<b>{T('episodes')}<br>{T('unresolved')}</b>",
+        df["unresolved"].apply(_int).tolist(),
+        70, None,
+    ))
+    # Guests · Appearances
+    cols_def.append((
+        f"<b>{T('guests')}<br>{T('appearances')}</b>",
+        df["guest_appearances"].apply(_int).tolist(),
+        70, None,
+    ))
+    # Guests · Unique
+    cols_def.append((
+        f"<b>{T('guests')}<br>{T('unique')}</b>",
+        df["unique_guests"].apply(_int).tolist(),
+        60, None,
+    ))
+    # Guests · w/ Wikidata
+    cols_def.append((
+        f"<b>{T('guests')}<br>{T('with_wikidata')}</b>",
+        df["has_wd"].apply(_int).tolist(),
+        70, None,
+    ))
+
+    # Gender columns — colour bars
+    for gender_key, cnt_col, pct_col in [
+        ("male",   "male_count",   "male_pct"),
+        ("female", "female_count", "female_pct"),
+        ("other",  "other_count",  "other_pct"),
+    ]:
+        texts = []
+        fills = []
+        fcolors = []
+        for _, row in df.iterrows():
+            sid = str(row.get("show_id", ""))
+            shex = show_colors.get(sid, "#999999")
+            t = _bar_cell(row.get(cnt_col), row.get(pct_col), shex)
+            try:
+                pv = float(row.get(pct_col, 0)) if pd.notna(row.get(pct_col)) else 0.0
+            except (TypeError, ValueError):
+                pv = 0.0
+            fc = _blend(shex, pv)
+            texts.append(t)
+            fills.append(fc)
+            fcolors.append("white" if pv >= 50 else "#333333")
+        cols_def.append((
+            f"<b>{T('guest_gender')}<br>{T(gender_key)}</b>",
+            texts, 80, (fills, fcolors),
+        ))
+
+    # Eps w/o gender — percentage of total episodes
+    for gender_key, col in [("male", "eps_without_male"), ("female", "eps_without_female"), ("other", "eps_without_other")]:
+        texts = []
+        fills = []
+        fcolors = []
+        for _, row in df.iterrows():
+            sid = str(row.get("show_id", ""))
+            shex = show_colors.get(sid, "#999999")
+            total_eps = row.get("episode_count", 0)
+            t = _eps_bar_cell(row.get(col), total_eps)
+            try:
+                c = float(row.get(col, 0)) if pd.notna(row.get(col)) else 0.0
+                te = float(total_eps) if pd.notna(total_eps) and float(total_eps) > 0 else 1.0
+                pv = c / te * 100
+            except (TypeError, ValueError, ZeroDivisionError):
+                pv = 0.0
+            fc = _blend(shex, pv)
+            texts.append(t)
+            fills.append(fc)
+            fcolors.append("white" if pv >= 50 else "#333333")
+        cols_def.append((
+            f"<b>{T('eps_without_gender')}<br>{T(gender_key)}</b>",
+            texts, 80, (fills, fcolors),
+        ))
+
+    # Age
+    for age_key, col in [("min", "min_age"), ("median", "median_age"), ("max", "max_age")]:
+        cols_def.append((
+            f"<b>{T('guest_age')}<br>{T(age_key)}</b>",
+            df[col].apply(_age).tolist(),
+            48, None,
+        ))
+
+    # ── assemble table ────────────────────────────────────────────────────────
+    header_vals = [c[0] for c in cols_def]
+    cell_vals   = [c[1] for c in cols_def]
+    col_widths  = [c[2] for c in cols_def]
+    n_cols = len(cols_def)
+
+    # fill_color: 2-D list [col][row]
+    fill_color_matrix = []
+    font_color_matrix = []
+    for c in cols_def:
+        if c[3] is not None:
+            fills_col, fc_col = c[3]
+            fill_color_matrix.append(fills_col)
+            font_color_matrix.append(fc_col)
+        else:
+            fill_color_matrix.append(row_fills_base)
+            font_color_matrix.append(["#333333"] * n)
+
+    # Header fill: alternate light bands to indicate column groups
+    hdr_fills = ["#d0d8e4", "#dce8d0", "#dce8d0", "#dce8d0",
+                 "#e8dcd0", "#e8dcd0", "#e8dcd0",
+                 "#d4e8e8", "#d4e8e8", "#d4e8e8",
+                 "#e8d4e0", "#e8d4e0", "#e8d4e0",
+                 "#e8e4d0", "#e8e4d0", "#e8e4d0"]
+    hdr_fills = (hdr_fills + ["#e8e8e8"] * n_cols)[:n_cols]
 
     fig = go.Figure(go.Table(
         columnwidth=col_widths,
         header=dict(
             values=header_vals,
-            align=["left"] + ["right"] * (n_cols - 1),
-            font=dict(size=10, color="#333333"),
-            fill_color="#e8e8e8",
+            align=["left"] + ["center"] * (n_cols - 1),
+            font=dict(size=9, color="#333333"),
+            fill_color=hdr_fills,
             line_color="#cccccc",
-            height=44,
+            height=46,
         ),
         cells=dict(
             values=cell_vals,
-            align=["left"] + ["right"] * (n_cols - 1),
-            font=dict(size=10, color="#333333"),
-            fill_color=[row_fills] * n_cols,
+            align=["left"] + ["center"] * (n_cols - 1),
+            font=dict(size=9, color=font_color_matrix),
+            fill_color=fill_color_matrix,
             line_color="#e0e0e0",
-            height=28,
+            height=30,
         ),
     ))
     fig.update_layout(
         title=dict(
-            text=(
-                "<b>Talk Shows · Sample &amp; Demographics</b><br>"
-                "<sup>Sorted by total appearances · German shows + StarTalk reference · 2003–2025</sup>"
-            ),
-            x=0.02,
-            font=dict(size=15),
-            pad=dict(l=0, t=10),
+            text=f"<b>{T('00_title')}</b><br><sup>{T('00_sub')}</sup>",
+            x=0.02, font=dict(size=14), pad=dict(l=0, t=10),
         ),
         margin=dict(l=20, r=20, t=90, b=20),
-        height=90 + 44 + n * 28 + 20,
+        height=90 + 46 + n * 30 + 20,
         width=sum(col_widths) + 60,
     )
-    _save(fig, output_dir, "00_show_stats_table")
-    print(f"  Viz 0: show stats table ({n} shows) → {output_dir.name}/")
+    stem = f"00_show_stats_table_{lang}"
+    _save(fig, output_dir, stem)
+    print(f"  Viz 0 [{lang}]: show stats table ({n} shows) → {output_dir.name}/")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -395,6 +600,8 @@ def build_age_ridge_plot(
     show_colors: dict[str, str],
     show_order: list[str],
     output_dir: Path,
+    *,
+    lang: str = "en",
 ) -> None:
     """Viz 1: Horizontal violin per show, sorted by median age desc.
 
@@ -442,24 +649,54 @@ def build_age_ridge_plot(
             points=False,
         ))
 
+    T = lambda k, **fmt: _t(lang, k, **fmt)
+
+    tick_vals = list(range(x_min - x_min % 5, x_max + 6, 5))
+
+    # Add median annotations (right side of plot)
+    for sid in show_ids_sorted:
+        sub = df[df["show_id"] == sid]["age"]
+        if sub.empty:
+            continue
+        med = float(sub.median())
+        fig.add_annotation(
+            x=med, y=prog.get(sid, sid),
+            text=f"  {med:.0f}",
+            showarrow=False,
+            font=dict(size=9, color=show_colors.get(sid, UNKNOWN_COLOR)),
+            xanchor="left",
+        )
+
     fig.update_layout(
         title=dict(
-            text="<b>Age at Appearance · by Show</b><br><sup>Sorted by median age · box = IQR · centre line = median</sup>",
-            x=0.02,
-            font=dict(size=15),
+            text=f"<b>{T('01_title')}</b><br><sup>{T('01_sub')}</sup>",
+            x=0.02, font=dict(size=15),
         ),
         xaxis=dict(
-            title="Age at time of appearance",
+            title=T("01_xaxis"),
             range=[x_min, x_max],
-            tickvals=list(range(x_min - x_min % 5, x_max + 5, 5)),
+            tickvals=tick_vals,
             tickfont=dict(size=11),
             title_font=dict(size=12),
+            mirror=True,
+            showline=True,
+            side="bottom",
+        ),
+        xaxis2=dict(
+            overlaying="x",
+            side="top",
+            range=[x_min, x_max],
+            tickvals=tick_vals,
+            tickfont=dict(size=9),
+            showticklabels=True,
+            showgrid=False,
+            zeroline=False,
         ),
         yaxis=dict(title="", tickfont=dict(size=12)),
         template="plotly_white",
-        height=80 + len(show_ids_sorted) * 75,
+        height=120 + len(show_ids_sorted) * 75,
         width=900,
-        margin=dict(l=60, r=180, t=100, b=60),
+        margin=dict(l=60, r=200, t=130, b=60),
         showlegend=True,
         legend=dict(
             orientation="v", x=1.01, y=1.0, xanchor="left",
@@ -469,8 +706,9 @@ def build_age_ridge_plot(
         violingap=0.05,
         violingroupgap=0,
     )
-    _save(fig, output_dir, "01_age_ridge_plot")
-    print(f"  Viz 1: age ridge ({len(show_ids_sorted)} shows) → {output_dir.name}/")
+    stem = f"01_age_ridge_plot_{lang}"
+    _save(fig, output_dir, stem)
+    print(f"  Viz 1 [{lang}]: age ridge ({len(show_ids_sorted)} shows) → {output_dir.name}/")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -488,11 +726,11 @@ def build_gender_over_time(
     rolling_window: int = 3,
     min_year: int = 2003,
     max_year: int = 2025,
+    lang: str = "en",
 ) -> None:
-    """Viz 2: One line per (show × gender), dash by gender, color by show.
+    """Viz 2: Male guest share over time — one line per show.
 
-    Unknown gender is excluded so all visible lines sum to 100 % at each point.
-    Legend is outside the plot area with sufficient right margin.
+    Only männlich (male) gender is plotted. 50 % parity reference line included.
     """
     UNKNOWN_LABEL = "Unknown / no data"
     DASHES = ["solid", "dash", "dot", "dashdot"]
@@ -520,9 +758,14 @@ def build_gender_over_time(
         pivot.groupby("gender")["n_appearances"].sum()
         .pipe(lambda s: s[s > 20]).index.tolist()
     )
+    _MALE_KEY = _nfc("männlich")
     genders_to_plot = [
-        g for g in gender_order if g in meaningful and g != UNKNOWN_LABEL
+        g for g in gender_order
+        if g in meaningful and g != UNKNOWN_LABEL and _nfc(g) == _MALE_KEY
     ]
+    if not genders_to_plot:
+        # Fallback: if NFC match fails, take first non-unknown gender
+        genders_to_plot = [g for g in gender_order if g in meaningful and g != UNKNOWN_LABEL][:1]
     if not genders_to_plot:
         print("  Viz 2: no meaningful gender categories — skipping")
         return
@@ -537,7 +780,7 @@ def build_gender_over_time(
     fig = go.Figure()
 
     fig.add_hline(y=50, line_dash="dot", line_color="#c0392b", line_width=1.2,
-                  annotation_text="50 % parity", annotation_position="right")
+                  annotation_text=_t(lang, "02_50pct"), annotation_position="right")
 
     for sid in show_ids:
         for i_g, gender in enumerate(genders_to_plot):
@@ -580,18 +823,17 @@ def build_gender_over_time(
             legendgroup=f"gender_{gender}",
         ))
 
+    T = lambda k, **fmt: _t(lang, k, **fmt)
     fig.update_layout(
         title=dict(
             text=(
-                "<b>Gender Share of Appearances over Time</b><br>"
-                f"<sup>{rolling_window}-yr rolling mean · known gender only (sums to 100 %) · "
-                "colour = show · dash = gender</sup>"
+                f"<b>{T('02_title')}</b><br>"
+                f"<sup>{T('02_sub', w=rolling_window)}</sup>"
             ),
-            x=0.02,
-            font=dict(size=15),
+            x=0.02, font=dict(size=15),
         ),
         xaxis=dict(title="Year", tickangle=-45, dtick=2, tickfont=dict(size=11)),
-        yaxis=dict(title="Share of appearances (%)", range=[0, 100], ticksuffix="%"),
+        yaxis=dict(title=T("02_yaxis"), range=[0, 100], ticksuffix="%"),
         template="plotly_white",
         height=520,
         width=1300,
@@ -599,11 +841,12 @@ def build_gender_over_time(
         legend=dict(
             orientation="v", x=1.01, y=1.0, xanchor="left",
             font=dict(size=11),
-            title=dict(text="Show · gender pattern"),
+            title=dict(text="Show"),
         ),
     )
-    _save(fig, output_dir, "02_gender_over_time")
-    print(f"  Viz 2: gender over time ({len(genders_to_plot)} genders, {len(show_ids)} shows) → {output_dir.name}/")
+    stem = f"02_gender_over_time_{lang}"
+    _save(fig, output_dir, stem)
+    print(f"  Viz 2 [{lang}]: male share over time ({len(show_ids)} shows) → {output_dir.name}/")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -633,16 +876,18 @@ def build_party_by_show(
     party_order: list[str] | None = None,
     min_pct: float = 1.0,
     min_guests: int = 0,
+    top_n: int = 10,
+    lang: str = "en",
 ) -> None:
     """Viz 3a: Heatmap-table — party share by show.
 
-    Parties filtered to those that reach at least min_pct % in ANY show.
-    Cell color = sequential from #f5f5f5 (0 %) to party hex (column max).
+    Shows top_n parties ordered by total appearances across all shows.
+    Adds a totals row at the top showing total guest count per party.
+    Party colors loaded from party_colors.csv when not explicitly provided.
 
     Args:
         party_by_show: show_id, program_name, party_label, unique_guests.
-        min_pct: Minimum % share in any single show to be included (default 1 %).
-        min_guests: Minimum total guests across all shows (secondary filter).
+        top_n: Keep only the N parties with the most total appearances.
     """
     df = party_by_show.copy()
     df = df[df["party_label"].astype(str).str.strip().ne("Unknown / no data")]
@@ -666,48 +911,33 @@ def build_party_by_show(
         pivot_raw.sum(axis=1).replace(0, float("nan")), axis=0
     ) * 100
 
-    # Keep parties that reach min_pct in at least one show
-    max_pct_per_party = pct_pivot.max(axis=0)
-    keep_pct = set(max_pct_per_party[max_pct_per_party >= min_pct].index)
-
-    # Secondary: absolute guest threshold
-    if min_guests > 0:
-        party_totals = pivot_raw.sum(axis=0)
-        keep_abs = set(party_totals[party_totals >= min_guests].index)
-        keep = keep_pct & keep_abs
-    else:
-        keep = keep_pct
-
-    df = df[df["party_label"].isin(keep)]
+    # Keep top_n parties by total guest count across all shows
+    _party_totals_all = df.groupby("party_label")["unique_guests"].sum()
+    _top_parties = set(_party_totals_all.nlargest(top_n).index)
+    df = df[df["party_label"].isin(_top_parties)]
     if df.empty:
-        print(f"  Viz 3a: no parties above {min_pct:.0f}% threshold — skipping")
+        print(f"  Viz 3a: no parties in top {top_n} — skipping")
         return
 
-    # Political spectrum ordering
-    if party_order is None:
+    # Order parties by total appearances (most common → rightmost)
+    present_parties = set(df["party_label"].unique())
+    party_totals_all = df.groupby("party_label")["unique_guests"].sum()
+    ordered_parties = party_totals_all.sort_values(ascending=True).index.tolist()
+    ordered_parties = [p for p in ordered_parties if p in present_parties]
+
+    # Auto-load party colors from CSV when not explicitly provided
+    pcolors: dict[str, str] = dict(party_colors or {})
+    if not pcolors:
         try:
             pc_df = load_party_colors()
-            if "spectrum_position" in pc_df.columns:
-                spec = (
-                    pc_df[pc_df["spectrum_position"].notna()]
-                    .assign(_pos=lambda d: pd.to_numeric(d["spectrum_position"], errors="coerce"))
-                    .dropna(subset=["_pos"])
-                    .sort_values("_pos")["label"]
-                    .tolist()
-                )
-                party_order = spec
+            # Prefer P465 hex; fall back to hex_color column
+            for _, row in pc_df.iterrows():
+                lbl = str(row.get("label", "")).strip()
+                hex_c = str(row.get("hex_color", "")).strip()
+                if lbl and hex_c and hex_c.startswith("#"):
+                    pcolors[lbl] = hex_c
         except Exception:
-            party_order = None
-
-    present_parties = set(df["party_label"].unique())
-    if party_order:
-        ordered_parties = [p for p in party_order if p in present_parties]
-        ordered_parties += sorted(p for p in present_parties if p not in party_order)
-    else:
-        party_totals_all = df.groupby("party_label")["unique_guests"].sum()
-        ordered_parties = party_totals_all.sort_values(ascending=False).index.tolist()
-
-    pcolors: dict[str, str] = dict(party_colors or {})
+            pass
 
     show_ids = _sort_by_order(df["show_id"].unique().tolist(), show_order)
     prog = (
@@ -727,18 +957,30 @@ def build_party_by_show(
     col_max = pct_matrix.max(axis=0).replace(0, 1.0)
     norm_matrix = pct_matrix.div(col_max, axis=1).fillna(0)
 
+    T = lambda k, **fmt: _t(lang, k, **fmt)
     show_names = [prog.get(s, s) for s in show_ids]
     header_row = ["<b>Show</b>"] + [f"<b>{p}</b>" for p in ordered_parties]
 
-    fill_colors: list[list[str]] = [["#e8e8e8"] * len(show_ids)]
-    text_colors: list[list[str]] = [["#333333"] * len(show_ids)]
-    cell_texts: list[list[str]] = [show_names]
+    # Row 0: totals row (total appearances per party across all shows)
+    party_totals_row = []
+    for party in ordered_parties:
+        tot = int(party_totals_all.get(party, 0))
+        party_totals_row.append(f"<b>{tot:,}</b>")
+
+    n_shows = len(show_ids)
+    n_parties = len(ordered_parties)
+    n_data_rows = n_shows + 1  # +1 for totals
+
+    # Build cell column lists: first entry = totals row, then per-show rows
+    fill_colors: list[list[str]] = [["#d8e4f0"] + ["#e8e8e8"] * n_shows]
+    text_colors: list[list[str]] = [["#333333"] * n_data_rows]
+    cell_texts: list[list[str]] = [[T("03a_total")] + show_names]
 
     for party in ordered_parties:
         party_hex = pcolors.get(party, "#4a90c4")
-        col_fills = []
-        col_texts_val = []
-        col_font_colors = []
+        col_fills = ["#d8e4f0"]  # totals row
+        col_texts_val = [f"<b>{int(party_totals_all.get(party, 0)):,}</b>"]
+        col_font_colors = ["#333333"]
         for sid in show_ids:
             pct_val = float(pct_matrix.loc[sid, party]) if sid in pct_matrix.index else 0.0
             norm_val = float(norm_matrix.loc[sid, party]) if sid in norm_matrix.index else 0.0
@@ -751,12 +993,12 @@ def build_party_by_show(
         text_colors.append(col_font_colors)
         cell_texts.append(col_texts_val)
 
-    col_widths = [180] + [72] * len(ordered_parties)
+    col_widths = [180] + [72] * n_parties
     fig = go.Figure(go.Table(
         columnwidth=col_widths,
         header=dict(
             values=header_row,
-            align=["left"] + ["center"] * len(ordered_parties),
+            align=["left"] + ["center"] * n_parties,
             font=dict(size=11, color="#333333"),
             fill_color="#e0e0e0",
             line_color="#cccccc",
@@ -764,32 +1006,28 @@ def build_party_by_show(
         ),
         cells=dict(
             values=cell_texts,
-            align=["left"] + ["center"] * len(ordered_parties),
+            align=["left"] + ["center"] * n_parties,
             font=dict(size=11, color=text_colors),
             fill_color=fill_colors,
             line_color="#e8e8e8",
             height=28,
         ),
     ))
-    n_shows = len(show_ids)
-    n_parties = len(ordered_parties)
     fig.update_layout(
         title=dict(
             text=(
-                "<b>Party Affiliation Share · by Show</b><br>"
-                "<sup>% of unique guests with known party affiliation · "
-                "parties ordered left → right by political spectrum · darker = higher share · "
-                f"parties ≥{min_pct:.0f}% share in at least one show</sup>"
+                f"<b>{T('03a_title')}</b><br>"
+                f"<sup>{T('03a_sub', n=n_parties)}</sup>"
             ),
-            x=0.02,
-            font=dict(size=15),
+            x=0.02, font=dict(size=15),
         ),
-        margin=dict(l=20, r=20, t=100, b=20),
-        height=100 + 38 + n_shows * 28 + 20,
+        margin=dict(l=20, r=20, t=100, b=40),
+        height=100 + 38 + n_data_rows * 28 + 40,
         width=sum(col_widths) + 40,
     )
-    _save(fig, output_dir, "03a_party_by_show")
-    print(f"  Viz 3a: party heatmap ({n_shows} shows × {n_parties} parties) → {output_dir.name}/")
+    stem = f"03a_party_by_show_{lang}"
+    _save(fig, output_dir, stem)
+    print(f"  Viz 3a [{lang}]: party heatmap ({n_shows} shows × {n_parties} parties) → {output_dir.name}/")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -810,132 +1048,95 @@ def build_gender_breakdown_by_property(
     output_dir: Path,
     *,
     top_n: int = 15,
+    lang: str = "en",
 ) -> None:
-    """Viz 3b: Dot plot — female share per property value, dot size = total guests.
+    """Viz 3b: One dot plot per property — male share, dot size = total guests.
 
-    Age group panel sorted by numeric age (youngest at top).
-    Empty string values excluded (they represent missing/unknown labels).
-    Label area is wider; x-axis (plot area) narrower.
+    Each property is saved as an individual file (03b_{slug}_{lang}).
+    Age group panel sorted youngest-at-top; others sorted by male share.
     """
     props = {k: v for k, v in property_gender_frames.items() if v is not None and not v.empty}
     if not props:
         print("  Viz 3b: no property-gender data — skipping")
         return
 
-    female_color = gender_colors.get("weiblich", PALETTE[1] if len(PALETTE) > 1 else PALETTE[0])
-    n_props = len(props)
+    T = lambda k, **fmt: _t(lang, k, **fmt)
+    male_color = gender_colors.get(_nfc("männlich"), PALETTE[0])
 
-    fig = make_subplots(
-        rows=1, cols=n_props,
-        subplot_titles=[f"<b>{k}</b>" for k in props.keys()],
-        shared_yaxes=False,
-        horizontal_spacing=0.06,
-    )
-
-    max_total = max(
-        (float(df["total_count"].max()) for df in props.values()
-         if not df.empty and "total_count" in df.columns),
-        default=1.0,
-    )
-
-    for col_idx, (prop_label, df) in enumerate(props.items(), start=1):
-        df = df.copy()
+    for prop_label, df_raw in props.items():
+        df = df_raw.copy()
         df["total_count"] = pd.to_numeric(df["total_count"], errors="coerce").fillna(0)
-        df["male_count"]   = pd.to_numeric(df["male_count"],   errors="coerce").fillna(0)
-        df["female_count"] = pd.to_numeric(df["female_count"], errors="coerce").fillna(0)
-
-        # Exclude empty string / NaN values (unknown labels)
+        df["male_count"]   = pd.to_numeric(df["male_count"],  errors="coerce").fillna(0)
+        df["female_count"] = pd.to_numeric(df["female_count"],errors="coerce").fillna(0)
         df["value"] = df["value"].astype(str).str.strip()
         df = df[df["value"].ne("") & df["value"].ne("nan")]
 
         known = df["male_count"] + df["female_count"]
         df = df[known > 0].copy()
         df["known"] = known
-        df["female_pct"] = df["female_count"] / df["known"] * 100
+        df["male_pct"] = df["male_count"] / df["known"] * 100
         df = df[df["total_count"] > 0].nlargest(top_n, "total_count")
         if df.empty:
             continue
 
-        # Sort age groups by numeric value (youngest at top = reversed axis)
         is_age = "age" in prop_label.lower()
         if is_age:
             df["_age_start"] = df["value"].apply(_parse_age_bin_start)
-            df = df.sort_values("_age_start", ascending=True).reset_index(drop=True)
+            df = df.sort_values("_age_start", ascending=False).reset_index(drop=True)
         else:
-            df = df.sort_values("female_pct", ascending=True).reset_index(drop=True)
+            df = df.sort_values("male_pct", ascending=True).reset_index(drop=True)
 
         labels = df["value"].astype(str).tolist()
-
+        max_total = float(df["total_count"].max()) or 1.0
         max_size = 40
         sizes = (df["total_count"] / max_total * max_size ** 2).apply(lambda x: max(4, x ** 0.5))
 
-        fig.add_vline(x=50, line_dash="dot", line_color="#c0392b", line_width=1.2,
-                      row=1, col=col_idx)
-
+        fig = go.Figure()
+        fig.add_vline(x=50, line_dash="dot", line_color="#c0392b", line_width=1.2)
         fig.add_trace(go.Scatter(
-            x=df["female_pct"].tolist(),
+            x=df["male_pct"].tolist(),
             y=labels,
             mode="markers",
-            name=prop_label if col_idx == 1 else None,
             showlegend=False,
             marker=dict(
                 size=sizes.tolist(),
-                color=female_color,
+                color=male_color,
                 opacity=0.82,
                 line=dict(color="white", width=1),
                 sizemode="diameter",
             ),
             hovertemplate=(
                 "<b>%{y}</b><br>"
-                "Female: %{x:.1f} %<br>"
+                "Male: %{x:.1f} %<br>"
                 "Total guests: %{customdata:,}<extra></extra>"
             ),
             customdata=df["total_count"].astype(int).tolist(),
-        ), row=1, col=col_idx)
-
-        fig.update_xaxes(
-            range=[0, 100], ticksuffix=" %",
-            title_text="% female (of known)",
-            title_font=dict(size=10),
-            tickfont=dict(size=10),
-            row=1, col=col_idx,
-        )
-        # Age: youngest at top (reversed), others: ascending female_pct (lowest at bottom)
+        ))
+        fig.update_xaxes(range=[0, 100], ticksuffix=" %", title_text=T("03b_xaxis"),
+                         title_font=dict(size=10), tickfont=dict(size=10))
         if is_age:
-            fig.update_yaxes(
-                tickfont=dict(size=10),
-                autorange="reversed",
-                row=1, col=col_idx,
-            )
+            fig.update_yaxes(tickfont=dict(size=10))
         else:
-            fig.update_yaxes(
-                tickfont=dict(size=10),
-                row=1, col=col_idx,
-            )
+            fig.update_yaxes(tickfont=dict(size=10))
 
-    # Wider label area: use domain to allocate more space to y-axis labels
-    # Achieved by increasing left margin and using a wider overall figure
-    panel_width = 340  # wider x-axis (plot) + label area
-    label_pad = 60     # extra left pad per panel for long labels
-    total_width = max(panel_width * n_props + label_pad * (n_props - 1) + 80, 700)
-
-    fig.update_layout(
-        title=dict(
-            text=(
-                "<b>Gender Breakdown by Property Value</b><br>"
-                f"<sup>Dot = % female (of known gender) · size = total guests · "
-                f"top {top_n} per property · 50% parity line</sup>"
+        actual_n = len(df)
+        fig.update_layout(
+            title=dict(
+                text=(
+                    f"<b>{T('03b_title', prop=prop_label)}</b><br>"
+                    f"<sup>{T('03b_sub', n=actual_n)}</sup>"
+                ),
+                x=0.02, font=dict(size=14),
             ),
-            x=0.02,
-            font=dict(size=15),
-        ),
-        template="plotly_white",
-        height=140 + top_n * 28,
-        width=total_width,
-        margin=dict(l=50, r=20, t=110, b=60),
-    )
-    _save(fig, output_dir, "03b_gender_breakdown_by_property")
-    print(f"  Viz 3b: gender breakdown dot plot ({n_props} panels) → {output_dir.name}/")
+            template="plotly_white",
+            height=120 + actual_n * 30,
+            width=500,
+            margin=dict(l=160, r=20, t=100, b=60),
+        )
+        slug = "".join(c if c.isalnum() else "_" for c in prop_label.lower()).strip("_")
+        stem = f"03b_{slug}_{lang}"
+        _save(fig, output_dir, stem)
+        print(f"  Viz 3b [{lang}]: {prop_label} ({actual_n} values) → {output_dir.name}/")
 
 
 # ──────────────────────────────────────────────────────────────────────────────

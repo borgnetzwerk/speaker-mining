@@ -67,9 +67,14 @@ def save_fig(fig, path: str | Path, html: bool = True) -> None:
     base.parent.mkdir(parents=True, exist_ok=True)
 
     checksum = _figure_checksum(fig)
+    png_path = base.parent / (base.name + ".png")
+    pdf_path = base.parent / (base.name + ".pdf")
+    html_path = base.parent / (base.name + ".html")
+
     if checksum:
         cache = _load_viz_cache(base.parent)
-        if cache.get(base.name) == checksum and (base.parent / (base.name + ".png")).exists():
+        bundle_exists = png_path.exists() and pdf_path.exists() and (html_path.exists() if html else True)
+        if cache.get(base.name) == checksum and bundle_exists:
             print(f"  Cached: {base.name}.png (unchanged)")
             return
     else:

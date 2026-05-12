@@ -13,6 +13,25 @@ from typing import Optional
 import pandas as pd
 
 
+REQUIRED_PER_SHOW_COLUMNS = {
+    "show_id",
+    "program_name",
+    "episode_count",
+    "guest_appearances",
+    "unique_guests",
+    "avg_guests_per_episode",
+}
+
+
+def _validate_per_show_stats(per_show_stats: pd.DataFrame) -> None:
+    if per_show_stats is None:
+        raise ValueError("per_show_stats must not be None")
+    missing = REQUIRED_PER_SHOW_COLUMNS.difference(per_show_stats.columns)
+    if missing:
+        missing_cols = ", ".join(sorted(missing))
+        raise ValueError(f"per_show_stats missing required columns: {missing_cols}")
+
+
 def _md_table(df: pd.DataFrame, max_rows: int = 10) -> str:
     """Render a DataFrame as a Markdown table (first max_rows rows)."""
     subset = df.head(max_rows)
@@ -57,6 +76,7 @@ def generate_all_readme(
     property_viz_names: Optional[list[str]] = None,
 ) -> None:
     """Generate README.md for the all/ combined output folder."""
+    _validate_per_show_stats(per_show_stats)
     viz_dir = all_dir / "visualizations"
     lines: list[str] = []
 
@@ -208,6 +228,7 @@ def generate_all_readmes(
     analysis_summary: Optional[dict] = None,
 ) -> None:
     """Generate README.md files for all/ and all per-show output directories."""
+    _validate_per_show_stats(per_show_stats)
     all_dir = output_dir / "all"
     if all_dir.exists():
         generate_all_readme(
