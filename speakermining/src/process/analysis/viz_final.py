@@ -59,12 +59,16 @@ _TR: dict[str, dict[str, str]] = {
         "02_sub": "{w}-yr rolling mean \u00b7 known gender only \u00b7 colour = show",
         "02_50pct": "50 % parity",
         "02_yaxis": "Male share of appearances (%)",
+        "02_coverage_yaxis": "Coverage",
         "03a_title": "Party Affiliation Share \u00b7 by Show",
         "03a_sub": "% of unique guests with known party \u00b7 ordered by total appearances \u00b7 top {n} parties",
         "03a_total": "Total guests",
         "03b_title": "Male Share \u00b7 {prop}",
         "03b_sub": "Dot = % male (of known gender) \u00b7 size = total guests \u00b7 top {n} \u00b7 50 % parity line",
         "03b_xaxis": "% male (of known gender)",
+        "total": "Total",
+        "02_trend": "Overall trend",
+        "wikidata_entry": "Wikidata entry",
     },
     "de": {
         "broadcasting_program": "Sendung",
@@ -93,12 +97,16 @@ _TR: dict[str, dict[str, str]] = {
         "02_sub": "{w}-j. gleitender Mittel \u00b7 nur bekanntes Geschlecht \u00b7 Farbe = Sendung",
         "02_50pct": "50 % Parität",
         "02_yaxis": "Anteil männlicher Auftritte (%)",
+        "02_coverage_yaxis": "Abdeckung",
         "03a_title": "Parteizugehörigkeit \u00b7 nach Sendung",
         "03a_sub": "% Gäste m. bekannter Partei \u00b7 nach Gesamtauftritten \u00b7 Top {n} Parteien",
         "03a_total": "Gäste gesamt",
         "03b_title": "Männeranteil \u00b7 {prop}",
         "03b_sub": "Punkt = % männlich (bekanntes Geschlecht) \u00b7 Größe = Gäste \u00b7 Top {n} \u00b7 50%-Linie",
         "03b_xaxis": "% männlich (bekanntes Geschlecht)",
+        "total": "Gesamt",
+        "02_trend": "Gesamttrend",
+        "wikidata_entry": "Wikidata-Eintrag",
     },
 }
 
@@ -108,6 +116,48 @@ def _t(lang: str, key: str, **fmt) -> str:
     s = _TR.get(lang, _TR["en"]).get(key, _TR["en"].get(key, key))
     return s.format(**fmt) if fmt else s
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Short-label support
+# short_labels.csv: entity_id, wikidata_id, entity_type, label_en, label_de,
+#                   short_label_en, short_label_de
+# entity_id = show slug for shows; wikidata QID for parties.
+# Indexed by both entity_id and wikidata_id so QID-based lookups work.
+# Party entries are populated from Wikidata P1813 (short name) at notebook run time.
+# ──────────────────────────────────────────────────────────────────────────────
+
+SHORT_LABELS_PATH = Path("data/00_setup/short_labels.csv")
+
+
+def load_short_labels(path: str | Path | None = None) -> dict[tuple[str, str], str]:
+    """Load {(entity_id, lang): short_label} from CSV, silently returns {} on missing file.
+
+    Also indexes by wikidata_id when present, enabling (QID, lang) lookups for parties.
+    """
+    p = Path(path) if path else SHORT_LABELS_PATH
+    if not p.exists():
+        return {}
+    try:
+        df = pd.read_csv(p, dtype=str).fillna("")
+        out: dict[tuple[str, str], str] = {}
+        for _, row in df.iterrows():
+            eid = str(row.get("entity_id", "")).strip()
+            wid = str(row.get("wikidata_id", "")).strip()
+            for lang in ("en", "de"):
+                short = str(row.get(f"short_label_{lang}", "")).strip()
+                if short:
+                    if eid:
+                        out[(eid, lang)] = short
+                    if wid and wid != eid:
+                        out[(wid, lang)] = short
+        return out
+    except Exception:
+        return {}
+
+
+def _short(entity_id: str, fallback: str, lang: str, labels: dict) -> str:
+    """Return the short label for entity_id/lang, or fallback if not found."""
+    return labels.get((entity_id, lang), fallback)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -288,13 +338,86 @@ def build_category_color_registry(
 
 def _sort_by_order(ids: list[str], order: list[str]) -> list[str]:
     present = set(ids)
-    return [s for s in order if s in present] + sorted(s for s in present if s not in order)
+    seen: set[str] = set()
+    result: list[str] = []
+    for s in order:
+        if s in present and s not in seen:
+            seen.add(s)
+            result.append(s)
+    for s in sorted(s for s in present if s not in seen):
+        result.append(s)
+    return result
 
 
 def _save(fig: go.Figure, output_dir: Path, stem: str) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     apply_font(fig)
     save_fig(fig, output_dir / stem)
+
+
+def _render_html_table(html_path: Path, png_path: Path, pdf_path: Path, *, dpr: int = 3) -> None:
+    """Render the <table> in html_path to PNG and PDF via playwright (headless Chromium).
+
+    Spawns a subprocess so the sync playwright API doesn't conflict with
+    Jupyter's running asyncio event loop.
+    dpr sets the device pixel ratio for the screenshot (3 → roughly 300 dpi).
+    """
+    import os, sys, subprocess, tempfile
+
+    _html_uri = html_path.resolve().as_uri()
+    _png_str  = str(png_path.resolve())
+    _pdf_str  = str(pdf_path.resolve())
+
+    script = "\n".join([
+        "from playwright.sync_api import sync_playwright",
+        f"html_uri = {_html_uri!r}",
+        f"png_path = {_png_str!r}",
+        f"pdf_path = {_pdf_str!r}",
+        f"dpr = {dpr}",
+        "with sync_playwright() as pw:",
+        "    browser = pw.chromium.launch()",
+        "    ctx = browser.new_context(",
+        "        viewport={'width': 1800, 'height': 900},",
+        "        device_scale_factor=dpr,",
+        "    )",
+        "    page = ctx.new_page()",
+        "    page.goto(html_uri, wait_until='domcontentloaded')",
+        "    table = page.locator('table')",
+        "    table.screenshot(path=png_path, scale='device')",
+        "    bbox = table.bounding_box()",
+        "    if bbox:",
+        "        mm = lambda px: f'{px * 0.2646:.1f}mm'",
+        "        page.pdf(",
+        "            path=pdf_path,",
+        "            width=mm(bbox['width'] + 32),",
+        "            height=mm(bbox['height'] + 32),",
+        "            print_background=True,",
+        "            margin={'top': '0', 'right': '0', 'bottom': '0', 'left': '0'},",
+        "        )",
+        "    browser.close()",
+    ])
+
+    try:
+        fd, script_path = tempfile.mkstemp(suffix=".py")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(script)
+            result = subprocess.run(
+                [sys.executable, script_path],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode != 0:
+                err = (result.stderr or "").strip()
+                print(f"  ! playwright render failed ({png_path.name}): {err}")
+            else:
+                print(f"  → {png_path.name} / {pdf_path.name} ({dpr}x DPR)")
+        finally:
+            try:
+                os.unlink(script_path)
+            except OSError:
+                pass
+    except Exception as exc:
+        print(f"  ! playwright render failed ({png_path.name}): {exc}")
 
 
 def _nfc(s: str) -> str:
@@ -312,15 +435,66 @@ def _find_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Viz 0: Show statistics table
+# Viz 0: Show statistics table  (pure HTML/CSS — supports colspan headers + bars)
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _mini_bar(value: float, max_val: float = 100.0, width: int = 8) -> str:
-    """Return a simple Unicode block bar for a percentage value."""
-    if pd.isna(value) or max_val <= 0:
-        return ""
-    filled = round(min(value / max_val, 1.0) * width)
-    return "█" * filled + "░" * (width - filled)
+_TABLE_CSS = """
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #fff; padding: 16px; }
+table { border-collapse: collapse; font-size: 11px; width: max-content; }
+
+/* ── group header row ─────────────────────────────────────── */
+thead tr:first-child th {
+  padding: 5px 10px; font-weight: bold; font-size: 11px;
+  border: 1px solid #bbb; text-align: center;
+}
+th.th-program  { background: #d0d8e4; text-align: left !important; }
+th.th-episodes { background: #dce8d0; }
+th.th-guests   { background: #e8dcd0; }
+th.th-epswo    { background: #d4e8e8; }
+
+/* ── leaf header row ──────────────────────────────────────── */
+thead tr:last-child th {
+  padding: 3px 8px; font-weight: normal; font-size: 10px;
+  border: 1px solid #bbb; text-align: center;
+}
+thead tr:last-child th.th-episodes { background: #eaf0e4; }
+thead tr:last-child th.th-guests   { background: #f0e8e0; }
+thead tr:last-child th.th-epswo    { background: #e0efef; }
+
+/* ── data cells ───────────────────────────────────────────── */
+td { border: 1px solid #e0e0e0; height: 28px; vertical-align: middle; }
+tbody tr:nth-child(odd)  td { background: #fff; }
+tbody tr:nth-child(even) td { background: #f7f7f7; }
+
+/* ── total row ────────────────────────────────────────────── */
+tr.total-row td {
+  background: #c8d4e4 !important;
+  font-weight: bold;
+  border-color: #b0c2d4 !important;
+}
+
+/* ── program name column ──────────────────────────────────── */
+td.td-program {
+  padding: 3px 8px 3px 7px;
+  text-align: left; white-space: nowrap;
+  border-left-width: 4px !important;
+}
+
+/* ── plain numeric column ─────────────────────────────────── */
+td.td-number { padding: 3px 10px; text-align: right; white-space: nowrap; }
+
+/* ── bar cells (padding managed by inner div) ─────────────── */
+td.td-bar { padding: 0 !important; }
+.bar-wrap {
+  display: flex; align-items: center;
+  height: 28px; min-width: 80px;
+}
+.bar-label {
+  position: relative; z-index: 1;
+  font-size: 10px; white-space: nowrap; padding: 0 5px;
+}
+"""
 
 
 def build_show_stats_table(
@@ -336,14 +510,24 @@ def build_show_stats_table(
     eps_without_gender_by_show: pd.DataFrame | None = None,
     unresolved_by_show: pd.DataFrame | None = None,
     lang: str = "en",
+    short_labels: dict | None = None,
 ) -> None:
-    """Viz 0: Show statistics table with grouped column headers and colour-bar cells.
+    """Viz 0: Compact show statistics table — pure HTML/CSS, academic-paper ready.
 
-    Column groups: Broadcasting Program | Episodes (Span/Unique/Unresolved) |
-    Guests (Appearances/Unique/w/ Wikidata) | Guest Gender (M/F/Other %) |
-    Eps w/o Gender (M/F/Other) | Guest Age (Min/Median/Max)
+    Two-level colspan header: Broadcasting Program | Episodes |
+    Guests (Appearances / Unique) | Episodes without (Male / Female).
+    Bar cells show a CSS linear-gradient in the show's colour; text is placed
+    inside the bar when ≥50 %, to the right when <50 %.
+    Outputs a self-contained .html file; PNG attempted via playwright if installed.
     """
-    df = per_show_stats.drop_duplicates(subset=["show_id"]).copy()
+    _sl = short_labels if short_labels is not None else load_short_labels()
+    T = lambda k, **fmt: _t(lang, k, **fmt)
+
+    SENTINEL = {"NONE", "none", ""}
+    df = per_show_stats.copy()
+    df = df[~df["show_id"].astype(str).str.strip().isin(SENTINEL)]
+    df = df.drop_duplicates(subset=["show_id"]).copy()
+
     ordered_ids = _sort_by_order(df["show_id"].tolist(), show_order)
     order_map = {sid: i for i, sid in enumerate(ordered_ids)}
     df = df[df["show_id"].isin(set(ordered_ids))].copy()
@@ -351,244 +535,165 @@ def build_show_stats_table(
     df = df.sort_values("_order").drop(columns=["_order"]).reset_index(drop=True)
 
     for extra, cols in [
-        (gender_by_show,             ["male_pct", "female_pct", "other_pct"]),
-        (gender_by_show,             ["male_count", "female_count", "other_count"]),
-        (age_by_show,                ["min_age", "median_age", "max_age"]),
-        (span_by_show,               ["span_label"]),
-        (wikidata_pct_by_show,       ["wikidata_pct", "has_wd"]),
-        (eps_without_gender_by_show, ["eps_without_male", "eps_without_female", "eps_without_other"]),
-        (unresolved_by_show,         ["unresolved"]),
+        (eps_without_gender_by_show, ["eps_without_male", "eps_without_female"]),
     ]:
         if extra is not None and not extra.empty:
             present = [c for c in cols if c in extra.columns]
             if present:
-                df = df.merge(extra[["show_id"] + present], on="show_id", how="left")
+                extra_deduped = extra.drop_duplicates(subset=["show_id"])
+                df = df.merge(extra_deduped[["show_id"] + present], on="show_id", how="left")
         for c in cols:
             if c not in df.columns:
-                df[c] = float("nan") if c != "span_label" else "—"
+                df[c] = float("nan")
 
-    def _pct(v):
-        try:
-            fv = float(v)
-            return f"{fv:.0f}%" if not pd.isna(fv) else "—"
-        except (TypeError, ValueError):
-            return "—"
-
-    def _int(v):
+    def _int(v) -> str:
         try:
             return f"{int(float(v)):,}" if pd.notna(v) and float(v) >= 0 else "—"
         except (TypeError, ValueError):
             return "—"
 
-    def _age(v):
-        try:
-            return f"{float(v):.0f}" if pd.notna(v) else "—"
-        except (TypeError, ValueError):
-            return "—"
+    def _num_td(v, row_bg: str = "") -> str:
+        return f'<td class="td-number">{_int(v)}</td>'
 
-    def _bar_cell(count_val, pct_val, show_hex: str) -> str:
-        """Format '{count} ({pct}%)' with pct available for fill_color logic."""
+    def _bar_td(count_val, total_eps, hex_color: str, row_bg: str) -> str:
+        """CSS gradient bar cell: fill proportional to count/total_eps."""
         try:
             c = int(float(count_val)) if pd.notna(count_val) else None
-            p = float(pct_val) if pd.notna(pct_val) else None
+            t = int(float(total_eps)) if pd.notna(total_eps) and float(total_eps) > 0 else None
         except (TypeError, ValueError):
-            return "—"
-        if c is None or p is None:
-            return "—"
-        return f"{c:,}\n({p:.0f}%)"
-
-    def _eps_bar_cell(count_val, total_eps) -> str:
-        try:
-            c = int(float(count_val)) if pd.notna(count_val) else None
-            t = int(float(total_eps)) if pd.notna(total_eps) else None
-        except (TypeError, ValueError):
-            return "—"
-        if c is None or t is None or t == 0:
-            return "—" if c is None else f"{c:,}"
-        p = c / t * 100
-        return f"{c:,}\n({p:.0f}%)"
-
-    def _blend(hex_color: str, pct: float, opacity: float = 0.85) -> str:
-        """Blend hex_color toward white, scaled by pct/100 × opacity."""
-        try:
-            h = hex_color.lstrip("#")
-            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-            t = min(pct / 100, 1.0) * opacity
-            r2 = int(r * t + 255 * (1 - t))
-            g2 = int(g * t + 255 * (1 - t))
-            b2 = int(b * t + 255 * (1 - t))
-            return f"#{r2:02X}{g2:02X}{b2:02X}"
-        except Exception:
-            return "#f5f5f5"
-
-    n = len(df)
-    row_fills_base = ["#f7f7f7" if i % 2 == 0 else "#ffffff" for i in range(n)]
-
-    T = lambda k, **fmt: _t(lang, k, **fmt)
-
-    # ── column definitions ────────────────────────────────────────────────────
-    # Each entry: (header, cell_values_list, col_width, fill_list_or_None)
-    cols_def = []
-
-    # Broadcasting Program
-    cols_def.append((
-        f"<b>{T('broadcasting_program')}</b>",
-        df["program_name"].tolist(),
-        190, None,
-    ))
-    # Episodes · Span
-    cols_def.append((
-        f"<b>{T('episodes')}<br>{T('span')}</b>",
-        df["span_label"].fillna("—").tolist(),
-        85, None,
-    ))
-    # Episodes · Unique
-    cols_def.append((
-        f"<b>{T('episodes')}<br>{T('unique')}</b>",
-        df["episode_count"].apply(_int).tolist(),
-        60, None,
-    ))
-    # Episodes · Unresolved
-    cols_def.append((
-        f"<b>{T('episodes')}<br>{T('unresolved')}</b>",
-        df["unresolved"].apply(_int).tolist(),
-        70, None,
-    ))
-    # Guests · Appearances
-    cols_def.append((
-        f"<b>{T('guests')}<br>{T('appearances')}</b>",
-        df["guest_appearances"].apply(_int).tolist(),
-        70, None,
-    ))
-    # Guests · Unique
-    cols_def.append((
-        f"<b>{T('guests')}<br>{T('unique')}</b>",
-        df["unique_guests"].apply(_int).tolist(),
-        60, None,
-    ))
-    # Guests · w/ Wikidata
-    cols_def.append((
-        f"<b>{T('guests')}<br>{T('with_wikidata')}</b>",
-        df["has_wd"].apply(_int).tolist(),
-        70, None,
-    ))
-
-    # Gender columns — colour bars
-    for gender_key, cnt_col, pct_col in [
-        ("male",   "male_count",   "male_pct"),
-        ("female", "female_count", "female_pct"),
-        ("other",  "other_count",  "other_pct"),
-    ]:
-        texts = []
-        fills = []
-        fcolors = []
-        for _, row in df.iterrows():
-            sid = str(row.get("show_id", ""))
-            shex = show_colors.get(sid, "#999999")
-            t = _bar_cell(row.get(cnt_col), row.get(pct_col), shex)
-            try:
-                pv = float(row.get(pct_col, 0)) if pd.notna(row.get(pct_col)) else 0.0
-            except (TypeError, ValueError):
-                pv = 0.0
-            fc = _blend(shex, pv)
-            texts.append(t)
-            fills.append(fc)
-            fcolors.append("white" if pv >= 50 else "#333333")
-        cols_def.append((
-            f"<b>{T('guest_gender')}<br>{T(gender_key)}</b>",
-            texts, 80, (fills, fcolors),
-        ))
-
-    # Eps w/o gender — percentage of total episodes
-    for gender_key, col in [("male", "eps_without_male"), ("female", "eps_without_female"), ("other", "eps_without_other")]:
-        texts = []
-        fills = []
-        fcolors = []
-        for _, row in df.iterrows():
-            sid = str(row.get("show_id", ""))
-            shex = show_colors.get(sid, "#999999")
-            total_eps = row.get("episode_count", 0)
-            t = _eps_bar_cell(row.get(col), total_eps)
-            try:
-                c = float(row.get(col, 0)) if pd.notna(row.get(col)) else 0.0
-                te = float(total_eps) if pd.notna(total_eps) and float(total_eps) > 0 else 1.0
-                pv = c / te * 100
-            except (TypeError, ValueError, ZeroDivisionError):
-                pv = 0.0
-            fc = _blend(shex, pv)
-            texts.append(t)
-            fills.append(fc)
-            fcolors.append("white" if pv >= 50 else "#333333")
-        cols_def.append((
-            f"<b>{T('eps_without_gender')}<br>{T(gender_key)}</b>",
-            texts, 80, (fills, fcolors),
-        ))
-
-    # Age
-    for age_key, col in [("min", "min_age"), ("median", "median_age"), ("max", "max_age")]:
-        cols_def.append((
-            f"<b>{T('guest_age')}<br>{T(age_key)}</b>",
-            df[col].apply(_age).tolist(),
-            48, None,
-        ))
-
-    # ── assemble table ────────────────────────────────────────────────────────
-    header_vals = [c[0] for c in cols_def]
-    cell_vals   = [c[1] for c in cols_def]
-    col_widths  = [c[2] for c in cols_def]
-    n_cols = len(cols_def)
-
-    # fill_color: 2-D list [col][row]
-    fill_color_matrix = []
-    font_color_matrix = []
-    for c in cols_def:
-        if c[3] is not None:
-            fills_col, fc_col = c[3]
-            fill_color_matrix.append(fills_col)
-            font_color_matrix.append(fc_col)
+            return f'<td class="td-number">—</td>'
+        if c is None:
+            return f'<td class="td-number">—</td>'
+        pct = (c / t * 100) if t else 0.0
+        text = f"{c:,} ({pct:.0f} %)"
+        h = hex_color.lstrip("#")
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        # Gradient: show-colour → row background at the pct boundary
+        grad = (
+            f"linear-gradient(to right,"
+            f"rgba({r},{g},{b},0.82) {pct:.1f}%,"
+            f"{row_bg} {pct:.1f}%)"
+        )
+        if pct >= 50:
+            label_style = f"color:white; padding-left:5px;"
         else:
-            fill_color_matrix.append(row_fills_base)
-            font_color_matrix.append(["#333333"] * n)
+            label_style = f"color:#333; padding-left:calc({pct:.1f}% + 5px);"
+        return (
+            f'<td class="td-bar">'
+            f'<div class="bar-wrap" style="background:{grad};">'
+            f'<span class="bar-label" style="{label_style}">{text}</span>'
+            f'</div></td>'
+        )
 
-    # Header fill: alternate light bands to indicate column groups
-    hdr_fills = ["#d0d8e4", "#dce8d0", "#dce8d0", "#dce8d0",
-                 "#e8dcd0", "#e8dcd0", "#e8dcd0",
-                 "#d4e8e8", "#d4e8e8", "#d4e8e8",
-                 "#e8d4e0", "#e8d4e0", "#e8d4e0",
-                 "#e8e4d0", "#e8e4d0", "#e8e4d0"]
-    hdr_fills = (hdr_fills + ["#e8e8e8"] * n_cols)[:n_cols]
+    # ── totals ────────────────────────────────────────────────────────────────
+    def _tot_sum(col) -> float:
+        try:
+            return float(pd.to_numeric(df[col], errors="coerce").fillna(0).sum())
+        except Exception:
+            return 0.0
 
-    fig = go.Figure(go.Table(
-        columnwidth=col_widths,
-        header=dict(
-            values=header_vals,
-            align=["left"] + ["center"] * (n_cols - 1),
-            font=dict(size=9, color="#333333"),
-            fill_color=hdr_fills,
-            line_color="#cccccc",
-            height=46,
-        ),
-        cells=dict(
-            values=cell_vals,
-            align=["left"] + ["center"] * (n_cols - 1),
-            font=dict(size=9, color=font_color_matrix),
-            fill_color=fill_color_matrix,
-            line_color="#e0e0e0",
-            height=30,
-        ),
-    ))
-    fig.update_layout(
-        title=dict(
-            text=f"<b>{T('00_title')}</b><br><sup>{T('00_sub')}</sup>",
-            x=0.02, font=dict(size=14), pad=dict(l=0, t=10),
-        ),
-        margin=dict(l=20, r=20, t=90, b=20),
-        height=90 + 46 + n * 30 + 20,
-        width=sum(col_widths) + 60,
+    tot_eps_sum  = _tot_sum("episode_count")
+    tot_app_sum  = _tot_sum("guest_appearances")
+    tot_uniq_sum = _tot_sum("unique_guests")
+    tot_m_sum    = _tot_sum("eps_without_male")
+    tot_f_sum    = _tot_sum("eps_without_female")
+
+    def _tot_bar_td(count_sum: float, eps_sum: float) -> str:
+        pct = (count_sum / eps_sum * 100) if eps_sum > 0 else 0.0
+        text = f"{int(count_sum):,} ({pct:.0f} %)" if eps_sum > 0 else f"{int(count_sum):,}"
+        return f'<td class="td-number"><b>{text}</b></td>'
+
+    # ── header rows ───────────────────────────────────────────────────────────
+    bp  = T("broadcasting_program")
+    eps = T("episodes")
+    gst = T("guests")
+    app = T("appearances")
+    unq = T("unique")
+    ewo = T("eps_without_gender")
+    mal = T("male")
+    fem = T("female")
+
+    header_html = (
+        f'<tr>'
+        f'<th class="th-program"  rowspan="2">{bp}</th>'
+        f'<th class="th-episodes" rowspan="2">{eps}</th>'
+        f'<th class="th-guests"   colspan="2">{gst}</th>'
+        f'<th class="th-epswo"    colspan="2">{ewo}</th>'
+        f'</tr>'
+        f'<tr>'
+        f'<th class="th-guests">{app}</th>'
+        f'<th class="th-guests">{unq}</th>'
+        f'<th class="th-epswo">{mal}</th>'
+        f'<th class="th-epswo">{fem}</th>'
+        f'</tr>'
     )
+
+    # ── total row ─────────────────────────────────────────────────────────────
+    total_row = (
+        '<tr class="total-row">'
+        + f'<td class="td-program" style="border-left-color:#888;"><b>{T("total")}</b></td>'
+        + f'<td class="td-number"><b>{int(tot_eps_sum):,}</b></td>'
+        + f'<td class="td-number"><b>{int(tot_app_sum):,}</b></td>'
+        + f'<td class="td-number"><b>{int(tot_uniq_sum):,}</b></td>'
+        + _tot_bar_td(tot_m_sum, tot_eps_sum)
+        + _tot_bar_td(tot_f_sum, tot_eps_sum)
+        + '</tr>'
+    )
+
+    # ── data rows ─────────────────────────────────────────────────────────────
+    rows_html = [total_row]
+    for i, (_, row) in enumerate(df.iterrows()):
+        sid    = str(row.get("show_id", ""))
+        shex   = show_colors.get(sid, "#999999")
+        name   = _short(sid, str(row.get("program_name", sid)), lang, _sl)
+        te     = row.get("episode_count", 0)
+        # alternating: total row is child-1 (odd), first data row is child-2 (even)
+        row_bg = "#f7f7f7" if (i % 2 == 0) else "#ffffff"
+        rows_html.append(
+            f'<tr>'
+            f'<td class="td-program" style="border-left-color:{shex};">{name}</td>'
+            + _num_td(te)
+            + _num_td(row.get("guest_appearances"))
+            + _num_td(row.get("unique_guests"))
+            + _bar_td(row.get("eps_without_male"),   te, shex, row_bg)
+            + _bar_td(row.get("eps_without_female"),  te, shex, row_bg)
+            + '</tr>'
+        )
+
+    html = f"""<!DOCTYPE html>
+<html lang="{lang}">
+<head>
+<meta charset="utf-8">
+<style>{_TABLE_CSS}</style>
+</head>
+<body>
+<table>
+<colgroup>
+  <col style="min-width:130px;">
+  <col style="width:58px;">
+  <col style="width:82px;">
+  <col style="width:68px;">
+  <col style="min-width:95px;">
+  <col style="min-width:95px;">
+</colgroup>
+<thead>{header_html}</thead>
+<tbody>{"".join(rows_html)}</tbody>
+</table>
+</body>
+</html>"""
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
     stem = f"00_show_stats_table_{lang}"
-    _save(fig, output_dir, stem)
-    print(f"  Viz 0 [{lang}]: show stats table ({n} shows) → {output_dir.name}/")
+    html_path = output_dir / f"{stem}.html"
+    html_path.write_text(html, encoding="utf-8")
+    print(f"  Viz 0 [{lang}]: show stats table ({len(df)} shows) → {output_dir.name}/")
+
+    _render_html_table(
+        html_path,
+        output_dir / f"{stem}.png",
+        output_dir / f"{stem}.pdf",
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -602,12 +707,21 @@ def build_age_ridge_plot(
     output_dir: Path,
     *,
     lang: str = "en",
+    short_labels: dict | None = None,
+    bandwidth: float = 3.5,
 ) -> None:
-    """Viz 1: Horizontal violin per show, sorted by median age desc.
+    """Viz 1: Ridge-density plot per show, sorted by median age desc.
 
-    Stats (median, IQR) are encoded visually via the violin's embedded box plot.
-    Labels show only the show name.
+    Each row (bottom → top = lowest → highest median):
+      • Smooth Gaussian KDE density silhouette, filled with the show colour.
+      • Semi-transparent grey rectangle behind the density marking the IQR (Q1–Q3).
+      • Solid vertical bar at the Median crossing the full row height.
+
+    X-axis tick labels appear on both bottom (xaxis) and top (xaxis2 overlay).
+    No legend. No title. Compact rows (~52 px / show).
     """
+    _sl = short_labels if short_labels is not None else load_short_labels()
+
     df = age_with_show.dropna(subset=["age", "show_id"]).copy()
     df["age"] = pd.to_numeric(df["age"], errors="coerce")
     df = df[(df["age"] >= 15) & (df["age"] < 105)].dropna(subset=["age"])
@@ -620,95 +734,228 @@ def build_age_ridge_plot(
         .set_index("show_id")["program_name"].to_dict()
         if "program_name" in df.columns else {}
     )
+    short_prog: dict[str, str] = {
+        sid: _short(sid, name, lang, _sl) for sid, name in prog.items()
+    }
 
     medians = df.groupby("show_id")["age"].median().sort_values(ascending=False)
-    show_ids_sorted = medians.index.tolist()
+    show_ids_sorted = medians.index.tolist()   # highest median first
+    n = len(show_ids_sorted)
 
-    x_min = max(15, int(df["age"].min()) - 1)
-    x_max = min(104, int(df["age"].max()) + 1)
-
-    fig = go.Figure()
-    for sid in show_ids_sorted:
-        sub = df[df["show_id"] == sid]["age"].tolist()
-        if not sub:
-            continue
-        label = prog.get(sid, sid)
-        color = show_colors.get(sid, UNKNOWN_COLOR)
-
-        fig.add_trace(go.Violin(
-            x=sub,
-            name=label,
-            orientation="h",
-            side="positive",
-            box_visible=True,
-            meanline_visible=True,
-            fillcolor=color,
-            line_color=color,
-            opacity=0.78,
-            bandwidth=2,
-            points=False,
-        ))
+    x_min = max(15, int(df["age"].min()) - 2)
+    x_max = min(104, int(df["age"].max()) + 2)
+    tick_vals = list(range(x_min - x_min % 5, x_max + 6, 5))
+    x_grid = np.linspace(x_min, x_max, 300)
 
     T = lambda k, **fmt: _t(lang, k, **fmt)
 
-    tick_vals = list(range(x_min - x_min % 5, x_max + 6, 5))
+    def _kde_norm(data: np.ndarray, bw: float) -> np.ndarray:
+        """Vectorised Gaussian KDE, peak-normalised to [0, 1]. No scipy needed."""
+        diff = data[:, None] - x_grid[None, :]
+        raw = np.exp(-0.5 * (diff / bw) ** 2).sum(axis=0)
+        peak = raw.max()
+        return raw / peak if peak > 0 else raw
 
-    # Add median annotations (right side of plot)
-    for sid in show_ids_sorted:
-        sub = df[df["show_id"] == sid]["age"]
-        if sub.empty:
+    def _rgba(hex_color: str, alpha: float) -> str:
+        h = hex_color.lstrip("#")
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return f"rgba({r},{g},{b},{alpha})"
+
+    RIDGE_H = 0.82   # fraction of row height used by the density silhouette
+
+    fig = go.Figure()
+
+    # Iterate lowest-median-first → rank 0 is at the bottom of the chart.
+    for rank, sid in enumerate(reversed(show_ids_sorted)):
+        sub = df[df["show_id"] == sid]["age"].values.astype(float)
+        if len(sub) == 0:
             continue
-        med = float(sub.median())
-        fig.add_annotation(
-            x=med, y=prog.get(sid, sid),
-            text=f"  {med:.0f}",
-            showarrow=False,
-            font=dict(size=9, color=show_colors.get(sid, UNKNOWN_COLOR)),
-            xanchor="left",
+        label = short_prog.get(sid, sid)
+        color = show_colors.get(sid, UNKNOWN_COLOR)
+        y_base = float(rank)
+
+        density = _kde_norm(sub, bandwidth)
+        q1  = float(np.percentile(sub, 25))
+        q3  = float(np.percentile(sub, 75))
+        med = float(np.median(sub))
+
+        # Grey IQR rectangle, rendered below the density fill
+        fig.add_shape(
+            type="rect",
+            x0=q1, y0=y_base, x1=q3, y1=y_base + RIDGE_H,
+            fillcolor="rgba(150,150,150,0.18)",
+            line=dict(width=0),
+            layer="below",
         )
 
+        # Density silhouette — closed polygon: density outline + flat baseline
+        x_fill = np.concatenate([x_grid, x_grid[::-1]])
+        y_fill = np.concatenate(
+            [y_base + density * RIDGE_H, np.full(len(x_grid), y_base)]
+        )
+        fig.add_trace(go.Scatter(
+            x=x_fill,
+            y=y_fill,
+            fill="toself",
+            fillcolor=_rgba(color, 0.62),
+            line=dict(color=color, width=1.1),
+            mode="lines",
+            name=label,
+            showlegend=False,
+            hovertemplate=(
+                f"<b>{label}</b><br>"
+                f"Median {med:.0f} · IQR {q1:.0f}–{q3:.0f}<extra></extra>"
+            ),
+        ))
+
+        # Median bar — solid vertical line crossing the full row height
+        fig.add_shape(
+            type="line",
+            x0=med, y0=y_base, x1=med, y1=y_base + RIDGE_H,
+            line=dict(color=color, width=2.0),
+            layer="above",
+        )
+
+    # Minimal dummy trace to activate xaxis2 (top tick labels)
+    fig.add_trace(go.Scatter(
+        x=[x_min, x_max], y=[0, 0],
+        mode="markers", marker=dict(size=0.001, opacity=0),
+        showlegend=False, xaxis="x2", hoverinfo="skip",
+    ))
+
+    # Y-axis tick labels at row centres (show names)
+    ytick_vals = [rank + RIDGE_H / 2 for rank in range(n)]
+    ytick_text = [short_prog.get(sid, sid) for sid in reversed(show_ids_sorted)]
+
     fig.update_layout(
-        title=dict(
-            text=f"<b>{T('01_title')}</b><br><sup>{T('01_sub')}</sup>",
-            x=0.02, font=dict(size=15),
-        ),
         xaxis=dict(
             title=T("01_xaxis"),
             range=[x_min, x_max],
             tickvals=tick_vals,
             tickfont=dict(size=11),
             title_font=dict(size=12),
-            mirror=True,
             showline=True,
             side="bottom",
+            mirror=True,
         ),
         xaxis2=dict(
             overlaying="x",
             side="top",
             range=[x_min, x_max],
             tickvals=tick_vals,
-            tickfont=dict(size=9),
-            showticklabels=True,
+            tickfont=dict(size=11),
             showgrid=False,
             zeroline=False,
+            showticklabels=True,
+            showline=True,
         ),
-        yaxis=dict(title="", tickfont=dict(size=12)),
+        yaxis=dict(
+            title="",
+            tickvals=ytick_vals,
+            ticktext=ytick_text,
+            tickfont=dict(size=12),
+            range=[-0.12, n - 1 + RIDGE_H + 0.18],
+            showgrid=False,
+            zeroline=False,
+            automargin=True,
+        ),
         template="plotly_white",
-        height=120 + len(show_ids_sorted) * 75,
-        width=900,
-        margin=dict(l=60, r=200, t=130, b=60),
-        showlegend=True,
-        legend=dict(
-            orientation="v", x=1.01, y=1.0, xanchor="left",
-            font=dict(size=11),
-            title=dict(text="Show"),
-        ),
-        violingap=0.05,
-        violingroupgap=0,
+        height=90 + n * 52,
+        width=860,
+        margin=dict(l=20, r=30, t=50, b=55),
+        showlegend=False,
     )
     stem = f"01_age_ridge_plot_{lang}"
     _save(fig, output_dir, stem)
-    print(f"  Viz 1 [{lang}]: age ridge ({len(show_ids_sorted)} shows) → {output_dir.name}/")
+    print(f"  Viz 1 [{lang}]: age ridge ({n} shows) → {output_dir.name}/")
+
+
+def build_age_box_plot(
+    age_with_show: pd.DataFrame,
+    show_colors: dict[str, str],
+    show_order: list[str],
+    output_dir: Path,
+    *,
+    lang: str = "en",
+    short_labels: dict | None = None,
+) -> None:
+    """Viz 1 (box variant): Horizontal box-and-whisker per show.
+
+    Whiskers = true Min/Max · Box = IQR · Centre line = Median · Dashed = Mean.
+    Saved alongside the ridge plot as ``01_age_box_plot_{lang}``.
+    """
+    _sl = short_labels if short_labels is not None else load_short_labels()
+
+    df = age_with_show.dropna(subset=["age", "show_id"]).copy()
+    df["age"] = pd.to_numeric(df["age"], errors="coerce")
+    df = df[(df["age"] >= 15) & (df["age"] < 105)].dropna(subset=["age"])
+    if df.empty:
+        print("  Viz 1b: no age data — skipping")
+        return
+
+    prog = (
+        df[["show_id", "program_name"]].drop_duplicates()
+        .set_index("show_id")["program_name"].to_dict()
+        if "program_name" in df.columns else {}
+    )
+    short_prog = {sid: _short(sid, name, lang, _sl) for sid, name in prog.items()}
+
+    medians = df.groupby("show_id")["age"].median().sort_values(ascending=False)
+    show_ids_sorted = medians.index.tolist()
+
+    x_min = max(15, int(df["age"].min()) - 2)
+    x_max = min(104, int(df["age"].max()) + 2)
+    tick_vals = list(range(x_min - x_min % 5, x_max + 6, 5))
+    T = lambda k, **fmt: _t(lang, k, **fmt)
+
+    def _rgba(hex_color: str, alpha: float) -> str:
+        h = hex_color.lstrip("#")
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return f"rgba({r},{g},{b},{alpha})"
+
+    fig = go.Figure()
+    for sid in reversed(show_ids_sorted):
+        sub = df[df["show_id"] == sid]["age"]
+        if sub.empty:
+            continue
+        label = short_prog.get(sid, sid)
+        color = show_colors.get(sid, UNKNOWN_COLOR)
+        fig.add_trace(go.Box(
+            q1=[float(sub.quantile(0.25))],
+            median=[float(sub.median())],
+            q3=[float(sub.quantile(0.75))],
+            mean=[float(sub.mean())],
+            lowerfence=[float(sub.min())],
+            upperfence=[float(sub.max())],
+            y=[label], name=label,
+            orientation="h", boxmean=True, boxpoints=False,
+            fillcolor=_rgba(show_colors.get(sid, UNKNOWN_COLOR), 0.35),
+            line=dict(color=color, width=1.5),
+            marker_color=color, whiskerwidth=0.5,
+        ))
+
+    fig.add_trace(go.Scatter(
+        x=[x_min, x_max], y=[show_ids_sorted[-1], show_ids_sorted[-1]],
+        mode="markers", marker=dict(size=0.001, opacity=0),
+        showlegend=False, xaxis="x2", hoverinfo="skip",
+    ))
+
+    fig.update_layout(
+        xaxis=dict(title=T("01_xaxis"), range=[x_min, x_max], tickvals=tick_vals,
+                   tickfont=dict(size=11), showline=True, side="bottom", mirror=True),
+        xaxis2=dict(overlaying="x", side="top", range=[x_min, x_max], tickvals=tick_vals,
+                    tickfont=dict(size=11), showgrid=False, zeroline=False,
+                    showticklabels=True, showline=True),
+        yaxis=dict(title="", tickfont=dict(size=12), automargin=True),
+        template="plotly_white",
+        height=90 + len(show_ids_sorted) * 50,
+        width=860,
+        margin=dict(l=20, r=30, t=50, b=55),
+        showlegend=False, boxgap=0.35,
+    )
+    stem = f"01_age_box_plot_{lang}"
+    _save(fig, output_dir, stem)
+    print(f"  Viz 1b [{lang}]: age box plot ({len(show_ids_sorted)} shows) → {output_dir.name}/")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -727,13 +974,23 @@ def build_gender_over_time(
     min_year: int = 2003,
     max_year: int = 2025,
     lang: str = "en",
+    short_labels: dict | None = None,
+    episode_coverage: pd.DataFrame | None = None,
 ) -> None:
-    """Viz 2: Male guest share over time — one line per show.
+    """Viz 2: Male guest share over time — one line per show, academic-paper ready.
 
-    Only männlich (male) gender is plotted. 50 % parity reference line included.
+    No title. Legend placed above the plot (horizontal). X-axis ticks are horizontal.
+    An overall-trend line (aggregate across all shows) is added as a thick dark line.
+    The redundant gender-type legend entry ("── männlich") is suppressed.
+
+    episode_coverage: optional DataFrame with columns [year, show_id, pct_covered].
+    When provided, a compact sub-panel (1/5 the main height) is added below the main
+    chart sharing the same x-axis, showing per-show Wikidata episode coverage.  This
+    helps readers interpret data gaps in the main chart.  The legend is NOT duplicated
+    in the sub-panel.
     """
     UNKNOWN_LABEL = "Unknown / no data"
-    DASHES = ["solid", "dash", "dot", "dashdot"]
+    _sl = short_labels if short_labels is not None else load_short_labels()
 
     df = gender_by_year_show.copy()
     df["year"] = pd.to_numeric(df["year"], errors="coerce")
@@ -764,23 +1021,59 @@ def build_gender_over_time(
         if g in meaningful and g != UNKNOWN_LABEL and _nfc(g) == _MALE_KEY
     ]
     if not genders_to_plot:
-        # Fallback: if NFC match fails, take first non-unknown gender
         genders_to_plot = [g for g in gender_order if g in meaningful and g != UNKNOWN_LABEL][:1]
     if not genders_to_plot:
         print("  Viz 2: no meaningful gender categories — skipping")
         return
 
-    dash_map: dict[str, str] = {
-        g: DASHES[i % len(DASHES)] for i, g in enumerate(genders_to_plot)
-    }
-
-    all_years = sorted(df["year"].unique())
+    # Reindex over the full declared range so that years with zero Phase-32
+    # coverage (e.g. 2011) appear as explicit NaN breaks rather than being
+    # silently skipped. If only df["year"].unique() were used, absent years
+    # would be omitted from all_years and Plotly would draw through the gap
+    # at the wrong x position.
+    all_years = list(range(min_year, max_year + 1))
     show_ids = _sort_by_order(df["show_id"].unique().tolist(), show_order)
 
-    fig = go.Figure()
+    T = lambda k, **fmt: _t(lang, k, **fmt)
 
-    fig.add_hline(y=50, line_dash="dot", line_color="#c0392b", line_width=1.2,
-                  annotation_text=_t(lang, "02_50pct"), annotation_position="right")
+    _cov = (
+        episode_coverage is not None
+        and isinstance(episode_coverage, pd.DataFrame)
+        and not episode_coverage.empty
+    )
+
+    if _cov:
+        # 5:1 height ratio — sub-panel is exactly 1/5th the main panel height.
+        MAIN_H, SUB_H = 520, 104
+        fig = make_subplots(
+            rows=2, cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.03,
+            row_heights=[MAIN_H, SUB_H],
+        )
+        _r1 = {"row": 1, "col": 1}
+        _r2 = {"row": 2, "col": 1}
+    else:
+        MAIN_H, SUB_H = 520, 0
+        fig = go.Figure()
+        _r1 = {}
+        _r2 = {}
+
+    def _add(trace, *, row=1):
+        if _cov:
+            fig.add_trace(trace, **(_r1 if row == 1 else _r2))
+        else:
+            fig.add_trace(trace)
+
+    # 50 % parity reference — only in the main panel.
+    # annotation_position="top right" keeps text inside the right margin.
+    _hline_kw = dict(line_dash="dot", line_color="#c0392b", line_width=1.2,
+                     annotation_text=_t(lang, "02_50pct"),
+                     annotation_position="top right")
+    if _cov:
+        fig.add_hline(y=50, row=1, col=1, **_hline_kw)
+    else:
+        fig.add_hline(y=50, **_hline_kw)
 
     for sid in show_ids:
         for i_g, gender in enumerate(genders_to_plot):
@@ -795,8 +1088,8 @@ def build_gender_over_time(
                     .mean()
                     .reset_index()
                 )
-                show_name = prog.get(sid, sid)
-                fig.add_trace(go.Scatter(
+                show_name = _short(sid, prog.get(sid, sid), lang, _sl)
+                _add(go.Scatter(
                     x=roll["year"],
                     y=roll["share"] * 100,
                     mode="lines",
@@ -806,64 +1099,263 @@ def build_gender_over_time(
                     line=dict(
                         color=show_colors.get(sid, UNKNOWN_COLOR),
                         width=1.8,
-                        dash=dash_map.get(gender, "solid"),
+                        dash="solid",
                     ),
                     hovertemplate=(
-                        f"{show_name} · {gender} · %{{x}}<br>Share: %{{y:.1f}}%<extra></extra>"
+                        f"{show_name} · %{{x}}<br>Share: %{{y:.1f}}%<extra></extra>"
                     ),
-                ))
+                ), row=1)
 
+    # Overall trend line across all shows
     for gender in genders_to_plot:
-        fig.add_trace(go.Scatter(
-            x=[None], y=[None],
-            mode="lines",
-            name=f"── {gender}",
-            line=dict(color="#666666", width=2, dash=dash_map.get(gender, "solid")),
-            showlegend=True,
-            legendgroup=f"gender_{gender}",
-        ))
+        all_male_n  = pivot[pivot["gender"] == gender].groupby("year")["n_appearances"].sum()
+        all_total_n = pivot.groupby("year")["n_appearances"].sum()
+        year_share  = (all_male_n / all_total_n.replace(0, float("nan")) * 100).reset_index()
+        year_share.columns = ["year", "share"]
+        if len(year_share) >= rolling_window:
+            trend = (
+                year_share.set_index("year")["share"]
+                .reindex(all_years)
+                .rolling(rolling_window, center=True, min_periods=1)
+                .mean()
+                .reset_index()
+            )
+            _add(go.Scatter(
+                x=trend["year"],
+                y=trend["share"],
+                mode="lines",
+                name=T("02_trend"),
+                showlegend=True,
+                legendgroup="__trend__",
+                line=dict(color="#222222", width=2.8, dash="dot"),
+                hovertemplate=f"{T('02_trend')} · %{{x}}<br>%{{y:.1f}}%<extra></extra>",
+            ), row=1)
 
-    T = lambda k, **fmt: _t(lang, k, **fmt)
+    # Coverage sub-panel
+    if _cov:
+        cov_df = episode_coverage.copy()
+        cov_df["year"] = pd.to_numeric(cov_df["year"], errors="coerce")
+        cov_df = cov_df.dropna(subset=["year", "show_id", "pct_covered"])
+        cov_df["year"] = cov_df["year"].astype(int)
+        for sid in show_ids:
+            sub_cov = cov_df[cov_df["show_id"] == sid].set_index("year")["pct_covered"]
+            if sub_cov.empty:
+                continue
+            sub_cov = sub_cov.reindex(all_years)
+            show_name = _short(sid, prog.get(sid, sid), lang, _sl)
+            _add(go.Scatter(
+                x=list(all_years),
+                y=sub_cov.tolist(),
+                mode="lines",
+                name=show_name,
+                showlegend=False,
+                legendgroup=sid,
+                line=dict(color=show_colors.get(sid, UNKNOWN_COLOR), width=1.0),
+                hovertemplate=f"{show_name} · %{{x}}<br>Coverage: %{{y:.0f}}%<extra></extra>",
+            ), row=2)
+
+    # Layout
+    total_height = MAIN_H + SUB_H + (20 if _cov else 0)
+    xaxis_shared = dict(title="", tickangle=0, dtick=2, tickfont=dict(size=12))
     fig.update_layout(
-        title=dict(
-            text=(
-                f"<b>{T('02_title')}</b><br>"
-                f"<sup>{T('02_sub', w=rolling_window)}</sup>"
-            ),
-            x=0.02, font=dict(size=15),
-        ),
-        xaxis=dict(title="Year", tickangle=-45, dtick=2, tickfont=dict(size=11)),
-        yaxis=dict(title=T("02_yaxis"), range=[0, 100], ticksuffix="%"),
         template="plotly_white",
-        height=520,
-        width=1300,
-        margin=dict(l=70, r=260, t=120, b=80),
+        height=total_height,
+        width=1050,
+        margin=dict(l=70, r=100, t=120, b=60),
         legend=dict(
-            orientation="v", x=1.01, y=1.0, xanchor="left",
+            orientation="h",
+            x=0.5, xanchor="center",
+            y=1.02, yanchor="bottom",
             font=dict(size=11),
-            title=dict(text="Show"),
         ),
     )
+    if _cov:
+        fig.update_xaxes(xaxis_shared, row=2, col=1)
+        fig.update_xaxes(showticklabels=False, row=1, col=1)
+        fig.update_yaxes(
+            title_text=T("02_yaxis"), range=[0, 100], ticksuffix="%",
+            tickfont=dict(size=12), row=1, col=1,
+        )
+        fig.update_yaxes(
+            title_text=T("02_coverage_yaxis"),
+            range=[0, 100], tickvals=[0, 50, 100], ticksuffix="%",
+            tickfont=dict(size=10), title_font=dict(size=10),
+            row=2, col=1,
+        )
+    else:
+        fig.update_layout(
+            xaxis=xaxis_shared,
+            yaxis=dict(title=T("02_yaxis"), range=[0, 100], ticksuffix="%", tickfont=dict(size=12)),
+        )
+
     stem = f"02_gender_over_time_{lang}"
     _save(fig, output_dir, stem)
     print(f"  Viz 2 [{lang}]: male share over time ({len(show_ids)} shows) → {output_dir.name}/")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Viz 3a: Party affiliation share by show
+# Viz 3a: Party affiliation share by show  (pure HTML/CSS, two output modes)
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _hex_blend(hex1: str, hex2: str, t: float) -> str:
-    """Blend hex1 (t=0) to hex2 (t=1) in RGB space."""
-    h1 = hex1.lstrip("#")
-    h2 = hex2.lstrip("#")
-    r1, g1, b1 = int(h1[0:2], 16), int(h1[2:4], 16), int(h1[4:6], 16)
-    r2, g2, b2 = int(h2[0:2], 16), int(h2[2:4], 16), int(h2[4:6], 16)
-    t = max(0.0, min(1.0, t))
-    r = int(r1 + (r2 - r1) * t)
-    g = int(g1 + (g2 - g1) * t)
-    b = int(b1 + (b2 - b1) * t)
-    return f"#{r:02X}{g:02X}{b:02X}"
+_PARTY_CSS = """
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #fff; padding: 16px; }
+table { border-collapse: collapse; font-size: 11px; width: max-content; }
+thead tr.hdr-party th {
+  background: #e0e0e0; font-weight: bold; padding: 5px 8px;
+  border: 1px solid #ccc; text-align: center; white-space: nowrap;
+}
+thead tr.hdr-party th.th-show { text-align: left; background: #d0d8e4; }
+thead tr.hdr-totals td {
+  background: #d8e4f0; font-weight: bold; font-size: 10px;
+  padding: 3px 8px; border: 1px solid #c0d0e0; text-align: center; white-space: nowrap;
+}
+thead tr.hdr-totals td.td-show { text-align: left; font-style: italic; }
+tbody td { border: 1px solid #e8e8e8; height: 26px; vertical-align: middle; }
+tbody tr:nth-child(odd)  td.td-show { background: #fff; }
+tbody tr:nth-child(even) td.td-show { background: #f7f7f7; }
+td.td-show {
+  padding: 3px 8px 3px 7px; text-align: left; white-space: nowrap;
+  border-left-width: 4px !important;
+}
+td.td-pct { padding: 3px 5px; text-align: center; font-size: 10px; white-space: nowrap; }
+td.td-bar { padding: 0 !important; }
+.bar-wrap  { display: flex; align-items: center; height: 26px; min-width: 58px; }
+.bar-label { position: relative; z-index: 1; font-size: 10px; white-space: nowrap; padding: 0 4px; }
+"""
+
+_PARTY_BLUE = (0x43, 0x93, 0xC3)   # #4393c3
+
+
+def _party_grad_td(pct_val: float, norm_val: float) -> str:
+    """Blue-gradient cell: intensity = column-normalised share."""
+    t = min(norm_val ** 0.6, 1.0)
+    r2, g2, b2 = _PARTY_BLUE
+    bg = f"#{int(0xf5 + (r2 - 0xf5) * t):02X}{int(0xf5 + (g2 - 0xf5) * t):02X}{int(0xf5 + (b2 - 0xf5) * t):02X}"
+    fc = "white" if norm_val > 0.45 else "#333"
+    text = f"{pct_val:.1f}&thinsp;%" if pct_val >= 0.1 else ""
+    return f'<td class="td-pct" style="background:{bg};color:{fc};">{text}</td>'
+
+
+def _party_bar_td(pct_val: float, row_bg: str) -> str:
+    """CSS gradient bar cell: bar width = raw percentage (comparable across parties)."""
+    r, g, b = _PARTY_BLUE
+    if pct_val < 0.1:
+        return (
+            f'<td class="td-bar">'
+            f'<div class="bar-wrap" style="background:{row_bg};"></div></td>'
+        )
+    grad = (
+        f"linear-gradient(to right,"
+        f"rgba({r},{g},{b},0.82) {pct_val:.1f}%,"
+        f"{row_bg} {pct_val:.1f}%)"
+    )
+    text = f"{pct_val:.1f}&thinsp;%"
+    if pct_val >= 50:
+        ls = "color:white; padding-left:4px;"
+    else:
+        ls = f"color:#333; padding-left:calc({pct_val:.1f}% + 4px);"
+    return (
+        f'<td class="td-bar">'
+        f'<div class="bar-wrap" style="background:{grad};">'
+        f'<span class="bar-label" style="{ls}">{text}</span>'
+        f'</div></td>'
+    )
+
+
+def _build_party_html(
+    show_ids: list[str],
+    ordered_parties: list[str],
+    abbrev_parties: list[str],
+    show_names: list[str],
+    show_colors: dict[str, str],
+    pct_matrix: pd.DataFrame,
+    norm_matrix: pd.DataFrame,
+    party_totals_all: pd.Series,
+    party_app_totals: pd.Series,
+    show_col_label: str,
+    lang: str,
+    mode: str,
+) -> str:
+    """Assemble the full HTML string for mode='gradient' or mode='bars'.
+
+    Two totals rows below the party-name header:
+      • row 1 "Appearances" — total episode-appearances per party
+      • row 2 "Unique"      — unique persons per party (may equal row 1 if the
+        source dataframe only carries unique_guests)
+    """
+    col_w_show   = "min-width:140px;"
+    col_w_party  = "width:72px;"
+
+    hdr_th = "".join(
+        f'<th style="{col_w_party}">{a}</th>' for a in abbrev_parties
+    )
+    hdr_total_tds = "".join(
+        f'<td class="td-pct"><b>{int(party_totals_all.get(p, 0)):,}</b></td>'
+        for p in ordered_parties
+    )
+    hdr_app_tds = "".join(
+        f'<td class="td-pct"><b>{int(party_app_totals.get(p, 0)):,}</b></td>'
+        for p in ordered_parties
+    )
+    header_html = (
+        f'<tr class="hdr-party">'
+        f'<th class="th-show" style="{col_w_show}">{show_col_label}</th>'
+        + hdr_th
+        + '</tr>'
+        f'<tr class="hdr-totals">'
+        f'<td class="td-show">{_t(lang, "appearances")}</td>'
+        + hdr_app_tds
+        + '</tr>'
+        f'<tr class="hdr-totals">'
+        f'<td class="td-show">{_t(lang, "unique")}</td>'
+        + hdr_total_tds
+        + '</tr>'
+    )
+
+    rows = []
+    for i, sid in enumerate(show_ids):
+        shex   = show_colors.get(sid, "#999")
+        sname  = show_names[i]
+        row_bg = "#fff" if (i % 2 == 0) else "#f7f7f7"
+        if mode == "gradient":
+            cells = "".join(
+                _party_grad_td(
+                    float(pct_matrix.loc[sid, p]) if sid in pct_matrix.index else 0.0,
+                    float(norm_matrix.loc[sid, p]) if sid in norm_matrix.index else 0.0,
+                )
+                for p in ordered_parties
+            )
+        else:
+            cells = "".join(
+                _party_bar_td(
+                    float(pct_matrix.loc[sid, p]) if sid in pct_matrix.index else 0.0,
+                    row_bg,
+                )
+                for p in ordered_parties
+            )
+        rows.append(
+            f'<tr>'
+            f'<td class="td-show" style="border-left-color:{shex};">{sname}</td>'
+            + cells
+            + '</tr>'
+        )
+
+    colgroup = (
+        f'<col style="{col_w_show}">'
+        + "".join(f'<col style="{col_w_party}">' for _ in ordered_parties)
+    )
+    return f"""<!DOCTYPE html>
+<html lang="{lang}">
+<head><meta charset="utf-8"><style>{_PARTY_CSS}</style></head>
+<body>
+<table>
+<colgroup>{colgroup}</colgroup>
+<thead>{header_html}</thead>
+<tbody>{"".join(rows)}</tbody>
+</table>
+</body>
+</html>"""
 
 
 def build_party_by_show(
@@ -872,23 +1364,32 @@ def build_party_by_show(
     show_order: list[str],
     output_dir: Path,
     *,
-    party_colors: dict[str, str] | None = None,
+    party_qids: dict[str, str] | None = None,
     party_order: list[str] | None = None,
     min_pct: float = 1.0,
     min_guests: int = 0,
     top_n: int = 10,
     lang: str = "en",
+    short_labels: dict | None = None,
+    party_abbrev: dict[str, str] | None = None,
 ) -> None:
-    """Viz 3a: Heatmap-table — party share by show.
+    """Viz 3a: Party share heatmap — pure HTML/CSS, two output files.
 
-    Shows top_n parties ordered by total appearances across all shows.
-    Adds a totals row at the top showing total guest count per party.
-    Party colors loaded from party_colors.csv when not explicitly provided.
+    Writes:
+      03a_party_by_show_{lang}.html      — blue-gradient heatmap (main)
+      03a_party_by_show_{lang}_bars.html — proportional bar cells (alt)
+    Each is also rendered to PNG + PDF via playwright.
 
-    Args:
-        party_by_show: show_id, program_name, party_label, unique_guests.
-        top_n: Keep only the N parties with the most total appearances.
+    party_qids: {full_party_label: wikidata_qid} extracted from P102 value_qid column.
+    Used to look up P1813 short names from short_labels.csv.
+
+    Parties are ordered highest-total-appearances → left.
     """
+    _sl = short_labels if short_labels is not None else load_short_labels()
+    T = lambda k, **fmt: _t(lang, k, **fmt)
+
+    party_qid_map: dict[str, str] = dict(party_qids) if party_qids else {}
+
     df = party_by_show.copy()
     df = df[df["party_label"].astype(str).str.strip().ne("Unknown / no data")]
     df = df[df["party_label"].astype(str).str.strip().ne("")]
@@ -896,22 +1397,7 @@ def build_party_by_show(
         print("  Viz 3a: no party-by-show data — skipping")
         return
 
-    # Compute per-show totals for denominator (all guests in the show, not just partisan)
-    # We use the total unique guests across all parties per show as denominator.
-    show_totals_partisan = df.groupby("show_id")["unique_guests"].sum()
-
-    # Pivot: show × party (guest counts)
-    pivot_raw = (
-        df.groupby(["show_id", "party_label"])["unique_guests"].sum()
-        .unstack(fill_value=0)
-    )
-
-    # % per party per show (partisan denominator: guests with ANY party affiliation)
-    pct_pivot = pivot_raw.div(
-        pivot_raw.sum(axis=1).replace(0, float("nan")), axis=0
-    ) * 100
-
-    # Keep top_n parties by total guest count across all shows
+    # Restrict to top_n parties
     _party_totals_all = df.groupby("party_label")["unique_guests"].sum()
     _top_parties = set(_party_totals_all.nlargest(top_n).index)
     df = df[df["party_label"].isin(_top_parties)]
@@ -919,25 +1405,13 @@ def build_party_by_show(
         print(f"  Viz 3a: no parties in top {top_n} — skipping")
         return
 
-    # Order parties by total appearances (most common → rightmost)
+    # Sort: highest total appearances → leftmost column
     present_parties = set(df["party_label"].unique())
     party_totals_all = df.groupby("party_label")["unique_guests"].sum()
-    ordered_parties = party_totals_all.sort_values(ascending=True).index.tolist()
+    ordered_parties = (
+        party_totals_all.sort_values(ascending=False).index.tolist()
+    )
     ordered_parties = [p for p in ordered_parties if p in present_parties]
-
-    # Auto-load party colors from CSV when not explicitly provided
-    pcolors: dict[str, str] = dict(party_colors or {})
-    if not pcolors:
-        try:
-            pc_df = load_party_colors()
-            # Prefer P465 hex; fall back to hex_color column
-            for _, row in pc_df.iterrows():
-                lbl = str(row.get("label", "")).strip()
-                hex_c = str(row.get("hex_color", "")).strip()
-                if lbl and hex_c and hex_c.startswith("#"):
-                    pcolors[lbl] = hex_c
-        except Exception:
-            pass
 
     show_ids = _sort_by_order(df["show_id"].unique().tolist(), show_order)
     prog = (
@@ -945,88 +1419,65 @@ def build_party_by_show(
         .set_index("show_id")["program_name"].to_dict()
     )
 
+    # Deduplicate list inputs — duplicate labels in a reindexed pivot cause
+    # .loc[row, col] to return a Series instead of a scalar.
+    show_ids       = list(dict.fromkeys(show_ids))
+    ordered_parties = list(dict.fromkeys(ordered_parties))
+
     pivot = (
         df.groupby(["show_id", "party_label"])["unique_guests"].sum()
         .unstack(fill_value=0)
         .reindex(index=show_ids, columns=ordered_parties, fill_value=0)
     )
+    pct_matrix  = pivot.div(pivot.sum(axis=1).replace(0, float("nan")), axis=0) * 100
+    norm_matrix = pct_matrix.div(pct_matrix.max(axis=0).replace(0, 1.0), axis=1).fillna(0)
 
-    totals_per_show = pivot.sum(axis=1).replace(0, float("nan"))
-    pct_matrix = pivot.div(totals_per_show, axis=0) * 100
+    show_names = [_short(s, prog.get(s, s), lang, _sl) for s in show_ids]
 
-    col_max = pct_matrix.max(axis=0).replace(0, 1.0)
-    norm_matrix = pct_matrix.div(col_max, axis=1).fillna(0)
+    def _abbrev(label: str) -> str:
+        if party_abbrev and label in party_abbrev:
+            return party_abbrev[label]
+        qid = party_qid_map.get(label, "")
+        if qid:
+            short = _sl.get((qid, lang), "")
+            if short:
+                return short
+        return _short(label, label, lang, _sl)
 
-    T = lambda k, **fmt: _t(lang, k, **fmt)
-    show_names = [prog.get(s, s) for s in show_ids]
-    header_row = ["<b>Show</b>"] + [f"<b>{p}</b>" for p in ordered_parties]
+    abbrev_parties = [_abbrev(p) for p in ordered_parties]
 
-    # Row 0: totals row (total appearances per party across all shows)
-    party_totals_row = []
-    for party in ordered_parties:
-        tot = int(party_totals_all.get(party, 0))
-        party_totals_row.append(f"<b>{tot:,}</b>")
+    # Appearances = total episode-appearances; fall back to unique_guests if absent
+    app_col = "appearances" if "appearances" in df.columns else "unique_guests"
+    party_app_totals = df.groupby("party_label")[app_col].sum()
 
-    n_shows = len(show_ids)
-    n_parties = len(ordered_parties)
-    n_data_rows = n_shows + 1  # +1 for totals
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build cell column lists: first entry = totals row, then per-show rows
-    fill_colors: list[list[str]] = [["#d8e4f0"] + ["#e8e8e8"] * n_shows]
-    text_colors: list[list[str]] = [["#333333"] * n_data_rows]
-    cell_texts: list[list[str]] = [[T("03a_total")] + show_names]
-
-    for party in ordered_parties:
-        party_hex = pcolors.get(party, "#4a90c4")
-        col_fills = ["#d8e4f0"]  # totals row
-        col_texts_val = [f"<b>{int(party_totals_all.get(party, 0)):,}</b>"]
-        col_font_colors = ["#333333"]
-        for sid in show_ids:
-            pct_val = float(pct_matrix.loc[sid, party]) if sid in pct_matrix.index else 0.0
-            norm_val = float(norm_matrix.loc[sid, party]) if sid in norm_matrix.index else 0.0
-            t = min(norm_val ** 0.6, 1.0)
-            fill = _hex_blend("#f5f5f5", party_hex, t)
-            col_fills.append(fill)
-            col_texts_val.append(f"{pct_val:.1f} %" if pct_val >= 0.1 else "")
-            col_font_colors.append("#333333" if norm_val < 0.45 else "white")
-        fill_colors.append(col_fills)
-        text_colors.append(col_font_colors)
-        cell_texts.append(col_texts_val)
-
-    col_widths = [180] + [72] * n_parties
-    fig = go.Figure(go.Table(
-        columnwidth=col_widths,
-        header=dict(
-            values=header_row,
-            align=["left"] + ["center"] * n_parties,
-            font=dict(size=11, color="#333333"),
-            fill_color="#e0e0e0",
-            line_color="#cccccc",
-            height=38,
-        ),
-        cells=dict(
-            values=cell_texts,
-            align=["left"] + ["center"] * n_parties,
-            font=dict(size=11, color=text_colors),
-            fill_color=fill_colors,
-            line_color="#e8e8e8",
-            height=28,
-        ),
-    ))
-    fig.update_layout(
-        title=dict(
-            text=(
-                f"<b>{T('03a_title')}</b><br>"
-                f"<sup>{T('03a_sub', n=n_parties)}</sup>"
-            ),
-            x=0.02, font=dict(size=15),
-        ),
-        margin=dict(l=20, r=20, t=100, b=40),
-        height=100 + 38 + n_data_rows * 28 + 40,
-        width=sum(col_widths) + 40,
+    shared = dict(
+        show_ids=show_ids,
+        ordered_parties=ordered_parties,
+        abbrev_parties=abbrev_parties,
+        show_names=show_names,
+        show_colors=show_colors,
+        pct_matrix=pct_matrix,
+        norm_matrix=norm_matrix,
+        party_totals_all=party_totals_all,
+        party_app_totals=party_app_totals,
+        show_col_label="Show",
+        lang=lang,
     )
-    stem = f"03a_party_by_show_{lang}"
-    _save(fig, output_dir, stem)
+
+    for mode, suffix in [("gradient", ""), ("bars", "_bars")]:
+        stem      = f"03a_party_by_show_{lang}{suffix}"
+        html_path = output_dir / f"{stem}.html"
+        html_path.write_text(_build_party_html(**shared, mode=mode), encoding="utf-8")
+        _render_html_table(
+            html_path,
+            output_dir / f"{stem}.png",
+            output_dir / f"{stem}.pdf",
+        )
+
+    n_shows, n_parties = len(show_ids), len(ordered_parties)
     print(f"  Viz 3a [{lang}]: party heatmap ({n_shows} shows × {n_parties} parties) → {output_dir.name}/")
 
 
@@ -1310,20 +1761,26 @@ def build_property_coverage_table(
     *,
     exclude_labels: list[str] | None = None,
     show_labels: dict[str, str] | None = None,
+    wikidata_coverage_by_show: dict[str, float] | None = None,
+    lang: str = "en",
+    short_labels: dict | None = None,
 ) -> None:
-    """Viz 5: Heatmap of property coverage per show (linear scale).
+    """Viz 5: Heatmap of property coverage per show — academic-paper ready.
 
-    Properties sorted by mean coverage (highest first).
-    Shows sorted by mean coverage (highest first).
-    X-axis uses program names (via show_labels) with unique-guest count if provided.
+    No title, no colorbar legend. Column widths are compact (75 px per show).
+    An optional 'Wikidata entry' row (% of guests with a Wikidata ID) can be
+    prepended by passing ``wikidata_coverage_by_show={show_id: pct, ...}``.
 
     Args:
         coverage_by_show: property_id, property_label, then one column per
             show_id with coverage %.
-        show_labels: {show_id → "Program Name (N guests)"} for x-axis labels.
-            Show IDs are used if not provided.
+        show_labels: {show_id → display label} for x-axis.
+        wikidata_coverage_by_show: {show_id → pct} — prepended as first row.
         exclude_labels: Property labels to exclude.
     """
+    _sl = short_labels if short_labels is not None else load_short_labels()
+    T = lambda k, **fmt: _t(lang, k, **fmt)
+
     df = coverage_by_show.copy()
     if df.empty:
         print("  Viz 5: no coverage data — skipping")
@@ -1348,13 +1805,25 @@ def build_property_coverage_table(
 
     labels = df[lbl_col].tolist()
     z = df[show_cols_sorted].values.astype(float)
+
+    # Prepend Wikidata-entry row
+    if wikidata_coverage_by_show:
+        wd_row = np.array([
+            wikidata_coverage_by_show.get(sid, float("nan"))
+            for sid in show_cols_sorted
+        ], dtype=float)
+        z = np.vstack([wd_row[np.newaxis, :], z])
+        labels = [T("wikidata_entry")] + labels
+
     n_props, n_shows = len(labels), len(show_cols_sorted)
 
-    # Map show IDs to display labels (program name + unique guests)
-    x_labels = [
-        show_labels.get(sid, sid) if show_labels else sid
-        for sid in show_cols_sorted
-    ]
+    # Apply short labels to x-axis; fall back to show_labels or show_id
+    x_labels = []
+    for sid in show_cols_sorted:
+        base = show_labels.get(sid, sid) if show_labels else sid
+        # If short_labels has a short name for this show_id, use it (strip guest count suffix)
+        short = _sl.get((sid, lang), "")
+        x_labels.append(short if short else base)
 
     fig = go.Figure(go.Heatmap(
         z=z,
@@ -1365,26 +1834,17 @@ def build_property_coverage_table(
         text=[[f"{v:.0f} %" if not np.isnan(v) else "—" for v in row] for row in z],
         texttemplate="%{text}",
         textfont=dict(size=10),
-        colorbar=dict(title=dict(text="Coverage %", side="right"), ticksuffix="%", len=0.7),
+        showscale=False,
         hovertemplate="Property: %{y}<br>Show: %{x}<br>Coverage: %{z:.1f}%<extra></extra>",
     ))
 
     fig.update_layout(
-        title=dict(
-            text=(
-                "<b>Property Coverage · by Show</b><br>"
-                "<sup>% of unique guests with ≥1 value · properties sorted by mean coverage · "
-                "shows sorted by mean coverage</sup>"
-            ),
-            x=0.02,
-            font=dict(size=15),
-        ),
         xaxis=dict(title="", side="top", tickangle=-40, tickfont=dict(size=11)),
         yaxis=dict(title="", autorange="reversed", tickfont=dict(size=11)),
         template="plotly_white",
-        height=120 + n_props * 34,
-        width=160 + n_shows * 100,
-        margin=dict(l=220, r=80, t=130, b=20),
+        height=80 + n_props * 34,
+        width=160 + n_shows * 75,
+        margin=dict(l=220, r=20, t=80, b=20),
     )
     _save(fig, output_dir, "05_property_coverage_table")
     print(f"  Viz 5: coverage table ({n_props}×{n_shows}) → {output_dir.name}/")

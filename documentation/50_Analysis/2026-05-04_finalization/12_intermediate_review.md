@@ -155,3 +155,336 @@ Transmaskulin,0,1,0.0,0.02,0.0,99.98,1,1
 3+2+1+1 anything else.
 
 None of our current visualizations reflect that. This means: We are fundamentally calculating wrong.
+
+## Fourth iteration
+
+General issue: Produce 2 language versions: German and English.
+
+* 00_show_stats_table
+  * Columns should be
+    * Broadcasting Program 
+      * Subcolumns: None
+    * Episodes
+      * Subcolumns:
+        * Span
+        * Unique
+        * Unresolved
+    * Guests 
+      * Subcolumns:
+        * Appearances
+        * Unique
+        * with Wikidata ID
+    * Guest Gender
+      * Subcolumns:
+        * Male
+          * Here: show "{total} ({percentage}%)" 
+            * Color bar in color of the Broadcasting Program
+            * The "%" number can also be inside the percentage bar space.
+              * inside the bar if bar >= 50 %
+              * right of the bar if bar < 50 %
+        * Female 
+          * Here: show "{total} ({percentage}%)"
+            * Color bar in color of the Broadcasting Program
+            * The "%" number can also be inside the percentage bar space.
+              * inside the bar if bar >= 50 %
+              * right of the bar if bar < 50 %
+        * other 
+          * Here: show "{total} ({percentage}%)"
+            * Color bar in color of the Broadcasting Program
+            * The "%" number can also be inside the percentage bar space.
+              * inside the bar if bar >= 50 %
+              * right of the bar if bar < 50 %
+    * Episodes without gender present
+      * Subcolumns:
+        * Male
+          * Here: show "{total} ({percentage}%)" 
+            * Color bar in color of the Broadcasting Program
+            * The "%" number can also be inside the percentage bar space.
+              * inside the bar if bar >= 50 %
+              * right of the bar if bar < 50 %
+        * Female 
+          * Here: show "{total} ({percentage}%)"
+            * Color bar in color of the Broadcasting Program
+            * The "%" number can also be inside the percentage bar space.
+              * inside the bar if bar >= 50 %
+              * right of the bar if bar < 50 %
+        * other 
+          * Here: show "{total} ({percentage}%)"
+            * Color bar in color of the Broadcasting Program
+            * The "%" number can also be inside the percentage bar space.
+              * inside the bar if bar >= 50 %
+              * right of the bar if bar < 50 %
+    * Guest Age
+      * Subcolumns
+        * Min
+        * Median
+        * Max
+* 01_age_ridge_plot
+  * Critial issue: Plot is still cut of at top. Maybe also on the left and right end (unclear)
+  * Still does not visualize a single relevant metric in the plot: Median (per show and average), etc.
+  * Visual improvement: repeat the age number at the top numbers on top
+* 02_gender_over_time
+  * Decision: Only visualize the "male" line.
+* 03a_party_by_show
+  * Too many parties. Reduce to:
+    * The Top 10 Parties, sorted from left to right according to their total appearance.
+  * Critical issue: Table is cut off at the bottom.
+  * Add one row on top, listing the total appearances per party
+  * The colours is currently not working. remember:
+    * ## Color catalogue:
+      * Populate from "Wikidata color (P462)" and "official color (P6364)". Their values are always contain the color we are looking for. Particularly when "sRGB color hex triplet (P465)" is available, either directly or via qualifier: use P465.
+    * Task F05: 5. 
+      * **ColorRegistry wiring — no local palette duplication.** In every visualization module (`viz_universal.py`, `viz_treemap.py`, `viz_comparison.py`, `viz_cross_property.py`, `viz_radar.py`, `viz_scalar.py`, `viz_binary.py`, `viz_coverage.py`), import and use `ColorRegistry.get_color()` for all color assignment. The local `_PALETTE`, `_UNKNOWN_COLOR`, and `_OTHER_COLOR` constants must be removed from individual modules. No module may define its own palette — the `ColorRegistry` singleton is the only source of color assignments. Wikidata colors (P462 / P6364 / P465) seed the registry first; the fallback palette fills remaining slots.
+* 03b_gender_breakdown_by_property
+  * Change to % male
+  * Don't merge all of them into one visualization, but produce individual visualizations - The collage will be build in the PDF later. Ensure every property (Age group, Occupation, Position held, Party) is self contained. Also: Use the Labels of the property, not some hard-coded.
+* 04_coappearance_network_gender
+  * Still not file configurable.
+* 04_coappearance_network_occupation_meta
+* 05_property_coverage_table
+* 06_occupation_sunburst
+
+---
+
+## Fifth iteration
+`data/50_analysis/all/final_visualizations` contains the final visualizations.
+
+Now we focus on three visualizations. Fundamentally:
+* No more headlines. We need a clean version of just the visualization, academic paper ready.
+* Fully translate. We are using QID based values, those should also be translated - they are linked to wikidata entries, and those have en and de labels. Use them for the language versions.
+* Introduce shortened Labels: "Der Internationale Frühshoppen" can just be "Frühshoppen". Provide a CSV for these and store the long and short labels per QID and language. If this csv exists (2. run onwards), load from it. 
+
+
+### Age at appearance
+Reference: `data\50_analysis\all\final_visualizations\01_age_ridge_plot_en.html`
+Overall: We must make this visualization more compact.
+* Remove the legend.
+* The top is still cut off. Fix this.
+* Introduce meaningful visualizations:
+  * Min, Max, Median as bar, Mean, IQR.
+
+
+### Talk Shows Sample & Demographics
+* Unbouble is listed wrongly 3 times.
+* We must shrink this down to just the most relevant rows:
+  * Boradcasting program
+  * Episodes
+  * Guest 
+    * Appearances
+    * Unique
+  * Episode without
+    * male
+    * female
+* Introduce multi-column header columns. (e.g. "Guest", "Episode without")
+* add total row on the top 
+
+
+### Gender over time
+* Move legend above the plot.
+  * (shorten "Frühshoppen")
+* Increase font size or Shrink width
+* rotate x labels to be horizontal.
+* Remove "male" from legend (since now everything is male)
+* Add general trend line
+
+### Party
+* apply abreviation (Parties) (Frühshoppen)
+* apply uniform colors (blue, same as for property coverage)
+
+
+### Property Coverage
+* Reduce Column width to only the required width
+* Remove legend
+* Add row "has wikidata entry" for % of guests that have wikidata entries
+
+---
+
+## Sixth iteration — Diagnosis: 00_show_stats_table
+
+### Why cross-column spanning never landed (and never will with the current approach)
+
+`build_show_stats_table` in `viz_final.py` uses Plotly's `go.Table`. Plotly tables render as an **SVG canvas element**, not as DOM `<table>` elements. `colspan` / `rowspan` are HTML/DOM concepts; they cannot exist in this rendering model. Every attempt to "add spanning headers" in previous iterations has been deferred with a note like *"not natively supported — deferring to final HTML output pass"* — but that pass never happened.
+
+**The only real fix:** Replace `go.Table` with a **hand-authored HTML/CSS `<table>`**, saved as a self-contained HTML file (no Plotly dependency). This unlocks:
+* True `colspan` multi-level header rows.
+* CSS-based percentage bars (a `<div>` with `width: X%` and `background: show-color`).
+* Per-column CSS `width` (Plotly's `columnwidth` is proportional, not absolute, and clips text).
+* Proper print-to-PDF via `@media print`.
+
+### Why the % bar concept is gone
+
+`_mini_bar()` (Unicode block characters `█░`) is still defined in `viz_final.py:359–364` but is **called nowhere** in `build_show_stats_table`. It was wired up in iteration 2, then silently removed when the column layout was redesigned in iterations 4/5. Even if re-wired, Unicode bars are a crude workaround — they don't scale, can't be coloured by show, and waste cell width. The 4th-iteration spec explicitly asked for a **coloured CSS bar in the show's colour**, which is only achievable in a real HTML table.
+
+### Column drift: what the spec says vs what is rendered
+
+| Spec (4th / 5th iteration) | Current code | Gap |
+|---|---|---|
+| Broadcasting Program | ✓ column 1 | — |
+| Episodes · Span | ✗ missing | no date-range column at all |
+| Episodes · Unique | ✓ as "Episodes" | label only; no Span or Unresolved siblings |
+| Episodes · Unresolved | ✗ missing | — |
+| Guests · Appearances | ✓ column 3 | — |
+| Guests · Unique | ✓ column 4 | — |
+| Guests · w/ Wikidata | ✗ missing | — |
+| Guest Gender · Male (count + %) | ✗ missing | gender columns were dropped from the table entirely |
+| Guest Gender · Female (count + %) | ✗ missing | — |
+| Guest Gender · Other (count + %) | ✗ missing | — |
+| Eps without · Male | ✓ column 5 | present but no % bar |
+| Eps without · Female | ✓ column 6 | present but no % bar |
+| Eps without · Other | ✗ missing | — |
+| Guest Age · Min | ✗ missing | — |
+| Guest Age · Median | ✗ missing | — |
+| Guest Age · Max | ✗ missing | — |
+
+The table has **6 columns**; the spec calls for **~15 leaf columns** under **5 grouped headers**.
+
+### Untapped visual potential & space waste
+
+1. **Program column is a fixed 200 px** — wastes space for "Lanz", "scobel", "StarTalk"; clips "Internationaler Frühschoppen" before the short-label kicks in. With CSS `width: auto; min-width: …` this self-sizes.
+
+2. **All numeric columns are equally wide (55–90 px)** — "Span" (`2003–2025`) needs more room than "Min" (`34`). CSS can give each column exactly what it needs.
+
+3. **Single-level header** — "Guest Appearances" and "Guest Unique" share a conceptual parent ("Guests") but are two completely separate header cells. A `<thead>` with two `<tr>` rows and `colspan` conveys the grouping instantly.
+
+4. **Alternating row fill is doing all the work** — the only visual differentiator between rows is the light grey / white stripe. Show-colour could saturate the left cell of each row (the program name) as a colour swatch, giving instant cross-table anchor.
+
+5. **No per-column alignment logic** — all numerics are `center`; percentage cells that are empty (`—`) look the same as zero. A right-aligned number column with left-aligned bar would read better.
+
+6. **No sticky header** — in a browser the header scrolls away once there are many rows. A CSS `position: sticky` header would fix this for free.
+
+7. **Total row is styled identically to data rows** (just a different background) — it should be visually distinct: bold text, a heavier top border, and the show-colour fields suppressed.
+
+### Recommended path forward
+
+Replace `build_show_stats_table` with a `build_show_stats_table_html()` function that:
+1. Accepts the same dataframes as today.
+2. Renders a **pure HTML template** (Jinja2 or f-string) with `<thead>` (two rows, `colspan`) and `<tbody>`.
+3. Embeds inline CSS for: column widths, bar-chart cells (`<div class="bar" style="width:X%;background:COLOR">`), sticky header, alternating rows, total-row styling.
+4. Writes a standalone `.html` file (no Plotly JS — tiny file, fast render, print-ready).
+5. Keeps the `_save(fig, …)` path for PNG/PDF export by rendering the HTML to a headless browser via `playwright` or `weasyprint` — or simply screenshots the HTML output.
+
+This is a one-session rewrite of a single function. The data-computation logic (merges, gender pivots, age stats) stays in the notebook; only the rendering layer changes.
+
+---
+
+## Seventh iteration — Diagnosis: 02_gender_over_time
+
+Reference file: `data/50_analysis/all/final_visualizations/02_gender_over_time_en.html`
+
+### Data gap: year 2011 is entirely absent
+
+Every trace jumps directly from 2010 to 2012 — year 2011 is not in any trace's x-values. This is confirmed by inspecting the embedded Plotly data: the `all_years` list in `build_gender_over_time` is computed as `sorted(df["year"].unique())`, and 2011 simply never appears in `_gender_by_year_show`.
+
+**This is NOT a missing episode in the source.** `aligned_episodes.csv` has ample 2011 coverage for every in-scope show (Markus Lanz: 118 eps, Hart aber fair: 36, Maischberger: 40, scobel: 32 — all with valid `premiere_date_date_fernsehserien_de`).
+
+**Root cause — confirmed by data inspection:** The gap is a coverage failure in `dedup_cluster_members.csv` (Phase 32). `build_person_catalogue` maps person→episode exclusively via `episode_url_fernsehserien_de` → `alignment_unit_id`. For the period roughly 2010–2014, Phase 32 did not create cluster-member rows for the overwhelming majority of guest appearances:
+
+| Show | Unique persons with Wikidata ID in cluster_members |
+|---|---|
+| | 2009 | 2010 | 2011 | 2012 | 2013 | 2014 | 2015 |
+| Markus Lanz | 4 | 3 | **0** | 2 | 1 | 0 | 27 |
+| Hart aber fair | 116 | 80 | **1** | 1 | 1 | 1 | 126 |
+| Maischberger | 0 | 0 | **0** | 0 | 0 | 0 | 0 |
+
+For 2011:
+- **Markus Lanz:** 0 persons with Wikidata IDs → 0 rows in `_gender_by_year_show` → year 2011 absent from `all_years` → absent from every trace via `reindex(all_years)`.
+- **Hart aber fair:** 1 person (almost certainly the moderator) → treated as a data point but represents 1 individual, not the guest pool.
+
+The gender analysis (Cell 72) inner-joins `episode_appearances` with `_p21_person_gender` (persons with known Wikidata gender). Since those years lack cluster-member rows with Wikidata-linked persons, the join produces zero rows, and the years drop out of the data entirely.
+
+**Secondary consequence — misleading values in 2010, 2012–2014:** Years with a handful of rows (e.g., Hart aber fair 2010 = 80 persons, Hart aber fair 2012 = 1 person) produce values that look statistically confident but are based on only a fraction of the true guest pool. The 3-year rolling window further blends these sparse years with adjacent years, masking the problem visually.
+
+**Visual effect of the gap:** The x-axis uses `dtick=2` (ticks at 2006, 2008, 2010, 2012, …). When year 2011 is absent from `all_years`, the x-axis jumps directly from 2010 to 2012, creating a double-width gap between those tick marks. This appears as a visual discontinuity that the reader perceives as "around 2013."
+
+**Stopgap fix (implemented):** In `build_gender_over_time` (`viz_final.py`), changed `all_years = sorted(df["year"].unique())` to `all_years = list(range(min_year, max_year + 1))`. Year 2011 now appears as a proper NaN break at the correct x position instead of being silently skipped.
+
+**Proper fix (Phase 32):** Re-run Phase 32 entity deduplication to fill the 2010–2014 coverage gap. All episodes are in `aligned_episodes.csv` with valid dates; the missing piece is guest-person linkage for those years.
+
+**Additional recommendation:** Add a per-year coverage indicator to the visualization (e.g., opacity proportional to the number of persons contributing to each data point, or dashed lines below a threshold of N persons). Years based on only 1–3 persons should be visually distinguishable from years based on 80–130 persons.
+
+### Layout issues
+
+#### "50 % parity" annotation cut off on the right
+
+The annotation is placed at `x=1` (right edge of the x-domain) with `xanchor="left"`. With a right margin of only 40 px, the text extends beyond the canvas and is clipped. Code in `viz_final.py:1047-1048`:
+```python
+fig.add_hline(y=50, …, annotation_text=_t(lang, "02_50pct"), annotation_position="right")
+```
+`annotation_position="right"` maps to `x=1, xanchor="left"`, which always overflows a tight right margin.
+
+**Fix options (pick one):**
+- Change `annotation_position` to `"top right"` (places text above the line near the right edge).
+- Or explicitly: `annotation=dict(text=…, x=0.98, xref="x domain", xanchor="right", y=50, yanchor="bottom")` — text sits just inside the right boundary.
+- Or increase `r` margin from 40 to 120, accepting the wider figure.
+
+#### Legend spanning two rows
+
+10 legend entries (9 show lines + overall trend) at `font.size=12` inside a 1050 px figure routinely overflow to two rows. Each entry with a "Maischberger"-length label is ~110 px wide; 10 × 110 = 1100 px > 1050 px.
+
+With a two-row legend the top margin (`t=120`) is consumed entirely, leaving the first row of legend text just inside or even clipped by the canvas border.
+
+**Fix:** Reduce legend `font.size` to 10 or 11. This is sufficient for short labels and fits all 10 entries on one row at 1050 px.
+
+#### Top of chart cut off
+
+With `t=120` and the legend at `y=1.02` (just above the plot), a two-row legend pushes the upper row above the canvas. Fixing the legend to one row (see above) resolves this automatically. If the legend remains two rows, increase `t` to at least 150.
+
+#### First year label and "0 %" tick overlap
+
+The x-axis first tick (2006 or the actual data start) renders at the bottom-left corner directly next to the y-axis "0%" tick label. With both using `font.size=12` and `tickangle=0`, the two labels visually collide.
+
+**Fix options:**
+- Shift the y-axis range minimum: `range=[40, 100]` instead of `[0, 100]`. This removes the "0%" tick entirely and zooms into the actual data range (see below).
+- Or add a small `standoff` to the x-axis: `xaxis.title.standoff` doesn't help here, but `xaxis.ticklabeloverflow="allow"` + `xaxis.range=[2006.3, 2025]` shifts the first label away from the axis.
+
+### Untapped visual potential
+
+#### Y-axis range: half the plot is empty
+
+The y-axis spans 0–100 %, but the lowest value across all shows is ~52 % (Presseclub) and the overall trend never dips below 61 %. The bottom half of the chart (0–50 %) encodes nothing except the 50 % reference line.
+
+**Fix:** Set `yaxis.range=[40, 100]` (or `[45, 100]`). This:
+- Doubles the visual amplitude of every trend line, making year-to-year changes readable.
+- Removes the empty lower half.
+- Keeps the 50 % reference line visible with annotation room above it.
+
+#### All show lines have identical visual weight
+
+Every show line uses `width=1.8, dash="solid"`. The overall trend line is only slightly heavier at `width=2.8`. When 9 lines of the same weight overlap in a similar range (all 60–80 %), individual show trajectories are hard to trace.
+
+**Fix options:**
+- Assign each show a unique `dash` style (e.g., solid / dash / dot / dashdot) in addition to colour. Plotly supports ~5 named dash patterns, enough to differentiate 9 lines combined with colour.
+- Make the trend line bolder: `width=3.5` and a dark fill colour (`#111`) so it reads above the pack without squinting.
+
+#### `dtick=2` hides annual granularity
+
+With every other year labelled (2006, 2008, 2010, …), the viewer cannot read single-year events. The 3-year rolling window already smooths out noise, so annual labels would not look jagged.
+
+**Fix:** Set `dtick=1`. With 22 years × ~35 px/tick ≈ 770 px, all tick labels fit in a 1050 px width without overlap.
+
+#### 50 % parity line is visually weak
+
+A `line_width=1.2` dotted red line is easy to overlook. Because it is a semantically meaningful threshold (gender parity), it deserves stronger visual treatment.
+
+**Fix:** Replace the single dashed line with a subtle background band: `add_hrect(y0=0, y1=50, fillcolor="rgba(192,57,43,0.05)", layer="below", line_width=0)`. The band tints the "below-parity" region, making the threshold immediately legible without adding clutter.
+
+#### No markers on line ends
+
+Because lines begin and end at different years per show (Presseclub starts 2016, StarTalk ends ~2018), the viewer cannot quickly read the current (2025) value for each show. End-of-line dots would anchor each trajectory.
+
+**Fix:** Add `mode="lines+markers"` with `marker=dict(size=4, symbol="circle")` and `marker.showscale=False`, but only render the marker at the last non-null point. Alternatively add a text annotation at each line's last point with the 2025 value.
+
+### Summary of recommended fixes (priority order)
+
+| # | Issue | Fix | Effort |
+|---|---|---|---|
+| 1 | 2011 data gap | Debug `episode_appearances.premiere_date` for 2011 rows | Medium |
+| 2 | "50 % parity" cut off | `annotation_position="top right"` or explicit coords | Tiny |
+| 3 | Legend two rows | `legend.font.size=10` | Tiny |
+| 4 | Top cut off | Follows from fix #3; or increase `t` to 150 | Tiny |
+| 5 | Y-axis 0–100 wastes space | `yaxis.range=[40, 100]` | Tiny |
+| 6 | First year / 0% overlap | Follows from fix #5 (0% label gone) | — |
+| 7 | dtick=2 hides granularity | `dtick=1` | Tiny |
+| 8 | Lines identical visual weight | Add dash variety; bolder trend line | Small |
+| 9 | 50% line too subtle | Replace with `add_hrect` background band | Small |
+| 10 | No end-of-line anchors | Markers or text at last data point | Small |

@@ -101,11 +101,11 @@ def _build_stacked_bar(
     appear as subscript annotations in the Y-axis labels so bars stay within
     [0, 100 %]. Both panels share the same Y-axis with labels on the left.
     """
-    ep_col = "episode_id" if "episode_id" in prop_frame.columns else "fernsehserien_de_id"
+    ep_col = next((c for c in ("episode_uid", "episode_id") if c in prop_frame.columns), "episode_uid")
     ep_show = (
-        guest_ep[["canonical_entity_id", "fernsehserien_de_id", "show_id"]]
+        guest_ep[["canonical_entity_id", "episode_uid", "show_id"]]
         .drop_duplicates()
-        .rename(columns={"fernsehserien_de_id": ep_col})
+        .rename(columns={"episode_uid": ep_col})
     )
 
     prop_clean = prop_frame.copy()
@@ -118,7 +118,7 @@ def _build_stacked_bar(
 
     ep_unit = guest_ep[guest_ep["show_id"].isin(show_ids)]
     total_app_map = (
-        ep_unit[["canonical_entity_id", "fernsehserien_de_id", "show_id"]]
+        ep_unit[["canonical_entity_id", "episode_uid", "show_id"]]
         .drop_duplicates()
         .groupby("show_id").size()
         .to_dict()
@@ -309,11 +309,11 @@ def build_cross_show_comparison(
     )
     total_map = total_per_show.set_index("show_id")["total_guests"].to_dict()
 
-    ep_col = "episode_id" if "episode_id" in standard_frame.columns else "fernsehserien_de_id"
+    ep_col = next((c for c in ("episode_uid", "episode_id") if c in standard_frame.columns), "episode_uid")
     ep_show = (
-        guest_ep[["canonical_entity_id", "fernsehserien_de_id", "show_id"]]
+        guest_ep[["canonical_entity_id", "episode_uid", "show_id"]]
         .drop_duplicates()
-        .rename(columns={"fernsehserien_de_id": ep_col})
+        .rename(columns={"episode_uid": ep_col})
     )
     prop_clean = standard_frame.copy()
     prop_clean["value"] = prop_clean["value"].fillna("").astype(str).str.strip()

@@ -353,20 +353,21 @@ def build_all_scalar_charts(
                 )
         # Merge show_id into age_frame if available
         age_with_show = age_frame.copy()
+        _ep_key = next((c for c in ("episode_uid", "episode_id") if c in age_with_show.columns), None)
         if (
             "canonical_entity_id" in age_with_show.columns
-            and "episode_id" in age_with_show.columns
+            and _ep_key is not None
             and episode_appearances is not None
             and not episode_appearances.empty
-            and "fernsehserien_de_id" in episode_appearances.columns
+            and "episode_uid" in episode_appearances.columns
             and "show_id" in episode_appearances.columns
         ):
             ep_show = (
-                episode_appearances[["fernsehserien_de_id", "show_id"]]
+                episode_appearances[["episode_uid", "show_id"]]
                 .drop_duplicates()
-                .rename(columns={"fernsehserien_de_id": "episode_id"})
+                .rename(columns={"episode_uid": _ep_key})
             )
-            age_with_show = age_with_show.merge(ep_show, on="episode_id", how="left")
+            age_with_show = age_with_show.merge(ep_show, on=_ep_key, how="left")
 
         build_age_distribution_chart(age_with_show, output_dir, scope=scope, per_show=False)
         build_age_distribution_chart(age_with_show, output_dir, scope=scope, per_show=True, show_labels=show_labels)

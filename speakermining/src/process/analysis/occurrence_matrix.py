@@ -339,7 +339,7 @@ def build_person_catalogue(
     episode_appearances = in_scope_members[in_scope_members["canonical_entity_id"].notna()].copy()
     if not episode_appearances.empty:
         episode_appearances = episode_appearances.rename(columns={
-            "episode_auid": "episode_id",
+            "episode_auid": "episode_uid",
             "raw_role": "role",
         })
         episode_appearances = episode_appearances.merge(
@@ -363,7 +363,7 @@ def build_person_catalogue(
                 qid_series = qid_series.where(qid_series.str.strip() != "", candidate)
 
         episode_appearances["guest_qid"] = qid_series.astype(str).str.strip()
-        episode_appearances["premiere_date"] = episode_appearances["episode_id"].map(_auid_to_date)
+        episode_appearances["premiere_date"] = episode_appearances["episode_uid"].map(_auid_to_date)
         episode_appearances["show_id"] = episode_appearances["show_id"].astype(str)
     else:
         episode_appearances = pd.DataFrame(columns=[
@@ -372,7 +372,7 @@ def build_person_catalogue(
             "fernsehserien_de_id", "fernsehserien_de_id_fernsehserien_de", "program_name_fernsehserien_de",
             "episode_url_fernsehserien_de", "guest_name_fernsehserien_de", "guest_role_fernsehserien_de",
             "guest_description_fernsehserien_de", "source_event_sequence_fernsehserien_de", "show_id",
-            "episode_id", "role", "guest_qid", "canonical_label", "appearance_count", "birthyear", "premiere_date",
+            "episode_uid", "role", "guest_qid", "canonical_label", "appearance_count", "birthyear", "premiere_date",
         ])
 
     return catalogue, unmatched, unclassified, in_scope_members, episode_appearances
@@ -403,7 +403,7 @@ def build_occurrence_matrix(
 
     # Guest-episode pairs — pivot column is alignment_unit_id
     guest_ceids = set(guest_cat["canonical_entity_id"])
-    _ep_col = "episode_auid" if "episode_auid" in ri_with_role.columns else "episode_id"
+    _ep_col = "episode_auid" if "episode_auid" in ri_with_role.columns else "episode_uid"
     guest_pairs = ri_with_role[
         ri_with_role["canonical_entity_id"].isin(guest_ceids) &
         (ri_with_role["role"] == "guest")
@@ -478,7 +478,7 @@ def build_role_occurrence_matrices(
     (canonical_entity_id + canonical_label) × episode occurrence DataFrame
     with 1/empty cells, matching the format of the guest occurrence matrix.
     """
-    _ep_col = "episode_auid" if "episode_auid" in ri_with_role.columns else "episode_id"
+    _ep_col = "episode_auid" if "episode_auid" in ri_with_role.columns else "episode_uid"
 
     _auid_to_date: dict = {}
     for _, _ep in aligned_episodes.iterrows():

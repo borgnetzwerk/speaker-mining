@@ -227,7 +227,10 @@ def expand_property_values_to_appearances(
 
     joined[value_column] = _clean_series(joined, value_column)
     joined[appearance_column] = joined[appearance_column].fillna(1).astype(int)
-    return joined[[carrier_id_column, carrier_column, label_column, episode_column, value_column, appearance_column]].copy()
+    output_cols = [carrier_id_column, carrier_column, label_column, episode_column, value_column, appearance_column]
+    if "value_qid" in joined.columns:
+        output_cols.append("value_qid")
+    return joined[output_cols].copy()
 
 
 def build_value_episode_matrix(

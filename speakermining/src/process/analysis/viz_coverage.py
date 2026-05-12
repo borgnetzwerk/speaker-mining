@@ -55,11 +55,11 @@ def _merge_frame_with_episodes(
     guest_ep: pd.DataFrame,
 ) -> pd.DataFrame:
     """Join property frame with guest×episode rows, returning merged frame."""
-    ep_col = "episode_id" if "episode_id" in frame.columns else "fernsehserien_de_id"
+    ep_col = next((c for c in ("episode_uid", "episode_id") if c in frame.columns), "episode_uid")
     ep_show = (
-        guest_ep[["canonical_entity_id", "fernsehserien_de_id", "show_id"]]
+        guest_ep[["canonical_entity_id", "episode_uid", "show_id"]]
         .drop_duplicates()
-        .rename(columns={"fernsehserien_de_id": ep_col})
+        .rename(columns={"episode_uid": ep_col})
     )
     return frame.merge(ep_show, on=["canonical_entity_id", ep_col], how="inner")
 
@@ -107,7 +107,7 @@ def compute_property_coverage(
 
         merged = merged.copy()
         merged["_has_value"] = _has_value(merged["value"]).astype(int)
-        ep_col = "episode_id" if "episode_id" in frame.columns else "fernsehserien_de_id"
+        ep_col = next((c for c in ("episode_uid", "episode_id") if c in frame.columns), "episode_uid")
 
         # --- AVG VALUES per appearance (guest × episode pair) ---
         # Count of non-Unknown values per (person, episode) pair, then average
@@ -119,9 +119,9 @@ def compute_property_coverage(
         )
         # Include pairs with 0 values (missing in ep_pair_counts)
         all_pairs = (
-            guest_ep[["canonical_entity_id", "fernsehserien_de_id", "show_id"]]
+            guest_ep[["canonical_entity_id", "episode_uid", "show_id"]]
             .drop_duplicates()
-            .rename(columns={"fernsehserien_de_id": ep_col})
+            .rename(columns={"episode_uid": ep_col})
         )
         pair_merged = all_pairs.merge(ep_pair_counts, on=["canonical_entity_id", ep_col, "show_id"], how="left")
         pair_merged["_n_values"] = pair_merged["_n_values"].fillna(0)
