@@ -245,6 +245,7 @@ documentation/context/*
 documentation/ToDo/*/*
 !documentation/ToDo/DOC/*
 documentation/visualizations/*
+!documentation/visualizations/visualization-principles.md
 
 
 # Ignore for now

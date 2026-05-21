@@ -33,6 +33,7 @@ Use this as the single place to understand how the repository works, what standa
 - Notebook run/network observability and append-only event logs: [notebook-observability.md](notebook-observability.md)
 - Mention detection conventions and parsing rules: [mention-detection.md](mention-detection.md)
 - Contributor standards and change discipline: [coding-principles.md](coding-principles.md)
+- Visualization palette, font, export, and chart rules: [visualizations/visualization-principles.md](visualizations/visualization-principles.md)
 - Open and solved work items: [open-tasks.md](open-tasks.md)
 - Research and evidence notes: [findings.md](findings.md)
 

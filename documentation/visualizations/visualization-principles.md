@@ -1,7 +1,7 @@
 # Visualization Principles
 
 > Related tracker item: TODO-024  
-> All charts in `51_visualization.ipynb` and `21_wikidata_vizualization.ipynb` must comply with these rules.
+> All charts in `21_wikidata_vizualization.ipynb` and `50_analysis.ipynb` must comply with these rules.
 
 ---
 
@@ -95,7 +95,40 @@ fig.savefig(str(OUTPUT_DIR / name) + ".png", dpi=300, bbox_inches="tight")
 
 ---
 
-### 4. Figure Dimensions
+### 4. HTML Table Bar Cells Rendered to PDF via Playwright
+
+When bar-chart data is embedded as CSS `linear-gradient` inside HTML table cells and exported to PDF via Playwright/Chromium, the choice of CSS color syntax matters.
+
+**Forbidden — Approach A (`rgba()` with alpha):**
+```css
+/* NEVER use this in HTML-to-PDF table cells */
+background: linear-gradient(to right, rgba(r,g,b,0.82) 45%, #fff 45%);
+```
+This creates a PDF transparency group. Many PDF viewers (including some Acrobat versions) render the transparency incorrectly — the bar color appears pink or otherwise wrong.
+
+**Required — Approach B (pre-blended opaque `rgb()`):**
+```python
+# Alpha-composite in Python before emitting CSS
+alpha = 0.82
+bg = (255, 255, 255)   # or (247, 247, 247) for alternating rows
+br = int(r * alpha + bg[0] * (1 - alpha))
+bgg = int(g * alpha + bg[1] * (1 - alpha))
+bb  = int(b * alpha + bg[2] * (1 - alpha))
+grad = f"linear-gradient(to right, rgb({br},{bgg},{bb}) {pct:.1f}%, {row_bg} {pct:.1f}%)"
+```
+Fully opaque `rgb()` — no PDF transparency group. This is the current production pattern in `viz_final.py`.
+
+**Also safe — Approach C (`color-mix()`):**
+```css
+background: linear-gradient(to right, color-mix(in srgb, #0072B2 82%, #fff) 45%, #fff 45%);
+```
+Chromium resolves `color-mix()` to an opaque colour before writing the PDF.
+
+`rgba()` in Plotly `fillcolor` parameters is **unaffected** by this rule — Plotly renders to canvas/SVG internally before any PDF step.
+
+---
+
+### 5. Figure Dimensions
 
 - **Default Plotly figure**: `width=1000, height=600`. Adjust for content.
 - **Horizontal bar charts**: height scales with number of bars — allow ~30px per bar, minimum 400px.
@@ -104,7 +137,7 @@ fig.savefig(str(OUTPUT_DIR / name) + ".png", dpi=300, bbox_inches="tight")
 
 ---
 
-### 5. Titles and Subtitles
+### 6. Titles and Subtitles
 
 Every exported chart must have:
 - A descriptive **main title** (what the chart shows)
@@ -118,7 +151,7 @@ Gender distribution by occupation
 
 ---
 
-### 6. Axis Labels
+### 7. Axis Labels
 
 - Always set explicit axis labels. Never leave axes as the raw column name.
 - Percentage axes: label as `"Percentage (%)"`, not `"pct"` or `"value"`.
@@ -201,7 +234,9 @@ When placing several related charts side-by-side in a single figure (e.g., a pan
 
 ---
 
-## Compliance Gaps in `51_visualization.ipynb` (as of 2026-04-23)
+## Compliance Gaps in `21_wikidata_vizualization.ipynb` (as of 2026-04-23)
+
+Note: `51_visualization.ipynb` referenced below was a planned notebook that was never created. These gaps apply to `21_wikidata_vizualization.ipynb`, which is the active standalone visualization notebook. The `50_analysis.ipynb` + `viz_final.py` module path has its own separate compliance posture.
 
 | Chart | Gap | Fix |
 |-------|-----|-----|
