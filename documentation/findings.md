@@ -126,7 +126,7 @@ The following former one-line notes were represented in the tracker and then arc
 - Recommendation: maintain a recurring downstream-to-upstream handover artifact whenever such findings emerge.
 - Required governance addition: a known-mismatch rewiring catalogue with force-include/force-exclude rules, manual Wikidata correction workflow, subclass expansion policy, and explicit core-class precedence.
 - Scope tracking and ownership registry are maintained in markdown for handoff readability: `data/00_setup/learning_scope_registry.md`.
-- Handover artifact: `documentation/31_entitiy_disambiguation/upstream_handover_2026-04-11.md`.
+- Handover artifact: `documentation/31_entity_disambiguation/upstream_handover_2026-04-11.md`.
 - Related tracker item: `TODO-014`.
 
 ## F-012 Countries are Organizations (Resolved)

@@ -24,17 +24,16 @@ Active notebook implementation order:
 6. `speakermining/src/process/notebooks/22_candidate_generation_fernsehserien_de.ipynb`
 7. `speakermining/src/process/notebooks/31_entity_disambiguation.ipynb` (Step 311 automated; Step 312 manual via OpenRefine)
 8. `speakermining/src/process/notebooks/32_entity_deduplication.ipynb` (Step 321 automated)
-9. `speakermining/src/process/notebooks/41_analysis.ipynb` (guest catalogue, property distribution, page-rank)
-10. `speakermining/src/process/notebooks/51_visualization.ipynb` (plotly charts → `documentation/visualizations/`)
+9. `speakermining/src/process/notebooks/50_analysis.ipynb` (guest catalogue, property distribution, page-rank, and visualization)
 
 Placeholder notebooks (not yet implemented):
 
 1. `speakermining/src/process/notebooks/23_candidate_generation_other.ipynb`
 2. `speakermining/src/process/notebooks/40_link_prediction.ipynb`
 
-Historical notebook (legacy placeholder):
+Historical notebook (archived, superseded by v4 event-sourcing pipeline):
 
-- `speakermining/src/process/notebooks/21_candidate_generation_wikidata_old.ipynb`
+- `speakermining/src/process/notebooks/archive/21_candidate_generation_wikidata_v3_archive.ipynb`
 
 ## Phase Scope
 
@@ -89,6 +88,7 @@ Each phase reads upstream data and writes only inside its owned folder:
 3. P31 (Steps 311/312) writes only to `data/31_entity_disambiguation/`
 4. P32 (Steps 321/322) writes only to `data/32_entity_deduplication/`
 5. P4 writes only to `data/40_link_prediction/`
+6. P50 writes only to `data/50_analysis/`
 
 ## Human-In-The-Loop Policy
 

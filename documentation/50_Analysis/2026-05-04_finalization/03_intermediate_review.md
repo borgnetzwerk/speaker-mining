@@ -4,7 +4,7 @@
 
 ## Part 1 — Binding Principles for Phase 5: Analysis and Visualization
 
-These principles are derived from sources spread across: `visualization-design.md`, the critical issue documentation in `documentation/31_entitiy_disambiguation/2026-04-05_critical_issue/`, all additional input archives, and the task history. They are the canonical, binding specification that every implementation in Phase 5 must follow. Spec documents take a back seat to these when they conflict.
+These principles are derived from sources spread across: `visualization-design.md`, the critical issue documentation in `documentation/31_entity_disambiguation/2026-04-05_critical_issue/`, all additional input archives, and the task history. They are the canonical, binding specification that every implementation in Phase 5 must follow. Spec documents take a back seat to these when they conflict.
 
 ---
 

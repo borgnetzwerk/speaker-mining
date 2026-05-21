@@ -1,0 +1,26 @@
+# SpeakerMining — runtime requirements
+# --- Core data pipeline ---
+pandas==3.0.2
+numpy==2.4.4
+pyarrow==23.0.1          # required by df.to_parquet() in io_guardrails.py
+
+# --- Visualization ---
+plotly==6.7.0
+kaleido==1.2.0           # required by fig.write_image() in viz_base.py (PNG/PDF export)
+matplotlib==3.10.8       # used in analysis notebooks
+
+# --- Analysis ---
+networkx==3.6.1          # page-rank computation in 50_analysis.ipynb
+
+# --- Configuration ---
+PyYAML==6.0.3            # optional import in wikidata/config.py (graceful fallback if missing)
+
+# --- Testing ---
+pytest==9.0.2
+pytest-timeout==2.4.0
+
+# --- Jupyter / notebook runtime ---
+ipython==9.10.1
+ipykernel==7.2.0
+jupyter_client==8.8.0
+nbformat==5.10.4
