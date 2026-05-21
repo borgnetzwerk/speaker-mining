@@ -550,10 +550,10 @@ Step 3 — Size nodes by in-link count. Count the number of edges pointing **tow
 **What it should achieve:**
 Every person in the catalogue carries a `data_quality_tier` (1–4) based on source reconciliation depth. Only tiers 1 and 2 feed into property statistics and visualizations. All four tiers appear separately in summary counts.
 
-- Tier 1: Wikidata QID + entity doc — full property coverage.
-- Tier 2: Wikidata QID but no entity doc (Wikidata-mentioned only).
-- Tier 3: Matched across two non-Wikidata sources (ZDF + fernsehserien.de) but no Wikidata link.
-- Tier 4: Single non-Wikidata source only.
+- Tier 1: Wikidata QID + cluster_size > 1 (QID, matched across 2+ sources).
+- Tier 2: Wikidata QID + cluster_size == 1 (QID, single source only).
+- Tier 3: No Wikidata QID + cluster_size > 1 (no QID, matched across 2+ sources).
+- Tier 4: No Wikidata QID + cluster_size == 1 (no QID, single source only).
 
 **What the implementation achieves today:**
 - `wikidata_id` column exists in catalogue. No `data_quality_tier` column exists.

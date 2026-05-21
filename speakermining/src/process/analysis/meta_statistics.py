@@ -214,6 +214,67 @@ def compute_meta_statistics(repo_root: Path) -> pd.DataFrame:
                      n_wd_only,
                      "episode_wd_* in aligned_episodes; no FS/ZDF guest rows exist for them"))
 
+    # Episode date ranges — two variants:
+    #   "dataset"  = all aligned episodes (aligned_episodes.csv, incl. those without guest data)
+    #   "universe" = occurrence matrix only (episodes with guest data)
+    # aligned_episodes.csv is the single authoritative source for both variants.
+    # ZDF (ep_*): publikationsdatum_zdf (DD.MM.YYYY)
+    # FS (episode_fs_*): premiere_date_fernsehserien_de (YYYY-MM-DD)
+    occ_header = pd.read_csv(OCC_PATH, nrows=0)
+    occ_ep_cols = {
+        c for c in occ_header.columns
+        if c.startswith("ep_") or c.startswith("episode_fs_")
+    }
+
+    ae_zdf = ae[ae["alignment_unit_id"].str.startswith("ep_")].copy()
+    ae_zdf["date"] = pd.to_datetime(
+        ae_zdf["publikationsdatum_zdf"], format="%d.%m.%Y", errors="coerce"
+    )
+    ae_zdf["show"] = ""
+
+    ae_fs = ae[ae["alignment_unit_id"].str.startswith("episode_fs_")].copy()
+    ae_fs["date"] = pd.to_datetime(
+        ae_fs["premiere_date_fernsehserien_de"], errors="coerce"
+    )
+    ae_fs["show"] = ae_fs["fernsehserien_de_id"].str.split("/").str[-3].fillna("")
+
+    all_ep_dates = pd.concat([
+        ae_zdf[["alignment_unit_id", "date", "show"]],
+        ae_fs[["alignment_unit_id", "date", "show"]],
+    ], ignore_index=True).dropna(subset=["date"]).sort_values("date")
+
+    ep_dates = all_ep_dates[all_ep_dates["alignment_unit_id"].isin(occ_ep_cols)]
+
+    def _date_range_rows(df: pd.DataFrame, prefix: str, label_scope: str, total: int) -> list[dict]:
+        if df.empty:
+            return []
+        o, n = df.iloc[0], df.iloc[-1]
+        return [
+            _row(G, f"{prefix}_oldest_date",
+                 f"Oldest episode premiere date ({label_scope})",
+                 o["date"].strftime("%Y-%m-%d"),
+                 f"episode_id={o['alignment_unit_id']}; show={o['show']}"),
+            _row(G, f"{prefix}_newest_date",
+                 f"Newest episode premiere date ({label_scope})",
+                 n["date"].strftime("%Y-%m-%d"),
+                 f"episode_id={n['alignment_unit_id']}; show={n['show']}"),
+            _row(G, f"{prefix}_n_with_date",
+                 f"Episodes with a parseable premiere date ({label_scope})",
+                 len(df),
+                 f"of {total} total"),
+        ]
+
+    rows.extend(_date_range_rows(
+        all_ep_dates, "episode_dataset",
+        "full aligned dataset, incl. episodes without guest data",
+        len(ae_zdf) + len(ae_fs),
+    ))
+    rows.extend(_date_range_rows(
+        ep_dates, "episode_universe",
+        "occurrence matrix = episodes with guest data",
+        len(occ_ep_cols),
+    ))
+
     # ------------------------------------------------------------------
     # 5. Person pipeline (Phase 32 outputs)
     # ------------------------------------------------------------------
@@ -304,10 +365,10 @@ def compute_meta_statistics(repo_root: Path) -> pd.DataFrame:
     G = "quality_tiers"
     TIERS_PATH = R / "data/50_analysis/all/person_quality_tiers.csv"
     TIER_LABELS = {
-        1: "Wikidata ID + entity doc in Wikidata cache (full property coverage)",
-        2: "Wikidata ID present, no entity doc (Wikidata-mentioned only)",
-        3: "No Wikidata ID, cluster_size >= 2 (disambiguated via two non-Wikidata sources)",
-        4: "No Wikidata ID, cluster_size == 1 (single non-Wikidata source only)",
+        1: "Wikidata ID + cluster_size > 1 (QID, matched across 2+ sources)",
+        2: "Wikidata ID + cluster_size == 1 (QID, single source only)",
+        3: "No Wikidata ID, cluster_size > 1 (no QID, matched across 2+ sources)",
+        4: "No Wikidata ID, cluster_size == 1 (no QID, single source only)",
     }
     if TIERS_PATH.exists():
         tiers = pd.read_csv(TIERS_PATH, dtype=str).fillna("")

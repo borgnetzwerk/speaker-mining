@@ -67,6 +67,8 @@ _TR: dict[str, dict[str, str]] = {
         "03b_sub": "Dot = % male (of known gender) \u00b7 size = total guests \u00b7 top {n} \u00b7 50 % parity line",
         "03b_xaxis": "% male (of known gender)",
         "total": "Total",
+        "ep_total": "Total",
+        "ep_with_guests": "with Guest Data",
         "02_trend": "Overall trend",
         "05_col_avg": "Avg.",
         "wikidata_entry": "Wikidata entry",
@@ -75,7 +77,7 @@ _TR: dict[str, dict[str, str]] = {
         "broadcasting_program": "Sendung",
         "episodes": "Folgen",
         "span": "Zeitraum",
-        "unique": "Unique",
+        "unique": "Einzigartige",
         "unresolved": "Unaufgelöst",
         "guests": "Gäste",
         "appearances": "Auftritte",
@@ -106,6 +108,8 @@ _TR: dict[str, dict[str, str]] = {
         "03b_sub": "Punkt = % männlich (bekanntes Geschlecht) \u00b7 Größe = Gäste \u00b7 Top {n} \u00b7 50%-Linie",
         "03b_xaxis": "% männlich (bekanntes Geschlecht)",
         "total": "Gesamt",
+        "ep_total": "Gesamt",
+        "ep_with_guests": "mit Gäste-Daten",
         "02_trend": "Gesamttrend",
         "05_col_avg": "Ø",
         "wikidata_entry": "Wikidata-Eintrag",
@@ -526,10 +530,10 @@ td.td-program {
 td.td-number { padding: 3px 10px; text-align: right; white-space: nowrap; }
 
 /* ── bar cells (padding managed by inner div) ─────────────── */
-td.td-bar { padding: 0 !important; overflow: visible; }
+td.td-bar { padding: 0 !important; overflow: visible; min-width: 105px; }
 .bar-wrap {
   display: flex; align-items: center;
-  height: 28px; min-width: 85px;
+  height: 28px; width: 100%;
 }
 .bar-label {
   position: relative; z-index: 1;
@@ -551,6 +555,7 @@ def build_show_stats_table(
     eps_without_gender_by_show: pd.DataFrame | None = None,
     unresolved_by_show: pd.DataFrame | None = None,
     global_unique_guests: int | None = None,
+    global_total_appearances: int | None = None,
     lang: str = "en",
     short_labels: dict | None = None,
 ) -> None:
@@ -607,12 +612,13 @@ def build_show_stats_table(
         text = f"{c:,} ({pct:.0f} %)"
         h = hex_color.lstrip("#")
         r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-        # Gradient: show-colour → row background at the pct boundary
-        grad = (
-            f"linear-gradient(to right,"
-            f"rgba({r},{g},{b},0.82) {pct:.1f}%,"
-            f"{row_bg} {pct:.1f}%)"
-        )
+        # Pre-blend show colour against row background at 82% opacity to avoid
+        # PDF transparency groups, which many viewers render as bright pink.
+        bg_rgb = (247, 247, 247) if row_bg == "#f7f7f7" else (255, 255, 255)
+        br  = int(r * 0.82 + bg_rgb[0] * 0.18)
+        bgg = int(g * 0.82 + bg_rgb[1] * 0.18)
+        bb  = int(b * 0.82 + bg_rgb[2] * 0.18)
+        grad = f"linear-gradient(to right, rgb({br},{bgg},{bb}) {pct:.1f}%, {row_bg} {pct:.1f}%)"
         lum = 0.299 * r + 0.587 * g + 0.114 * b
         if pct >= 50:
             # Label sits inside the bar — use white only for very dark bars.
@@ -638,6 +644,7 @@ def build_show_stats_table(
             return 0.0
 
     tot_eps_sum  = _tot_sum("episode_count")
+    tot_wg_sum   = _tot_sum("episodes_with_guests")
     tot_app_sum  = _tot_sum("guest_appearances")
     tot_uniq_sum = _tot_sum("unique_guests")
     tot_m_sum    = _tot_sum("eps_without_male")
@@ -649,23 +656,27 @@ def build_show_stats_table(
         return f'<td class="td-number"><b>{text}</b></td>'
 
     # ── header rows ───────────────────────────────────────────────────────────
-    bp  = T("broadcasting_program").replace(" ", "<br>", 1)
-    eps = T("episodes")
-    gst = T("guests")
-    app = T("appearances")
-    unq = T("unique")
-    ewo = T("eps_without_gender")
-    mal = T("male")
-    fem = T("female")
+    bp     = T("broadcasting_program").replace(" ", "<br>", 1)
+    eps    = T("episodes")
+    ep_tot = T("ep_total")
+    ep_wg  = T("ep_with_guests")
+    gst    = T("guests")
+    app    = T("appearances")
+    unq    = T("unique")
+    ewo    = T("eps_without_gender")
+    mal    = T("male")
+    fem    = T("female")
 
     header_html = (
         f'<tr>'
         f'<th class="th-program"  rowspan="2">{bp}</th>'
-        f'<th class="th-episodes" rowspan="2">{eps}</th>'
+        f'<th class="th-episodes" colspan="2">{eps}</th>'
         f'<th class="th-guests"   colspan="2">{gst}</th>'
         f'<th class="th-epswo"    colspan="2">{ewo}</th>'
         f'</tr>'
         f'<tr>'
+        f'<th class="th-episodes">{ep_tot}</th>'
+        f'<th class="th-episodes">{ep_wg}</th>'
         f'<th class="th-guests">{app}</th>'
         f'<th class="th-guests">{unq}</th>'
         f'<th class="th-epswo">{mal}</th>'
@@ -674,18 +685,21 @@ def build_show_stats_table(
     )
 
     # ── total row ─────────────────────────────────────────────────────────────
-    # global_unique_guests: cross-show deduplicated person count from notebook.
-    # Summing per-show unique counts overcounts guests appearing on multiple shows,
-    # so we show the true value when provided, or "—" to signal it's unavailable.
+    # global_unique_guests / global_total_appearances: cross-show deduplicated
+    # values from the notebook (occurrence matrix row count and guest_cat sum).
+    # Summing per-show values overcounts guests/appearances on multiple shows,
+    # so we use the authoritative values when provided.
     if global_unique_guests is not None:
         _uniq_cell = f'<td class="td-number"><b>{int(global_unique_guests):,}</b></td>'
     else:
         _uniq_cell = '<td class="td-number" title="Cross-show unique count not available; per-show sum overcounts shared guests."><b>—</b></td>'
+    _app_total = int(global_total_appearances) if global_total_appearances is not None else int(tot_app_sum)
     total_row = (
         '<tr class="total-row">'
         + f'<td class="td-program" style="border-left-color:#888;"><b>{T("total")}</b></td>'
         + f'<td class="td-number"><b>{int(tot_eps_sum):,}</b></td>'
-        + f'<td class="td-number"><b>{int(tot_app_sum):,}</b></td>'
+        + _tot_bar_td(tot_wg_sum, tot_eps_sum)
+        + f'<td class="td-number"><b>{_app_total:,}</b></td>'
         + _uniq_cell
         + _tot_bar_td(tot_m_sum, tot_eps_sum)
         + _tot_bar_td(tot_f_sum, tot_eps_sum)
@@ -705,10 +719,11 @@ def build_show_stats_table(
             f'<tr>'
             f'<td class="td-program" style="border-left-color:{shex};">{name}</td>'
             + _num_td(te)
+            + _bar_td(row.get("episodes_with_guests"), te, shex, row_bg)
             + _num_td(row.get("guest_appearances"))
             + _num_td(row.get("unique_guests"))
-            + _bar_td(row.get("eps_without_male"),   te, shex, row_bg)
-            + _bar_td(row.get("eps_without_female"),  te, shex, row_bg)
+            + _bar_td(row.get("eps_without_male"),    te, shex, row_bg)
+            + _bar_td(row.get("eps_without_female"),   te, shex, row_bg)
             + '</tr>'
         )
 
@@ -721,6 +736,7 @@ def build_show_stats_table(
 <body>
 <table>
 <colgroup>
+  <col>
   <col>
   <col>
   <col>
@@ -1322,11 +1338,11 @@ def _party_bar_td(pct_val: float, row_bg: str) -> str:
             f'<td class="td-bar">'
             f'<div class="bar-wrap" style="background:{row_bg};"></div></td>'
         )
-    grad = (
-        f"linear-gradient(to right,"
-        f"rgba({r},{g},{b},0.82) {pct_val:.1f}%,"
-        f"{row_bg} {pct_val:.1f}%)"
-    )
+    bg_rgb = (247, 247, 247) if row_bg == "#f7f7f7" else (255, 255, 255)
+    br  = int(r * 0.82 + bg_rgb[0] * 0.18)
+    bgg = int(g * 0.82 + bg_rgb[1] * 0.18)
+    bb  = int(b * 0.82 + bg_rgb[2] * 0.18)
+    grad = f"linear-gradient(to right, rgb({br},{bgg},{bb}) {pct_val:.1f}%, {row_bg} {pct_val:.1f}%)"
     text = f"{pct_val:.1f}&thinsp;%"
     lum = 0.299 * r + 0.587 * g + 0.114 * b
     if pct_val >= 50:
@@ -1887,11 +1903,11 @@ def _cov_bar_td(pct: float, row_bg: str) -> str:
             f'<span class="bar-label" style="color:#aaa;">0&thinsp;%</span>'
             f'</div></td>'
         )
-    grad = (
-        f"linear-gradient(to right,"
-        f"rgba({r},{g},{b},0.82) {pct:.1f}%,"
-        f"{row_bg} {pct:.1f}%)"
-    )
+    bg_rgb = (247, 247, 247) if row_bg == "#f7f7f7" else (255, 255, 255)
+    br  = int(r * 0.82 + bg_rgb[0] * 0.18)
+    bgg = int(g * 0.82 + bg_rgb[1] * 0.18)
+    bb  = int(b * 0.82 + bg_rgb[2] * 0.18)
+    grad = f"linear-gradient(to right, rgb({br},{bgg},{bb}) {pct:.1f}%, {row_bg} {pct:.1f}%)"
     text = f"{pct:.0f}&thinsp;%"
     lum = 0.299 * r + 0.587 * g + 0.114 * b
     if pct >= 50:
@@ -2006,7 +2022,7 @@ def _build_coverage_html_T(
         shex = show_colors.get(sid, "#999999")
         h = shex.lstrip("#")
         sr, sg, sb = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-        bg = f"rgba({sr},{sg},{sb},0.22)"
+        bg = f"rgb({int(sr*0.22+255*0.78)},{int(sg*0.22+255*0.78)},{int(sb*0.22+255*0.78)})"
         header_cells += (
             f'<th class="th-show-col" style="background:{bg};">'
             f'{_wrap_label_html(sname, max_chars=12)}</th>'
