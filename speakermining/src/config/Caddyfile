@@ -1,12 +1,30 @@
+# OpenRefine → Wikibase API Proxy
+#
+# Purpose: When running OpenRefine locally against the SpeakerMining Wikibase Cloud
+# instance (lanztest.wikibase.cloud), browsers block cross-origin requests to
+# /w/api.php. This Caddy reverse proxy runs locally on port 9999 and forwards
+# those requests to Wikibase, adding the required CORS headers.
+#
+# Status: Template / planned implementation. Not yet deployed as a service.
+#
+# Usage:
+#   1. Install Caddy: https://caddyserver.com/docs/install
+#   2. Run from this directory: caddy run
+#   3. Point OpenRefine reconciliation endpoint to http://localhost:9999
+#   4. The manifest.json in this folder configures the Wikibase connection details.
+#
+# The User-Agent override avoids the Anubis bot-challenge that Wikibase Cloud
+# applies to automated requests without a recognizable UA string.
+
 :9999
 handle /w/api.php* {
- reverse_proxy https://lanztest.wikibase.cloud {
- header_up Host lanztest.wikibase.cloud
- # Avoid Anubis browser challenge
- header_up User-Agent "OpenRefine-Caddy-Proxy/1.0"
- # CORS headers (port ≠ origin)
- header_down Access-Control-Allow-Origin *
- header_down Access-Control-Allow-Methods "GET, POST, OPTIONS"
- header_down Access-Control-Allow-Headers *
- }
+	reverse_proxy https://lanztest.wikibase.cloud {
+		header_up Host lanztest.wikibase.cloud
+		# Avoid Anubis browser challenge
+		header_up User-Agent "OpenRefine-Caddy-Proxy/1.0"
+		# CORS headers (port ≠ origin)
+		header_down Access-Control-Allow-Origin *
+		header_down Access-Control-Allow-Methods "GET, POST, OPTIONS"
+		header_down Access-Control-Allow-Headers *
+	}
 }
