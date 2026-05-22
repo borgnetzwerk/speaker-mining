@@ -42,11 +42,18 @@ Common person parsing rules:
 - `single_parenthetical_mononym`: mononym name linked to descriptor.
 - `surname_primary_no_parenthetical`: surname-driven fallback when descriptor is unavailable.
 
-Confidence behavior:
+Confidence values by parsing rule:
 
-- Higher confidence for direct parenthetical linkage.
-- Medium confidence for group and nearest-name assignment heuristics.
-- Lower confidence for no-local-descriptor and surname-only fallback rows.
+| `parsing_rule` | `confidence` | Condition |
+|---|---|---|
+| `single_parenthetical` | 0.95 | One name directly linked to one parenthetical descriptor |
+| `last_name_parenthetical` | 0.82 | Last name in a multi-name chain gets the parenthetical |
+| `group_parenthetical` | 0.70 | Group-style descriptor (`Familie`, `Eltern`, etc.) assigned to all names |
+| `surname_primary_no_parenthetical` | 0.68 | Name found via uppercase pattern, no descriptor |
+| `single_parenthetical_mononym` | 0.62 | Single artist/stage name with parenthetical |
+| `name_without_local_parenthetical` | 0.55 | Chain member, no relation cue, no local descriptor |
+| `name_without_local_parenthetical` | 0.45 | Chain member WITH a relation cue (relation cues indicate the person is not a direct guest) |
+| `legacy_sachinhalt_fallback` | 0.50 | Legacy path — should not appear in current runs |
 
 ## Data Quality And Traceability
 
@@ -54,8 +61,24 @@ Confidence behavior:
 - Source traceability is mandatory via `source_text` and `source_context`.
 - If a behavior update changes extraction assumptions, update this document and `documentation/findings.md` in the same change.
 
+## Guest vs. Incidental Mentions
+
+The parser classifies each person row with a `mention_category` field:
+
+- `guest`: the default; the person appears without a relation-cue in the inter-name segment.
+- `incidental`: a relation-cue word (e.g. `ehemann`, `ehefrau`, `mutter`, `vater`, `tochter`, `ihre`, `ihrem`) appears between the previous name's end and the current name's start, **and the person is not themselves present as a guest**. Guests may have such relationships described — the cue alone is not sufficient. The distinction is presence, not relation.
+
+  Example: `Michelle Obama (Ehefrau von Präsident Barack Obama)` → `Michelle Obama` is `guest`;
+  `Barack Obama` is `incidental` (mentioned in relation to Michelle, not present himself).
+
+Cue-word detection is scoped to the inter-segment only to prevent spill-over from earlier names in a chain. If a relation word is consumed into the name match by `_NAME_PATTERN`, the inter-segment may only contain a pronoun not in the cue list; these rare cases fall back to `guest` conservatively.
+
 ## Known Boundaries
 
-- Episodes with empty `infos` cannot yield person rows.
-- Documentary summaries without list-like guest phrasing may remain unextractable without semantic inference.
+- Episodes with empty `infos` cannot yield person rows (source PDF had no parseable Sachinhalt block; ~3 episodes in the current corpus).
+- Episodes where `infos` lists only topics, not names, cannot yield person rows even when the anchor matched (~1 episode in corpus; section contains topics only, no name entries).
+- Documentary, travel, or special-format broadcasts (e.g. episodes covering Kuba!, Russland!, Amerika!, Heiliges Land, Südtirol) use prose narration without the studio-interview format. Names exist but appear in title-case without the ALL-CAPS surname signal. Adding a pattern for these risks false positives across the full corpus; accepted as not_extractable (~5 episodes in corpus).
+- Collective broadcasts (e.g. "Das Jahr 2020", "Ukraine Abend") use "Studiogästen" as a collective noun with no individual names listed; not_extractable (~2 episodes).
+- Retrospective interview formats where names appear in title-case after a mid-sentence anchor rather than an opening pattern; ROI near zero given fernsehserien.de coverage of these episodes (~2 episodes).
+- `Familie SURNAME (given1, given2, ...)` entries: 2 occurrences in 10,390 person rows (0.02%). Not worth a dedicated parsing rule at current corpus size.
 - Stage names without stable supporting context remain lower-confidence signals.

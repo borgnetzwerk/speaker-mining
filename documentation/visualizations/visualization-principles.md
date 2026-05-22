@@ -191,6 +191,19 @@ Used to compare two opposed sub-groups (e.g., left-leaning vs. right-leaning, yo
   # Only col 1 gets yaxis labels; col 2 reuses them via shared_yaxes=True
   ```
 
+### Diverging Stacked Bar Charts — Likert / Quality-Tier Style
+
+For 5-level ordered scales where both ends have meaning (e.g., reconciliation confidence: authoritative → high → medium → low → none; or survey responses: Strongly agree → Neither → Strongly disagree):
+
+- **Axis layout**: symmetric x-axis with zero at center; left = lower / negative end; right = higher / positive end.
+- **Color mapping**: diverge from `PALETTE["vermillion"]` (outer negative) through light variants toward `PALETTE["gray"]` (center neutral) toward light blue toward `PALETTE["blue"]` (outer positive). Never use red and green as the contrasting pair.
+- **Reference line**: bold vertical line at x=0.
+- **Annotations**: count or percentage labels inside segments; place outside when segment width < 5% of total axis range.
+- **Legend**: list levels in order from most negative to most positive; the neutral level appears in the middle of the legend.
+- **Sorting**: sort categories by dominant positive-side share (descending) unless a meaningful fixed order exists.
+
+---
+
 ### Histograms / Distribution Plots
 
 - Overlapping histograms: set `opacity=0.75` for all traces.

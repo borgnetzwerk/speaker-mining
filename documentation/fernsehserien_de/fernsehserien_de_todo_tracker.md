@@ -26,7 +26,7 @@ Acceptance:
 Resolution note:
 1. Implemented `legacy_cache_page_imported` emission with inferred leaf URL import and `episode_url_discovered` backfill path `legacy_cache_import`.
 
-## Stage-2 specification tasks (fermsehserien_de_specification.md)
+## Stage-2 specification tasks (fernsehserien_de_specification.md)
 
 ### FST-002 Contract alignment: minimum event type set vs discovered/normalized model (DONE)
 Gap:
