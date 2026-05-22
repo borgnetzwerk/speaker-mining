@@ -125,6 +125,15 @@ Governance reference model:
 3. Keep naming stable across `workflow.md`, `contracts.md`, notebook markdown headings, and phase-specific docs.
 4. Preserve existing folder ownership boundaries unless an explicit migration task is approved; naming changes alone do not imply folder renames.
 
+## Notebook Execution Contract
+
+1. "Run All" is the only action required to complete any notebook step. No one-time
+   backfill scripts, one-time migration patches, or out-of-band actions are ever
+   acceptable. Every data transformation — including repairs of existing stored data —
+   must be integrated into the notebook so that re-running it produces correct output.
+2. If a fix cannot be expressed as a re-runnable notebook cell, it is not yet a fix;
+   model the necessary state transition as an event or notebook step before implementing.
+
 ## Minimal Quality Checklist For Contributions
 
 1. Notebook paths and order still valid.

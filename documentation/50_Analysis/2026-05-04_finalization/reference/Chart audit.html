@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chart design audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Serif:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink:        #1c1b18;
+    --ink-2:      #3d3b35;
+    --ink-3:      #6a6760;
+    --ink-4:      #95918a;
+    --ink-5:      #c8c4b8;
+    --paper:      #f6f4ef;
+    --paper-2:    #fbfaf6;
+    --rule:       #d9d4c7;
+    --rule-2:     #1c1b1820;
+    --rule-3:     #1c1b1810;
+    --warn:       oklch(0.55 0.16 30);
+    --good:       oklch(0.55 0.10 145);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--paper); color: var(--ink); }
+  body {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    padding: 64px 48px 120px;
+    max-width: 1340px;
+    margin: 0 auto;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+
+  /* —— top —— */
+  header.top {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 80px;
+    padding-bottom: 56px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 56px;
+  }
+  .eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 18px;
+  }
+  h1 {
+    font-family: 'IBM Plex Serif', serif;
+    font-weight: 400;
+    font-size: 44px;
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin-bottom: 18px;
+  }
+  h1 em { font-style: italic; color: var(--ink-3); }
+  .lede {
+    font-size: 16px;
+    color: var(--ink-2);
+    max-width: 56ch;
+  }
+  .lede + .lede { margin-top: 14px; }
+  .lede a { color: var(--ink); border-bottom: 1px solid var(--rule); text-decoration: none; }
+  .lede a:hover { border-bottom-color: var(--ink); }
+
+  /* —— section —— */
+  section.case { margin-top: 96px; }
+  .section-head {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 64px;
+    align-items: baseline;
+    border-top: 1px solid var(--ink);
+    padding-top: 18px;
+    margin-bottom: 36px;
+  }
+  .section-head .num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+  }
+  .section-head h2 {
+    font-family: 'IBM Plex Serif', serif;
+    font-weight: 400;
+    font-size: 30px;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+  }
+  .section-head h2 em { font-style: italic; color: var(--ink-3); }
+
+  /* —— compare —— */
+  .compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+  }
+  .panel {
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+  }
+  .panel .panel-hd {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--rule);
+    background: var(--paper-2);
+  }
+  .panel-hd .label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .panel-hd .label.before { color: var(--warn); }
+  .panel-hd .label.after  { color: var(--good); }
+  .panel-hd .filename {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-4);
+  }
+  .panel .panel-body {
+    padding: 18px;
+    overflow: auto;
+  }
+  .panel iframe {
+    width: 100%;
+    border: 0;
+    display: block;
+  }
+
+  /* —— notes column —— */
+  .notes {
+    margin-top: 32px;
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 64px;
+  }
+  .notes h4 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 500;
+  }
+  .notes ul {
+    list-style: none;
+    columns: 2;
+    column-gap: 36px;
+    font-size: 14px;
+    color: var(--ink-2);
+  }
+  .notes li {
+    padding-left: 22px;
+    position: relative;
+    margin-bottom: 12px;
+    break-inside: avoid;
+  }
+  .notes li::before {
+    content: "→";
+    position: absolute;
+    left: 0;
+    top: 0;
+    color: var(--good);
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .notes li b { color: var(--ink); font-weight: 600; }
+  .notes li del { color: var(--ink-4); text-decoration-color: var(--warn); }
+
+  /* —— diagnosis grid —— */
+  .diag {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+  }
+  .diag-item {
+    background: var(--paper);
+    padding: 22px 22px 26px;
+    min-height: 178px;
+  }
+  .diag-item .n {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-4);
+    margin-bottom: 12px;
+  }
+  .diag-item h3 {
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    margin-bottom: 8px;
+  }
+  .diag-item p {
+    font-size: 13.5px;
+    color: var(--ink-2);
+    line-height: 1.45;
+  }
+  .diag-item p .fix {
+    display: block;
+    margin-top: 8px;
+    color: var(--ink-3);
+    font-size: 13px;
+  }
+  .diag-item p .fix::before {
+    content: "Fix · ";
+    color: var(--good);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+  }
+
+  /* —— SVG chart shared —— */
+  .chart {
+    display: block;
+    width: 100%;
+    height: auto;
+    font-family: 'IBM Plex Sans', sans-serif;
+  }
+  .chart text { fill: var(--ink); font-size: 11px; }
+  .chart .ax { fill: var(--ink-3); font-size: 10.5px; }
+  .chart .ax-title {
+    font-family: 'IBM Plex Mono', monospace;
+    fill: var(--ink-3);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .chart .grid { stroke: var(--rule-3); stroke-width: 1; }
+  .chart .axline { stroke: var(--ink); stroke-width: 1; }
+  .chart .ref { stroke: var(--ink); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.5; }
+  .chart .lbl-show { font-size: 11.5px; font-weight: 500; fill: var(--ink); }
+  .chart .lbl-mini { font-size: 10px; fill: var(--ink-3); font-family: 'IBM Plex Mono', monospace; }
+  .chart .num { font-variant-numeric: tabular-nums; }
+  .chart .annot {
+    fill: var(--ink-3);
+    font-size: 10.5px;
+    font-style: italic;
+  }
+  .chart .annot-line { stroke: var(--ink-3); stroke-width: 0.7; fill: none; }
+
+  /* —— footer —— */
+  footer.foot {
+    margin-top: 120px;
+    padding-top: 36px;
+    border-top: 1px solid var(--ink);
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 64px;
+  }
+  footer.foot h3 {
+    font-family: 'IBM Plex Serif', serif;
+    font-weight: 400;
+    font-size: 24px;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+  }
+  footer.foot ol {
+    list-style: none;
+    counter-reset: rule;
+    font-size: 15px;
+    color: var(--ink-2);
+    columns: 2;
+    column-gap: 48px;
+  }
+  footer.foot li {
+    counter-increment: rule;
+    padding-left: 32px;
+    position: relative;
+    margin-bottom: 16px;
+    break-inside: avoid;
+  }
+  footer.foot li::before {
+    content: counter(rule, decimal-leading-zero);
+    position: absolute;
+    left: 0; top: 1px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-3);
+    letter-spacing: 0.06em;
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div>
+    <div class="eyebrow">Design audit · three Plotly figures · companion to the table audit</div>
+    <h1>Charts that <em>tell, not host.</em></h1>
+  </div>
+  <div>
+    <p class="lede">
+      The three charts are Plotly exports left at their default settings — a ridge plot of guest age, a 10-line gender‑over‑time graph, and a bubble plot of male share by age decade. The data is good, the encodings are reasonable, but the figures are doing what Plotly defaults always do: <b>hosting the data instead of explaining it</b>.
+    </p>
+    <p class="lede">
+      The fixes here are different from the <a href="Table audit.html">table audit</a>: tables suffer from too much chrome around precise numbers; charts suffer from <b>summary statistics hidden in tooltips</b>, <b>spaghetti curves</b> the eye can't separate, and <b>encodings tuned for the data, not the story</b>. Below: six cross-cutting habits, then three before / after redesigns.
+    </p>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════════════
+     CROSS-CUTTING DIAGNOSIS
+     ═══════════════════════════════════════════════════════ -->
+<section class="case" style="margin-top: 24px;">
+  <div class="section-head">
+    <div><div class="num">A · Cross-cutting</div></div>
+    <div><h2>Six chart habits worth dropping.</h2></div>
+  </div>
+
+  <div class="diag">
+    <div class="diag-item">
+      <div class="n">01</div>
+      <h3>Stats hidden in hover</h3>
+      <p>Median 48, IQR 42–75 is the most useful thing the ridge plot knows about each show — and it only appears when you hover. In a static export, it never shows up.
+        <span class="fix">Print the median and IQR directly on each row, in text.</span>
+      </p>
+    </div>
+    <div class="diag-item">
+      <div class="n">02</div>
+      <h3>Spaghetti at ten lines</h3>
+      <p>Ten shows on a single line chart cross, overlap, and become a colourful blur. A category-coded legend at the side compounds the problem.
+        <span class="fix">Small multiples — one mini panel per show, with the overall trend ghosted behind for context.</span>
+      </p>
+    </div>
+    <div class="diag-item">
+      <div class="n">03</div>
+      <h3>Plotly chrome by default</h3>
+      <p>The hover toolbar, "plotly" watermark, double tick marks, light blue gridlines, and the default Plotly typeface signal "this is a notebook export," not "this is finished work."
+        <span class="fix">Strip the modebar, set <span class="mono">staticPlot:&nbsp;true</span>, override fonts, drop the watermark — or render as SVG.</span>
+      </p>
+    </div>
+    <div class="diag-item">
+      <div class="n">04</div>
+      <h3>No baseline of reference</h3>
+      <p>"60.6 % male" tells the reader very little until they know what 50 % looks like. A reference line at parity is essential — and so is a label saying so.
+        <span class="fix">Always draw the reference. Always label it inline.</span>
+      </p>
+    </div>
+    <div class="diag-item">
+      <div class="n">05</div>
+      <h3>Equal weight to outliers</h3>
+      <p>The bubble plot shows "110–119 years, 100 % male" the same way it shows "50–59 years, 67.6 % male" — but the first bin holds 7 people and the second 1 565. Tiny-n bins shout as loudly as the meaningful ones.
+        <span class="fix">Encode <i>n</i> in size, then dim or drop bins under a threshold.</span>
+      </p>
+    </div>
+    <div class="diag-item">
+      <div class="n">06</div>
+      <h3>Y-axis runs 0–100</h3>
+      <p>The gender chart axis starts at 0 even though no real value goes below 50 %. Half the canvas is empty and the actual variation is squeezed into a thin band at the top.
+        <span class="fix">For non-zero baseline ratios, crop to where the data lives — say 40–100 %.</span>
+      </p>
+    </div>
+    <div class="diag-item">
+      <div class="n">07</div>
+      <h3>Sample size invisible</h3>
+      <p>StarTalk's age IQR runs 42–75 because the show has 11 unique guests. Markus Lanz's similar IQR is built from 5 234. The eye can't tell which is signal and which is noise.
+        <span class="fix">Always print <i>n</i> next to the show name. Where reasonable, fade rows where <i>n</i> is too small.</span>
+      </p>
+    </div>
+    <div class="diag-item">
+      <div class="n">08</div>
+      <h3>Pick the right encoding</h3>
+      <p>A ridge plot is built to show <i>shape</i>. But if all the reader takes away is "median and spread per show," the shape is decoration.
+        <span class="fix">If only summary stats matter, draw the box, not the density.</span>
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════
+     CASE 04 — ridge plot
+     ═══════════════════════════════════════════════════════ -->
+<section class="case">
+  <div class="section-head">
+    <div><div class="num">B · Case 04</div></div>
+    <div><h2>Ridge plot of guest age <em>— 01_age_ridge_plot_en.html</em></h2></div>
+  </div>
+
+  <div class="compare">
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="label before">Before</div>
+        <div class="filename">01_age_ridge_plot_en.html · 4.9 MB Plotly export</div>
+      </div>
+      <div class="panel-body">
+        <iframe src="uploads/01_age_ridge_plot_en.html" style="height: 580px;" loading="lazy" title="Original ridge plot"></iframe>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="label after">After</div>
+        <div class="filename">redesign · IQR strips with median</div>
+      </div>
+      <div class="panel-body">
+        <svg viewBox="0 0 540 540" class="chart" id="svg-ridge" aria-label="Age distribution per show, sorted by median"></svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div><h4>What changed</h4></div>
+    <div>
+      <ul>
+        <li><b>Encoding swap.</b> A ridge plot is built to compare <i>shapes</i>; here, the reader only needs <i>median &amp; spread</i>. So: each show becomes one horizontal IQR strip with a median tick. Less ink, more meaning.</li>
+        <li><b>Stats come out of hover.</b> Median, Q1–Q3 and span are printed next to the row in mono — no interaction required.</li>
+        <li><b>Sorted by median, oldest at bottom.</b> The eye now traces the age gradient in a single sweep — Lanz/Miosga skew young, Precht/Frühschoppen old.</li>
+        <li><b>Decade gridlines</b>, in the lightest ink possible, replace the busy default Plotly grid.</li>
+        <li><b>Two annotations</b> call out the extremes — the chart spends its space on the story, not the chrome.</li>
+        <li><b>Show colour is one 9 px dot</b>, never the whole bar. Identity ≠ data.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════
+     CASE 05 — gender over time
+     ═══════════════════════════════════════════════════════ -->
+<section class="case">
+  <div class="section-head">
+    <div><div class="num">C · Case 05</div></div>
+    <div><h2>Male share of appearances, 2003–2025 <em>— 02_gender_over_time_en.html</em></h2></div>
+  </div>
+
+  <div class="compare">
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="label before">Before</div>
+        <div class="filename">02_gender_over_time_en.html · 4.9 MB Plotly export</div>
+      </div>
+      <div class="panel-body">
+        <iframe src="uploads/02_gender_over_time_en.html" style="height: 580px;" loading="lazy" title="Original spaghetti line chart"></iframe>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="label after">After</div>
+        <div class="filename">redesign · small multiples</div>
+      </div>
+      <div class="panel-body">
+        <svg viewBox="0 0 540 540" class="chart" id="svg-smallmult" aria-label="Male share over time, one panel per show"></svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div><h4>What changed</h4></div>
+    <div>
+      <ul>
+        <li><b>One line → ten panels.</b> Ten lines on one axis blur together. Faceting gives each show its own pane and its own story.</li>
+        <li><b>Overall trend ghosted in every panel</b> as the comparison baseline — the reader can answer "is this show above or below the median trajectory?" instantly.</li>
+        <li><b>50 % parity line</b> drawn into each panel, dashed and labelled the first time.</li>
+        <li><b>Y range cropped to 40–100 %</b>; no data lives below 40, so showing 0–40 was empty canvas.</li>
+        <li><b>Latest value printed next to the line.</b> No hover, no legend lookup.</li>
+        <li><b>Δ from first to last year</b> appears under each show name — instant headline number per panel.</li>
+        <li><b>Show colour reduced to a dot and a single line stroke.</b> No more ten overlapping fills.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════
+     CASE 06 — age bubble
+     ═══════════════════════════════════════════════════════ -->
+<section class="case">
+  <div class="section-head">
+    <div><div class="num">D · Case 06</div></div>
+    <div><h2>Male share by age decade <em>— 03b_age_en.html</em></h2></div>
+  </div>
+
+  <div class="compare">
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="label before">Before</div>
+        <div class="filename">03b_age_en.html · bubble scatter</div>
+      </div>
+      <div class="panel-body">
+        <iframe src="uploads/03b_age_en.html" style="height: 420px;" loading="lazy" title="Original bubble chart"></iframe>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="label after">After</div>
+        <div class="filename">redesign · divergence dot plot</div>
+      </div>
+      <div class="panel-body">
+        <svg viewBox="0 0 540 420" class="chart" id="svg-bubble" aria-label="Divergence from parity by age decade"></svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div><h4>What changed</h4></div>
+    <div>
+      <ul>
+        <li><b>Centred on parity, not on zero.</b> The x-axis becomes "points above / below 50 %" so the eye reads "how skewed is each decade?" not "how big is each number?"</li>
+        <li><b>One dot per row, sized by <i>n</i>.</b> Bubble area still carries sample size, but the position now does the actual work — no more visually fighting two encodings on the same point.</li>
+        <li><b>Tiny-<i>n</i> bins faded out.</b> The "100 % male, 110–119" bubble is still there but greyed — it can't shout louder than 50–59 (<i>n</i>=1 565) any more.</li>
+        <li><b>Connecting trace shows the arc</b> of male over-representation peaking in the 70s and tapering on both sides.</li>
+        <li><b>Counts printed inline.</b> n=1 565 means more than a 40 px bubble does on its own.</li>
+        <li><b>Parity baseline labelled</b>, not just drawn.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════
+     FOOTER · PRINCIPLES
+     ═══════════════════════════════════════════════════════ -->
+<footer class="foot">
+  <div>
+    <div class="eyebrow">Closing rules · charts</div>
+    <h3>Six rules to apply across these and any future Plotly exports.</h3>
+  </div>
+  <div>
+    <ol>
+      <li><b>Surface every number the chart's title implies.</b> If the title says "Median age," show the median; don't hide it in hover.</li>
+      <li><b>Pick the encoding that answers the question.</b> Ridge for shape, dot-plot for ranking, small multiples for cross-group time trends, divergence for "how far from this benchmark?"</li>
+      <li><b>Always draw the reference.</b> 50 % parity, last year's value, the overall mean — whatever the reader is implicitly comparing against, render it.</li>
+      <li><b>Weight by <i>n</i>.</b> Either visually (size) or by exclusion (drop / fade small bins). Never let a 7-person decade speak louder than a 1 500-person one.</li>
+      <li><b>Crop the axis to the data.</b> Zero-baselines are a rule for bar charts; for percentages and ratios, show only the range that matters.</li>
+      <li><b>Strip the Plotly defaults.</b> No modebar, no watermark, no double tick marks. Either override the layout aggressively or render to SVG and never look back.</li>
+    </ol>
+  </div>
+</footer>
+
+<!-- ═══════════════════════════════════════════════════════
+     DATA + RENDER
+     ═══════════════════════════════════════════════════════ -->
+<script>
+const SHOW = {
+  'Markus Lanz':   '#DDCC77',
+  'Maischberger':  '#56B4E9',
+  'Hart aber fair':'#009E73',
+  'Presseclub':    '#0072B2',
+  'Maybrit Illner':'#F0E442',
+  'scobel':        '#CC79A7',
+  'Frühschoppen':  '#D55E00',
+  'Precht':        '#88CCEE',
+  'Caren Miosga':  '#000000',
+  'StarTalk':      '#44AA99',
+};
+
+// ─── Ridge plot redesign ──────────────────────────────────
+const RIDGE = [
+  // sorted by median ascending → oldest at bottom
+  { name: 'StarTalk',       med: 48, q1: 42, q3: 75, n:   11 },
+  { name: 'Caren Miosga',   med: 50, q1: 45, q3: 61, n:  137 },
+  { name: 'Markus Lanz',    med: 51, q1: 43, q3: 61, n: 5234 },
+  { name: 'Maybrit Illner', med: 51, q1: 44, q3: 60, n:  871 },
+  { name: 'Hart aber fair', med: 53, q1: 44, q3: 60, n: 1519 },
+  { name: 'Presseclub',     med: 53, q1: 46, q3: 58, n:  573 },
+  { name: 'scobel',         med: 55, q1: 47, q3: 62, n:  581 },
+  { name: 'Maischberger',   med: 56, q1: 47, q3: 65, n: 1581 },
+  { name: 'Frühschoppen',   med: 57, q1: 47, q3: 63, n:  177 },
+  { name: 'Precht',         med: 57, q1: 48, q3: 67, n:   62 },
+];
+
+function renderRidge() {
+  const svg = document.getElementById('svg-ridge');
+  const W = 540, H = 540;
+  const padL = 168, padR = 110, padT = 86, padB = 70;
+  const innerW = W - padL - padR;
+  const x0 = 38, x1 = 80;
+  const xScale = v => padL + ((v - x0) / (x1 - x0)) * innerW;
+  const rowH = (H - padT - padB) / RIDGE.length;
+
+  let html = '';
+
+  // ─── title + caption
+  html += `<text x="14" y="22" class="ax-title">B · 01 — age, years</text>`;
+  html += `<text x="14" y="46" style="font-size:15px;font-weight:500;fill:var(--ink);font-family:'IBM Plex Serif',serif">Median age per show, with interquartile range</text>`;
+  html += `<text x="14" y="66" class="ax" style="font-style:italic">sorted by median, youngest first</text>`;
+
+  // ─── decade gridlines
+  for (let v = 40; v <= 80; v += 10) {
+    const x = xScale(v);
+    html += `<line x1="${x}" y1="${padT - 6}" x2="${x}" y2="${H - padB}" class="grid" />`;
+    html += `<text x="${x}" y="${H - padB + 14}" class="ax" text-anchor="middle">${v}</text>`;
+  }
+  // x-axis line
+  html += `<line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" class="axline" />`;
+  html += `<text x="${W - padR}" y="${H - padB + 32}" class="ax" text-anchor="end" style="font-style:italic">age, years →</text>`;
+
+  // ─── rows
+  RIDGE.forEach((d, i) => {
+    const y = padT + rowH * i + rowH / 2;
+    const xL = xScale(d.q1);
+    const xR = xScale(d.q3);
+    const xM = xScale(d.med);
+    const c = SHOW[d.name];
+
+    // show label + n
+    html += `<g>
+      <circle cx="${padL - 154}" cy="${y}" r="4.5" fill="${c}"></circle>
+      <text x="${padL - 144}" y="${y + 4}" class="lbl-show">${d.name}</text>
+      <text x="${padL - 8}" y="${y + 4}" class="lbl-mini num" text-anchor="end">n=${d.n.toLocaleString()}</text>
+    </g>`;
+
+    // IQR bar
+    html += `<rect x="${xL}" y="${y - 7}" width="${xR - xL}" height="14"
+              fill="${c}" fill-opacity="0.22" stroke="${c}" stroke-opacity="0.5" stroke-width="0.8" rx="1"></rect>`;
+    // median tick (vertical)
+    html += `<line x1="${xM}" y1="${y - 9}" x2="${xM}" y2="${y + 9}" stroke="${c}" stroke-width="2.5"></line>`;
+    // median value label (right of bar)
+    html += `<text x="${xR + 8}" y="${y + 4}" class="lbl-mini num">${d.med}</text>`;
+  });
+
+  // ─── legend in top right
+  const lx = W - padR - 6, ly = 28;
+  html += `<g transform="translate(${lx}, ${ly})">
+    <rect x="0" y="-9" width="36" height="14" fill="#888" fill-opacity="0.22" stroke="#888" stroke-opacity="0.5" stroke-width="0.8" rx="1"></rect>
+    <line x1="18" y1="-11" x2="18" y2="7" stroke="#888" stroke-width="2.5"></line>
+    <text x="46" y="-1" class="lbl-mini">Q1 – Q3</text>
+    <text x="46" y="11" class="lbl-mini">median</text>
+  </g>`;
+
+  // ─── annotation: extremes (placed in right margin, not floating over rows)
+  {
+    const d = RIDGE[0]; // StarTalk
+    const y = padT + rowH * 0 + rowH / 2;
+    const xMedR = xScale(d.med);
+    html += `<text x="${W - 8}" y="${y - 4}" class="annot" text-anchor="end">youngest median</text>`;
+    html += `<text x="${W - 8}" y="${y + 8}" class="annot" text-anchor="end" style="font-style:normal;font-family:'IBM Plex Mono',monospace">but n = 11</text>`;
+  }
+  {
+    const d = RIDGE[RIDGE.length - 1]; // Precht
+    const y = padT + rowH * (RIDGE.length - 1) + rowH / 2;
+    html += `<text x="${W - 8}" y="${y - 4}" class="annot" text-anchor="end">oldest median,</text>`;
+    html += `<text x="${W - 8}" y="${y + 8}" class="annot" text-anchor="end" style="font-style:normal;font-family:'IBM Plex Mono',monospace">tied with Frühschoppen</text>`;
+  }
+  svg.innerHTML = html;
+}
+
+// ─── Small multiples redesign ─────────────────────────────
+const YEARS = Array.from({length: 23}, (_,i) => 2003+i);
+const GENDER = {
+  'Markus Lanz':   [null,null,null,null,77.9,76.9,72.9,67.4,65.1,66.4,68.8,68.6,69.6,71.9,72.4,71.3,70.3,68.2,64.8,61.1,61.6,64.5,65.7],
+  'Maischberger':  [null,null,71.1,67.8,70.6,71.0,69.7,66.4,60.3,null,null,60.9,63.5,64.4,64.3,63.1,64.0,66.9,67.1,65.8,62.7,63.6,63.1],
+  'Hart aber fair':[null,null,74.8,73.9,74.9,74.0,76.5,76.4,80.7,null,null,67.4,68.1,68.7,69.5,68.9,67.8,65.5,64.8,62.5,60.0,56.2,54.4],
+  'Maybrit Illner':[null,null,null,null,null,null,null,null,null,null,null,71.6,72.0,70.6,67.9,64.4,61.4,63.3,63.0,64.0,60.4,62.4,62.5],
+  'Presseclub':    [null,null,null,null,null,null,null,null,null,null,null,null,null,54.2,55.5,54.7,55.7,54.4,55.9,57.0,57.4,56.3,54.3],
+  'Frühschoppen':  [null,null,null,null,null,null,null,null,null,null,null,63.6,59.1,60.6,59.1,59.1,53.7,52.5,56.6,69.8,72.5,67.8,58.0],
+  'scobel':        [null,null,null,null,82.9,79.1,76.8,73.7,72.0,null,75.0,77.2,71.4,66.8,58.7,58.9,59.3,59.3,59.1,55.1,51.7,51.4,52.1],
+  'StarTalk':      [null,null,null,null,null,null,null,null,null,null,null,80.0,90.0,93.3,100.0,100.0,null,null,null,null,null,null,null],
+  'Precht':        [null,null,null,null,null,null,null,null,null,null,null,75.0,87.5,80.6,88.9,77.8,77.8,64.4,64.4,68.9,62.2,60.0,50.0],
+};
+const OVERALL =   [null,null,72.9,70.9,73.1,73.5,72.9,67.6,65.9,66.4,68.9,68.6,69.4,69.9,69.0,66.6,65.1,64.3,63.1,62.2,61.5,62.5,62.1];
+const SHOW_ORDER = ['Markus Lanz','Maischberger','Hart aber fair','Maybrit Illner','Presseclub','Frühschoppen','scobel','StarTalk','Precht'];
+
+function renderSmallMult() {
+  const svg = document.getElementById('svg-smallmult');
+  const W = 540, H = 540;
+  const padT = 96, padL = 18, padR = 18, padB = 26;
+  const cols = 3, rows = 3;
+  const gapX = 14, gapY = 38;
+  const cellW = (W - padL - padR - gapX * (cols-1)) / cols;
+  const cellH = (H - padT - padB - gapY * (rows-1)) / rows;
+
+  const yMin = 40, yMax = 100;
+  const xMin = 2003, xMax = 2025;
+  const xs = v => (v - xMin) / (xMax - xMin) * cellW;
+  const ys = v => cellH - (v - yMin) / (yMax - yMin) * cellH;
+
+  let html = '';
+
+  // ─── header
+  html += `<text x="${padL}" y="22" class="ax-title">C · 01 — share male, %</text>`;
+  html += `<text x="${padL}" y="46" style="font-size:15px;font-weight:500;fill:var(--ink);font-family:'IBM Plex Serif',serif">Each show's share over time, with overall trend behind</text>`;
+  // legend line
+  html += `<g transform="translate(${padL}, 68)">
+    <line x1="0" y1="0" x2="22" y2="0" stroke="var(--ink-4)" stroke-width="1" stroke-dasharray="2 2"></line>
+    <text x="28" y="3" class="lbl-mini">overall trend</text>
+    <line x1="110" y1="0" x2="132" y2="0" stroke="var(--ink)" stroke-width="1" stroke-dasharray="2 3" opacity="0.5"></line>
+    <text x="138" y="3" class="lbl-mini">50 % parity</text>
+    <text x="220" y="3" class="lbl-mini" style="font-style:italic">Δ = first → latest year, percentage points</text>
+  </g>`;
+
+  function pathFrom(series) {
+    let d = '';
+    let pen = false;
+    series.forEach((v, i) => {
+      if (v == null) { pen = false; return; }
+      const x = xs(YEARS[i]);
+      const y = ys(Math.max(yMin, Math.min(yMax, v)));
+      d += (pen ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1) + ' ';
+      pen = true;
+    });
+    return d.trim();
+  }
+
+  SHOW_ORDER.forEach((show, idx) => {
+    const cx = idx % cols;
+    const cy = Math.floor(idx / cols);
+    const ox = padL + cx * (cellW + gapX);
+    const oy = padT + cy * (cellH + gapY);
+    const c = SHOW[show];
+    const series = GENDER[show];
+
+    // values for delta
+    const first = series.find(v => v != null);
+    const last  = [...series].reverse().find(v => v != null);
+    const delta = (last - first).toFixed(1);
+    const deltaTxt = (delta >= 0 ? '+' : '') + delta + ' pp';
+    const deltaColor = delta < -5 ? 'var(--good)' : (delta > 5 ? 'var(--warn)' : 'var(--ink-3)');
+
+    html += `<g transform="translate(${ox},${oy})">`;
+
+    // baseline frame: just bottom rule
+    html += `<line x1="0" y1="${cellH}" x2="${cellW}" y2="${cellH}" class="axline"></line>`;
+
+    // 50% parity ref
+    html += `<line x1="0" y1="${ys(50)}" x2="${cellW}" y2="${ys(50)}" class="ref"></line>`;
+
+    // overall trend ghost
+    html += `<path d="${pathFrom(OVERALL)}" fill="none" stroke="var(--ink-4)" stroke-width="1" stroke-dasharray="2 2"></path>`;
+
+    // show line
+    html += `<path d="${pathFrom(series)}" fill="none" stroke="${c}" stroke-width="2"></path>`;
+
+    // latest value dot + label
+    const lastIdx = series.length - 1 - [...series].reverse().findIndex(v => v != null);
+    const lastX = xs(YEARS[lastIdx]);
+    const lastY = ys(Math.max(yMin, Math.min(yMax, last)));
+    html += `<circle cx="${lastX}" cy="${lastY}" r="3" fill="${c}" stroke="#fff" stroke-width="1"></circle>`;
+    html += `<text x="${lastX + 5}" y="${lastY + 3}" class="lbl-mini num" style="fill:var(--ink)">${last.toFixed(0)}%</text>`;
+
+    // title row above
+    html += `<text x="0" y="-14" class="lbl-show">
+      <tspan>${show}</tspan>
+    </text>`;
+    html += `<text x="${cellW}" y="-14" class="lbl-mini num" text-anchor="end" style="fill:${deltaColor}">${deltaTxt}</text>`;
+
+    // y-tick at 50 — small
+    // x ticks: just first and last year
+    html += `<text x="0" y="${cellH + 13}" class="ax" style="font-size:9.5px">'03</text>`;
+    html += `<text x="${cellW}" y="${cellH + 13}" class="ax" text-anchor="end" style="font-size:9.5px">'25</text>`;
+
+    html += `</g>`;
+  });
+
+  // ─── legend in last (unused) cell (4th-row-1st-col → no, we have 3x3 = 9 shows perfectly)
+  svg.innerHTML = html;
+}
+
+// ─── Bubble redesign ──────────────────────────────────────
+const AGE = [
+  // bin, malePct, n
+  ['0–9',     50.0,    6],
+  ['10–19',   40.5,   37],
+  ['20–29',   42.5,  307],
+  ['30–39',   46.6,  817],
+  ['40–49',   60.0, 1385],
+  ['50–59',   67.6, 1565],
+  ['60–69',   76.1, 1069],
+  ['70–79',   78.8,  453],
+  ['80–89',   73.8,  141],
+  ['90–99',   60.6,   33],
+  ['100–109', 55.6,    9],
+  ['110–119', 100.0,   7],
+];
+const N_THRESH = 50;
+
+function renderBubble() {
+  const svg = document.getElementById('svg-bubble');
+  const W = 540, H = 420;
+  const padL = 78, padR = 110, padT = 84, padB = 60;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const rowH = innerH / AGE.length;
+
+  const xMin = -30, xMax = 50;
+  const xs = v => padL + ((v - xMin) / (xMax - xMin)) * innerW;
+  const x50 = xs(0);
+
+  const nMax = Math.max(...AGE.map(d => d[2]));
+  const rMax = 16;
+  const rOf = n => Math.max(2.5, Math.sqrt(n / nMax) * rMax);
+
+  let html = '';
+
+  // ─── header
+  html += `<text x="14" y="22" class="ax-title">D · 01 — points from 50 % parity</text>`;
+  html += `<text x="14" y="46" style="font-size:15px;font-weight:500;fill:var(--ink);font-family:'IBM Plex Serif',serif">Male over‑representation peaks in the 70s, fades both ways</text>`;
+
+  // x-axis: parity at 0, ticks
+  for (let v = -20; v <= 40; v += 10) {
+    if (v === 0) continue;
+    const x = xs(v);
+    html += `<line x1="${x}" y1="${padT - 6}" x2="${x}" y2="${H - padB}" class="grid"></line>`;
+    html += `<text x="${x}" y="${H - padB + 14}" class="ax" text-anchor="middle">${v > 0 ? '+' : ''}${v}</text>`;
+  }
+  // axis baseline
+  html += `<line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" class="axline"></line>`;
+  // parity rule
+  html += `<line x1="${x50}" y1="${padT - 10}" x2="${x50}" y2="${H - padB + 4}" stroke="var(--ink)" stroke-width="1"></line>`;
+  html += `<text x="${x50}" y="${padT - 16}" class="ax" text-anchor="middle" style="font-style:italic">50 % parity</text>`;
+  html += `<text x="${padL}" y="${H - padB + 30}" class="ax" style="font-style:italic">← more female</text>`;
+  html += `<text x="${W - padR}" y="${H - padB + 30}" class="ax" text-anchor="end" style="font-style:italic">more male →</text>`;
+
+  // ─── connecting line: through significant rows only
+  const big = AGE.map((d,i) => ({d, i, y: padT + rowH*i + rowH/2, x: xs(d[1] - 50)})).filter(p => p.d[2] >= N_THRESH);
+  let line = '';
+  big.forEach((p, k) => { line += (k ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1) + ' '; });
+  html += `<path d="${line}" fill="none" stroke="var(--ink-3)" stroke-width="1" stroke-dasharray="3 3"></path>`;
+
+  // ─── rows
+  AGE.forEach((d, i) => {
+    const [bin, pct, n] = d;
+    const y = padT + rowH * i + rowH / 2;
+    const x = xs(pct - 50);
+    const r = rOf(n);
+    const dim = n < N_THRESH;
+    const op = dim ? 0.45 : 1;
+    html += `<text x="${padL - 12}" y="${y + 4}" class="lbl-mini num" text-anchor="end" style="fill:var(--ink);font-family:'IBM Plex Sans',sans-serif">${bin}</text>`;
+    html += `<circle cx="${x}" cy="${y}" r="${r}" fill="var(--ink)" fill-opacity="${dim ? 0.12 : 0.78}" stroke="var(--ink)" stroke-opacity="${dim ? 0.3 : 0}" stroke-width="0.8"></circle>`;
+    const wantRight = x + r + 8;
+    const useLeft = wantRight + 76 > W - 6;
+    const labelX = useLeft ? x - r - 8 : wantRight;
+    const anchor = useLeft ? 'end' : 'start';
+    html += `<text x="${labelX}" y="${y + 4}" class="lbl-mini num" text-anchor="${anchor}" style="opacity:${op}">${pct.toFixed(0)} % · n = ${n.toLocaleString()}</text>`;
+  });
+
+  // ─── footnote
+  html += `<text x="14" y="${H - 8}" class="annot">Faded rows: n &lt; ${N_THRESH}.  Connecting line drawn only through bins that pass the threshold.</text>`;
+
+  svg.innerHTML = html;
+}
+
+renderRidge();
+renderSmallMult();
+renderBubble();
+</script>
+
+</body>
+</html>

@@ -75,7 +75,7 @@ The following former one-line notes were represented in the tracker and then arc
   - surname-primary fallback extraction when no parenthetical block is present
   - support for mononym/artist-name parenthetical rows and quoted nickname normalization
 - Post-change quick validation against the same 31-row miss list: 18 episodes now produce person rows; 13 remain unresolved (mostly documentary summaries or missing infos).
-- Context snapshot: `documentation/context/mention-detection-guest-diagnostics-2026-03-27.md`.
+- Context snapshot: `documentation/archive/context/mention-detection-guest-diagnostics-2026-03-27.md`.
 
 ## F-008: Wikidata v2 Migration Contract Deviations (Closed)
 
@@ -117,7 +117,7 @@ The following former one-line notes were represented in the tracker and then arc
 - Primary opportunity: reduce file-count overhead and improve stream-style analysis for append-only event families.
 - Primary risk: monolithic JSONL append files can become large hot spots during runtime and need corruption handling and rotation/indexing policy to remain operationally safe.
 - Preliminary direction: keep CSV for stable tabular contracts, keep JSON objects/lists for mutable state snapshots, and evaluate JSONL selectively for append-only event flows (starting with `raw_queries` as a candidate) with staged rollout and validation.
-- Dedicated analysis artifact: `documentation/context/jsonl_potential.md`.
+- Dedicated analysis artifact: `documentation/archive/context/jsonl_potential.md`.
 
 ## F-012: Upstream Handover Loop for Class Miswiring and Property Coverage
 
@@ -126,7 +126,7 @@ The following former one-line notes were represented in the tracker and then arc
 - Recommendation: maintain a recurring downstream-to-upstream handover artifact whenever such findings emerge.
 - Required governance addition: a known-mismatch rewiring catalogue with force-include/force-exclude rules, manual Wikidata correction workflow, subclass expansion policy, and explicit core-class precedence.
 - Scope tracking and ownership registry are maintained in markdown for handoff readability: `data/00_setup/learning_scope_registry.md`.
-- Handover artifact: `documentation/31_entity_disambiguation/upstream_handover_2026-04-11.md`.
+- Handover artifact: `documentation/archive/31_entity_disambiguation/archive/311_upstream_handover_2026-04-11.md`.
 - Related tracker item: `TODO-014`.
 
 ## F-012 Countries are Organizations (Resolved)
@@ -209,6 +209,23 @@ Among the first episodes of Markus Lanz, there are episodes which have no guests
 - Impact: mean and median age of guests computed from `guest_catalogue.csv` birth years will be skewed upward. The true age distribution of all guests (including those not on Wikidata) is likely younger than the data suggests.
 - Mitigation: this bias cannot be corrected — it is structural to the data source. It must be acknowledged in any publication of age statistics. Suggested framing: "Age statistics are based on Wikidata-matched guests only (N=640 of 8,976 canonical entities) and are skewed toward older, more notable individuals."
 - Related tracker item: `TODO-029` (closed once this entry exists).
+
+## F-021: Analysis Notebook Code Review — Seven Correctness Issues (2026-05-11)
+
+- Observation: a targeted code review of `50_analysis.ipynb` and the `process.analysis` modules identified seven correctness issues in the current implementation.
+- High severity:
+  - **F-21a (Age aggregation bug):** `compute_carrier_stats` sums the `appearance_age` column instead of counting rows, inflating `appearance_count` and making age distribution percentages wrong.
+  - **F-21b (Duplicate summary file):** `analysis_summary.json` is written twice in the notebook with incompatible schemas; the later write silently overwrites the earlier.
+  - **F-21c (Variable reuse):** `per_show_stats` is reused for two unrelated DataFrames; the README generator receives the wrong table.
+  - **F-21d (Visualization cache mismatch):** `viz_base.save_fig` skips regeneration based on PNG existence alone, not the full output bundle (PNG + PDF + HTML), violating the documented checksum-based cache contract.
+- Medium severity:
+  - **F-21e (Notebook does not orchestrate):** The notebook contains substantial inline data processing logic that duplicates or bypasses module implementations.
+  - **F-21f (Show-color registry):** `build_show_color_registry` accepts placeholder `NONE` show IDs as real shows, polluting palette slot assignments.
+- Low severity:
+  - **F-21g (Section numbering):** Duplicated and out-of-order section headings make notebook navigation fragile.
+- Detailed evidence and recommendations: `documentation/archive/50_Analysis/2026-05-11_review/findings.md`.
+- Implementation plan: `documentation/archive/50_Analysis/2026-05-11_review/code_update_plan.md`.
+- Status: code changes deferred.
 
 ## F-020: Gender Bias Analysis Describes the Sample, Not the Population (TODO-033)
 

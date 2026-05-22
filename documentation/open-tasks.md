@@ -54,7 +54,7 @@ Copy this block when adding a new item.
 - Status: in-progress
 - Area: workflow
 - Summary: The OpenRefine reconciliation team is producing a 6-column CSV (`alignment_unit_id`, `wikibase_id`, `wikidata_id`, `fernsehserien_de_id`, `mention_id`, `canonical_label`) as the authoritative output of manual Phase 31 reconciliation. This CSV must be integrated into Phase 32 as the highest-confidence deduplication tier, superseding automated strategies where present. Our task is to be ready to receive and integrate it — the CSV itself is produced externally.
-- Evidence: `documentation/31_entity_disambiguation/post-processing.md` (workflow + deadlines), `ToDo/2026-05-03_Speaker_Mining_Paper/`.
+- Evidence: `documentation/archive/31_entity_disambiguation/post-processing.md` (workflow + deadlines), `ToDo/2026-05-03_Speaker_Mining_Paper/`.
 - Definition of done:
   1. The integration contract is documented in `contracts.md`: where the incoming CSV is placed, what Phase 32 does with it, and how it overrides automated clustering.
   2. Phase 32 logic (`orchestrator.py` or a new step) reads the incoming CSV and promotes its entries to a new `manual_reconciliation` cluster strategy with confidence = `authoritative`.
@@ -81,7 +81,7 @@ Copy this block when adding a new item.
 - Status: in-progress
 - Area: contracts
 - Summary: `aligned_persons.csv` has 2,531 columns — a symptom of two issues: (1) `raw_json_wikidata` column containing full JSON payload is redundant alongside the individual property columns, and (2) both raw `*_wikidata` and `*_norm_wikidata` variants of every Wikidata property column are propagated, doubling the column count. The bloated count also makes OpenRefine reconciliation projects slow to load, but some context columns are genuinely useful for manual reconciliation.
-- Evidence: `data/31_entity_disambiguation/aligned/aligned_persons.csv` header (2,531 cols); `documentation/31_entity_disambiguation/archive/todo_tracker.md` (archived notes).
+- Evidence: `data/31_entity_disambiguation/aligned/aligned_persons.csv` header (2,531 cols); `documentation/archive/31_entity_disambiguation/archive/todo_tracker.md` (archived notes).
 - Definition of done:
   1. `raw_json_wikidata` column is removed from Phase 31 output schema (full payloads live in `core_persons.json`).
   2. Either the raw or the `_norm_` variant of each Wikidata property column is removed; the surviving column is documented in `contracts.md`.
@@ -177,7 +177,7 @@ Copy this block when adding a new item.
 - Status: open
 - Area: ingestion
 - Summary: The Wikidata Node Integrity Pass step in Notebook 21 took 1648 seconds on first run and over 6726 seconds on a second run without completing. This is likely a performance or loop issue that needs investigation before the step can be relied upon.
-- Evidence: `ToDo/21_wikidata_6_5_run_Node_integrity_pass_context.md`, `ToDo/21_wikidata_6_5_run_Node_integrity_pass_context_second.md`, `documentation/context/node_integrity/node_integrity_20260424T140800Z.md`, `documentation/context/node_integrity/node_integrity_20260424T105030Z.md`.
+- Evidence: `ToDo/21_wikidata_6_5_run_Node_integrity_pass_context.md`, `ToDo/21_wikidata_6_5_run_Node_integrity_pass_context_second.md`, `documentation/archive/context/node_integrity/node_integrity_20260424T140800Z.md`, `documentation/archive/context/node_integrity/node_integrity_20260424T105030Z.md`.
 - Definition of done:
   1. Root cause of the excessive runtime is identified and documented.
   2. Either the step is optimized to complete in a reasonable time (< 5 minutes), or a principled decision is made to skip/replace it with an explanation.

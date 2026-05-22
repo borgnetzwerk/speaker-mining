@@ -106,7 +106,7 @@ Care that there is plenty of noise in there "ehem. Gartner an der Uni seines Vat
 
 ## Intermediate Statistics
 ### 16.04.
-otal graph nodes: 6276 | edges: 8581
+Total graph nodes: 6276 | edges: 8581
 Selected nodes for global tables: 6276 | edges: 8581
 Core classes in selected graph: 7
 Activity mode: runtime-or-structural
