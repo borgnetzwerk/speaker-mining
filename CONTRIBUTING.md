@@ -16,4 +16,4 @@ All engineering practices are documented in [`documentation/coding-principles.md
 
 ## Reporting Issues
 
-Open an issue on GitHub. For context on known open work, see [`documentation/open-tasks.md`](documentation/open-tasks.md).
+Open an issue on GitHub. For context on known open work, see [`documentation/tasks/00_index.md`](documentation/tasks/00_index.md).

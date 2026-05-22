@@ -30,4 +30,13 @@ Investigation complete (2026-04-26). Clarifications aggregated. Related tasks wi
 
 ## Sub-tasks
 
-See `documentation/Wikidata/archive/2026-04-26_investigation/05_related_tasks.md` for the full related-task inventory.
+The following medium tasks in `documentation/tasks/` are satellite sub-tasks of this rework. They can be executed independently but are tracked here as part of the v4 effort:
+
+- [roles-projection-fix](../2026-05-22_roles-projection-fix.md) *(in-progress, high priority)*
+- [instances-csv-dual-write](../2026-05-22_instances-csv-dual-write.md)
+- [node-integrity-pass-performance](../2026-05-22_node-integrity-pass-performance.md)
+- [property-hydration-config-alignment](../2026-05-22_property-hydration-config-alignment.md)
+- [seed-removal-propagation](../2026-05-22_seed-removal-propagation.md)
+- [time-sensitive-wikidata-claims](../2026-05-22_time-sensitive-wikidata-claims.md)
+
+Full related-task inventory: `documentation/Wikidata/archive/2026-04-26_investigation/05_related_tasks.md`.

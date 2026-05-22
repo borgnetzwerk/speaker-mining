@@ -1,3 +1,5 @@
+> **V3 — Current production implementation.** A V4 redesign is ~20% complete and in progress. See the [`wikidata-v4-rework` task](../../tasks/2026-05-22_wikidata-v4-rework/) for the redesign status.
+
 # Wikidata Expansion And Discovery Rules
 
 This document is the single source of truth for Stage A graph discovery and expansion eligibility.

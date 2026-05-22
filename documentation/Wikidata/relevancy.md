@@ -1,3 +1,5 @@
+> **V3 — Current production implementation.** A V4 redesign is ~20% complete and in progress. See the [`wikidata-v4-rework` task](../../tasks/2026-05-22_wikidata-v4-rework/) for the redesign status.
+
 ## Setup Seeding and Manual Overrides
 
 To ensure stable, user-editable control over relation context approvals, the pipeline always imports a read-only seed file:

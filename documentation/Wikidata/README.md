@@ -2,7 +2,13 @@
 
 This folder contains the canonical and historical documentation for the Wikidata candidate-generation pipeline.
 
-## Current Canonical Entry Points
+## Version status
+
+**All documents in this folder describe the V3 implementation**, which is the current active pipeline. Each document carries a V3 status banner at the top.
+
+A V4 redesign is ~20% implemented. V4 design documentation is in `archive/2026-04-26_investigation/`. See the [`wikidata-v4-rework` task](../../tasks/2026-05-22_wikidata-v4-rework/) for V4 implementation status.
+
+## Current Canonical Entry Points (V3)
 
 Read these first for current behavior:
 
@@ -14,9 +20,7 @@ Read these first for current behavior:
 	- Stage A eligibility and subclass preflight rules (including Active/Inactive class model).
 4. `node-integrity-pass.md`
 	- Node-integrity pass purpose, bottlenecks, and implementation notes.
-5. `wikidata_todo_tracker.md`
-	- Active follow-up ideas and unresolved operational TODOs.
-6. `class_graph_persistence_design.md`
+5. `class_graph_persistence_design.md`
 	- Pre-implementation architecture proposal for persistent class graph, queue pruning, and bounded-memory subclass preflight.
 
 ## Implementation Alignment Snapshot (2026-04-11)

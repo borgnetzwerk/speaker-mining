@@ -1,3 +1,5 @@
+> **V3 — Current production implementation.** A V4 redesign is ~20% complete and in progress. See the [`wikidata-v4-rework` task](../../tasks/2026-05-22_wikidata-v4-rework/) for the redesign status.
+
 # Wikidata Service Interaction Guidelines
 
 This document defines how this repository should interact with Wikidata and related Wikimedia services.

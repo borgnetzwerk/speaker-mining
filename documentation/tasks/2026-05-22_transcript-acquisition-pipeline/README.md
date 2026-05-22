@@ -22,8 +22,11 @@ ZDF talk show episodes are available as audio via ZDF Mediathek or mirrored on Y
 
 ## Downstream tasks enabled
 
-- `guest-speaking-time` (TODO-054): voice share metric from diarized transcripts
-- `named-entity-co-mention` (TODO-055): NER over transcript text
+These medium tasks in `documentation/tasks/` become executable once this pipeline is in place:
+
+- [guest-speaking-time](../2026-05-22_guest-speaking-time.md) (TODO-054): voice share metric from diarized transcripts
+- [named-entity-co-mention](../2026-05-22_named-entity-co-mention.md) (TODO-055): NER over transcript text
+- [topic-demographic-correlation](../2026-05-22_topic-demographic-correlation.md) (TODO-056): join episode topic labels with Phase 50 demographic data
 
 ## Technical notes
 

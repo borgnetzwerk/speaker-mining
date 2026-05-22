@@ -254,3 +254,4 @@ speakermining/src/process/notebooks/*.py
 speakermining/src/process/notebooks/*/*.py
 
 documentation/archive/*
+documentation/tasks/2026-05-21_GitHub_ready/*/*

@@ -6,7 +6,12 @@ Single entry point for all open tasks. See [task-principles.md](../task-principl
 
 ## Small tasks
 
-*(none — all backlog items are medium or large)*
+*(code-scope, deferred — no individual file; captured here for visibility)*
+
+- **atomic-write-csv-column-selection**: Add explicit column selection list before every `atomic_write_csv` call so that column order and presence are contract-defined, not derived from whatever DataFrame happens to exist at call time. Identified by: Veteran Developer (R01), Data Engineer (R05).
+- **parsing-rule-frozenset-constant**: Define `VALID_PARSING_RULES: frozenset` constant in `mention_detection/config.py` so rule membership can be validated at parse time rather than discovered by inspection. Identified by: Veteran Developer (R01), task 5.
+- **fetch-error-threshold-assertion**: Add an assertion after each network-backed fetch loop that raises if the error rate exceeds a configurable threshold (e.g., >10%). Prevents silent partial-fetch runs from propagating to downstream phases. Identified by: Data Engineer (R05), task 6.
+- **fernsehserien-checkpoint-retention-policy**: Define and document a checkpoint retention policy for fernsehserien.de cache files — how long cached pages are considered fresh, when they are invalidated, and whether old checkpoints are ever deleted. Currently undocumented and potentially unbounded. Identified by: Data Engineer (R05), task 8.
 
 ---
 
@@ -164,85 +169,49 @@ Single entry point for all open tasks. See [task-principles.md](../task-principl
 * scope: pipeline
 * summary: Join episode topic labels with Phase 50 demographic data to test whether specific topics are discussed with systematically different guest demographics.
 
-### 2026-05-22_dynamic-analysis-pipeline — [2026-05-22_dynamic-analysis-pipeline.md](2026-05-22_dynamic-analysis-pipeline.md)
-* priority: medium
-* scope: pipeline
-* summary: Make all Phase 50 analyses and visualizations run automatically from analysis_properties.csv without manual wiring when new properties are added.
-
-### 2026-05-22_class-hierarchy-walk — [2026-05-22_class-hierarchy-walk.md](2026-05-22_class-hierarchy-walk.md)
-* priority: medium
-* scope: pipeline
-* summary: Complete the P279 hierarchy walk by fixing mid-level class mapping, adding loop-resolution configuration, and eliminating occupation duplicate entries in top-10 lists.
-
-### 2026-05-22_property-stats-tables — [2026-05-22_property-stats-tables.md](2026-05-22_property-stats-tables.md)
-* priority: medium
-* scope: pipeline
-* summary: Generalize carrier_stats and episode_appearance_stats functions to work for all property types and emit standardized Unknown/no-data rows and combination tables.
-
-### 2026-05-22_visualization-infrastructure — [2026-05-22_visualization-infrastructure.md](2026-05-22_visualization-infrastructure.md)
-* priority: medium
-* scope: pipeline
-* summary: Enforce file naming conventions, add DE/EN localization support, add per-show cross-property chart runs, and wire the episode-level property pipeline.
-
-### 2026-05-22_cross-property-charts — [2026-05-22_cross-property-charts.md](2026-05-22_cross-property-charts.md)
-* priority: medium
-* scope: pipeline
-* summary: Complete universal chart ColorRegistry integration and add per-show scope to all cross-property stacked bar chart families.
-
-### 2026-05-22_hierarchical-item-visualizations — [2026-05-22_hierarchical-item-visualizations.md](2026-05-22_hierarchical-item-visualizations.md)
-* priority: medium
-* scope: pipeline
-* summary: Implement sunburst and Sankey diagrams for occupation hierarchy (combined + per-show) and adaptive-granularity timeline visualizations.
-
-### 2026-05-22_scalar-extended-plot-families — [2026-05-22_scalar-extended-plot-families.md](2026-05-22_scalar-extended-plot-families.md)
-* priority: low
-* scope: pipeline
-* summary: Add birth-year × gender frequency scatter and stacked area charts for temporal property-value prevalence.
-
-### 2026-05-22_person-level-analysis — [2026-05-22_person-level-analysis.md](2026-05-22_person-level-analysis.md)
-* priority: medium
-* scope: pipeline
-* summary: Add within-category per-person charts and a top-guests property-gap report listing which Wikidata fields are empty for the most-appeared guests.
-
-### 2026-05-22_data-quality-followups — [2026-05-22_data-quality-followups.md](2026-05-22_data-quality-followups.md)
-* priority: medium
-* scope: pipeline
-* summary: Investigate implausible age outliers (3-year-old and 117-year-old guests) and catalogue apparent QID duplicates such as Doktor phil vs Doktor Philosophiae variants.
-
-### 2026-05-22_analysis-taxonomy-compliance — [2026-05-22_analysis-taxonomy-compliance.md](2026-05-22_analysis-taxonomy-compliance.md)
+### 2026-05-22_data-privacy-catalogue — [2026-05-22_data-privacy-catalogue.md](2026-05-22_data-privacy-catalogue.md)
 * priority: low
 * scope: documentation
-* summary: Audit analysis/README.md and 50_analysis.ipynb for consistent application of the property-type (A/B/C/D) and function-type (F1–F5) taxonomy across all analysis angles.
+* summary: Define which pipeline properties (gender, age, party, employer) are sensitive under GDPR and living-persons protection, and document access tiers for public vs. research releases.
 
-### 2026-05-22_exploratory-analysis-angles — [2026-05-22_exploratory-analysis-angles.md](2026-05-22_exploratory-analysis-angles.md)
+### 2026-05-22_mention-level-evaluation — [2026-05-22_mention-level-evaluation.md](2026-05-22_mention-level-evaluation.md)
+* priority: medium
+* scope: research
+* summary: Construct a 100-row stratified sample from persons.csv and manually annotate for precision/recall; report results by parsing_rule in documentation/evaluation.md.
+
+### 2026-05-22_cross-source-validation — [2026-05-22_cross-source-validation.md](2026-05-22_cross-source-validation.md)
+* priority: medium
+* scope: research
+* summary: Compare ZDF PDF and fernsehserien.de guest attribution for shared episodes; document agreement rates and disagreement categories in documentation/evaluation.md.
+
+### 2026-05-22_phase50-inferential-stats — [2026-05-22_phase50-inferential-stats.md](2026-05-22_phase50-inferential-stats.md)
 * priority: low
-* scope: pipeline
-* summary: Prototype subset dominance analysis, cross-show guest overlap, career arc patterns (shooting star vs. evergreen), property co-occurrence prediction, and temporal chunking.
+* scope: research
+* summary: Define and document the minimum inferential statistics standard for Phase 50 outputs — either confirm descriptive-only with rationale, or name test families and correction strategy.
 
-### 2026-05-22_quality-tier-classification — [2026-05-22_quality-tier-classification.md](2026-05-22_quality-tier-classification.md)
+### 2026-05-22_fixture-dataset — [2026-05-22_fixture-dataset.md](2026-05-22_fixture-dataset.md)
 * priority: medium
-* scope: pipeline
-* summary: Apply data_quality_tier.isin([1,2]) filter to all property stats expansion inputs and add per-show tier breakdowns to person_quality_tiers.csv.
+* scope: testing
+* status: deferred (code-scope; prerequisite: T27 CI setup)
+* summary: Create a 5-episode plaintext fixture corpus in speakermining/test/fixtures/ covering all parsing_rule values; mark live-corpus tests with @pytest.mark.requires_corpus.
 
-### 2026-05-22_output-folder-readmes — [2026-05-22_output-folder-readmes.md](2026-05-22_output-folder-readmes.md)
-* priority: medium
-* scope: documentation
-* summary: Expand readme_generator.py to embed all completed chart types in all/README.md and ensure every data/50_analysis/ subdirectory has a README.
-
-### 2026-05-22_gitignore-analysis-outputs — [2026-05-22_gitignore-analysis-outputs.md](2026-05-22_gitignore-analysis-outputs.md)
-* priority: medium
-* scope: workflow
-* summary: Verify and fine-tune .gitignore rules so aggregate CSVs and PNG visualizations are tracked while raw occurrence matrices, per-person CSVs, PDFs, and HTML are excluded.
-
-### 2026-05-22_appearance-totals-validation — [2026-05-22_appearance-totals-validation.md](2026-05-22_appearance-totals-validation.md)
-* priority: medium
-* scope: pipeline
-* summary: Validate episode appearance totals against the expected 25,902 total and wire Wikidata as a third occurrence source in build_person_catalogue alongside ZDF and fernsehserien.de.
-
-### 2026-05-22_unclassified-persons-fs-links — [2026-05-22_unclassified-persons-fs-links.md](2026-05-22_unclassified-persons-fs-links.md)
+### 2026-05-22_event-log-health-notebook — [2026-05-22_event-log-health-notebook.md](2026-05-22_event-log-health-notebook.md)
 * priority: low
-* scope: pipeline
-* summary: Verify all 215 persons with wikidata_person_only_baseline match strategy against fernsehserien.de episode pages to find false negatives like Marie-Agnes Strack-Zimmermann.
+* scope: operations
+* status: deferred (code-scope)
+* summary: Create a notebook/script that reads pipeline event logs and produces a one-page health_summary.md with success/failure ratios, error type distribution, and threshold alerts.
+
+### 2026-05-22_data-lineage-trace — [2026-05-22_data-lineage-trace.md](2026-05-22_data-lineage-trace.md)
+* priority: low
+* scope: operations
+* status: deferred (code-scope)
+* summary: Implement trace_entity(canonical_entity_id) that walks all pipeline stage outputs and returns a structured per-stage record for debugging entity value provenance.
+
+### 2026-05-22_phase31-32-zenodo-dataset — [2026-05-22_phase31-32-zenodo-dataset.md](2026-05-22_phase31-32-zenodo-dataset.md)
+* priority: low
+* scope: dissemination
+* status: deferred (requires legal review of ZDF data agreement)
+* summary: Publish the Phase 31/32 deduplicated entity dataset as a standalone Zenodo dataset; legal review of ZDF and fernsehserien.de terms required before proceeding.
 
 ### 2026-05-22_v4-architecture-documentation — [2026-05-22_v4-architecture-documentation.md](2026-05-22_v4-architecture-documentation.md)
 * priority: medium
@@ -289,6 +258,11 @@ Single entry point for all open tasks. See [task-principles.md](../task-principl
 * scope: architecture
 * status: in-progress
 * summary: Design and implement a single rule-driven graph expansion engine replacing Phase 2.1's patchwork of inter-dependent repair modules.
+
+### phase-50-analysis-implementation — [2026-05-22_phase-50-analysis-implementation/](2026-05-22_phase-50-analysis-implementation/)
+* priority: medium
+* scope: pipeline
+* summary: Implement the full Phase 50 analysis and visualization suite: property distribution stats, cross-property charts, hierarchy visualizations, bug fixes in 50_analysis.ipynb, and output management. Contains 16 implementation sub-tasks and 7 bug fix sub-tasks.
 
 ### transcript-acquisition-pipeline — [2026-05-22_transcript-acquisition-pipeline/](2026-05-22_transcript-acquisition-pipeline/)
 * priority: low
