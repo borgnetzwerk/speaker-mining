@@ -6,7 +6,7 @@ Aggregated findings for this repository.
 
 This file consolidates analysis notes that were previously scattered across multiple markdown files.
 
-For open or solved work tracking, use `open-tasks.md`.
+For open or solved work tracking, see `documentation/tasks/00_index.md`.
 
 ## F-001: Episode Overlap Across Archive Files
 

@@ -205,4 +205,4 @@ Recommended heartbeat snapshot fields:
    successful responses.
 3. Add tests for schema fields, append-only behavior, and budget/rate-limit
    field population.
-4. Track rollout by notebook in `documentation/open-tasks.md`.
+4. Track rollout by notebook in `documentation/tasks/00_index.md`.

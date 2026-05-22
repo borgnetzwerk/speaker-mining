@@ -190,6 +190,7 @@ dmypy.json
 
 # Claude
 .claude/
+CLAUDE.md
 
 # Ruff stuff:
 .ruff_cache/
@@ -240,10 +241,8 @@ documentation/visualizations/*.drawio.xml
 documentation/visualizations/*Ps.drawio.pdf
 speakermining/src/config/main.json
 documentation/context/*
-# Local ToDo Folder
-# ToDo
-documentation/ToDo/*/*
-!documentation/ToDo/DOC/*
+# Local task reference folders (large local-only assets not for version control)
+documentation/tasks/visualization_references/
 documentation/visualizations/*
 !documentation/visualizations/visualization-principles.md
 
@@ -253,3 +252,5 @@ speakermining/src/process/candidate_generation/INSTITUTION_EXTRACTION_DEFERRED.m
 speakermining/src/process/candidate_generation/institution_extraction_deferred.py
 speakermining/src/process/notebooks/*.py
 speakermining/src/process/notebooks/*/*.py
+
+documentation/archive/*

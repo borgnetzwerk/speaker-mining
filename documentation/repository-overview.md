@@ -122,4 +122,4 @@ Authoritative source for output contracts, file names, and schema headers:
 3. Wikidata candidate generation is graph-first plus fallback-stage orchestration on top of a v3 JSONL eventstore and projection handlers.
 4. No `__init__.py` at `speakermining/src/` level — import path setup is done manually in each notebook via `sys.path` manipulation rather than an installed package.
 
-See `open-tasks.md` for operational tracking and `findings.md` for aggregated evidence.
+See `tasks/00_index.md` for operational tracking and `findings.md` for aggregated evidence.

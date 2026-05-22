@@ -403,7 +403,7 @@ Copy this block when adding a new item.
 - Summary: Create a clear separation between the active TODO zone (tasks ready to be picked up and processed) and a sketching zone (loose ideas not yet formalized enough to be acted on). Each zone has defined entry/exit criteria so that random notes do not pollute the actionable queue.
 - Evidence: `open_additional_input.md` batch 7.
 - Definition of done:
-  1. `documentation/ToDo/` is restructured with at least two distinct areas: `open-tasks.md` (active, fully specified) and a new `sketch.md` or `ideas/` folder (unstructured, not yet actionable).
+  1. `documentation/tasks/` is restructured with at least two distinct areas: `open-tasks.md` (active, fully specified) and a new `sketch.md` or `ideas/` folder (unstructured, not yet actionable).
   2. Entry criteria for `open-tasks.md` are documented: every task must have all template fields filled.
 - Notes: Deferred (post-deadline 2026-05-03). Does not benefit Phase 5 analysis.
 
@@ -466,3 +466,340 @@ Copy this block when adding a new item.
   1. Input discovery is parameterized so that a different show can be processed by changing a config value, not code.
   2. At least one additional show archive is processed successfully end-to-end through Phase 1.
   3. Show identity is propagated as a column in all Phase 1 output CSVs.
+
+---
+
+### TODO-052: Episode multi-topic classification from ZDF description text
+
+- Priority: medium
+- Status: open
+- Area: analysis
+- Summary: Each episode currently carries at most one ZDF-provided topic label; a keyword-weighted multi-topic taxonomy applied to the episode description and title text would enable topic × demographic analysis as a new Phase 50 dimension.
+- Evidence: `documentation/tasks/visualization_references/Lanz-und-Precht/theme_detection.ipynb` demonstrates a working 10-topic taxonomy with evidence-weighted scoring across title, description, bag-of-words, named entities, and transcript text. The approach requires only description text for partial benefit — no transcripts needed for the first version.
+- Definition of done:
+  1. A topic taxonomy (10–15 German-language topics; e.g. Politics, Economy, Climate, Technology, Society, International, Health, Science, Media, Migration) is documented in `documentation/analysis/` with its keyword lists.
+  2. A Phase 50 module classifies each episode with one or more topics, writing `topic_labels` as a list column in the analysis output.
+  3. At least one new Phase 50 visualization shows guest gender distribution broken down by topic.
+- Notes: Topic taxonomy should be iteratively validated against known episodes before running on the full corpus. Weighted scoring strategy from `theme_detection.ipynb` (higher weight for title/description than bag-of-words) should be preserved.
+
+---
+
+### TODO-053: Transcript acquisition pipeline for ZDF talk show episodes
+
+- Priority: low
+- Status: open
+- Area: ingestion
+- Summary: ZDF talk show episodes are available as audio via ZDF Mediathek or mirrored on YouTube; a Whisper-based German transcription pipeline would open an entirely new class of content-level analysis (see TODO-054, TODO-055, TODO-056).
+- Evidence: `documentation/tasks/visualization_references/Lanz-und-Precht/` demonstrates the full pipeline for the Lanz & Precht podcast: episode metadata → YouTube matching → Whisper JSON → NLP artifacts (bag_of_words, named_entities) → theme detection. Markus Lanz episodes follow the same structure. ZDF episodes are also available via the ZDF Mediathek API.
+- Definition of done:
+  1. Legal and terms-of-use position is assessed and documented: can ZDF audio be transcribed for non-commercial academic research?
+  2. Audio retrieval strategy is decided: ZDF Mediathek API, yt-dlp from YouTube, or both; retention policy (delete audio after transcription) is documented.
+  3. Whisper pipeline produces per-episode JSON with at minimum `text` (full transcript), `language`, and `segments` (timestamped). German model (`large-v3` or equivalent) is used.
+  4. Transcripts are stored as JSONL or individual JSON files under `data/transcripts/` following the existing `data/` naming conventions.
+  5. A notebook cell demonstrates loading a transcript and retrieving its segment list.
+- Notes: Whisper `large-v3` model handles German well. Segment timestamps are essential for diarization (TODO-054). The Lanz & Precht notebooks store NLP artifacts (bag_of_words, named_entities) separately from the raw Whisper output — that separation should be preserved.
+
+---
+
+### TODO-054: Guest speaking time from diarized transcripts
+
+- Priority: low
+- Status: open
+- Area: analysis
+- Summary: Given Whisper-transcribed episodes and speaker diarization, each guest's actual speaking time and word count can be measured per appearance — quantifying participation inequality and enabling a "voice share" dimension beyond appearance count.
+- Evidence: The existing pipeline measures guest *presence* (appearance count) but not *participation*. Lanz-und-Precht `analysis_advanced.ipynb` computes word count per episode as a proxy for content volume; with diarization that breaks down per speaker. Requires TODO-053 (transcripts) first. Diarization can be done with `pyannote.audio` (speaker diarization) or Whisper's native `--diarize` flag in combination with pyannote.
+- Definition of done:
+  1. A diarization strategy is chosen and documented: Whisper diarize flag vs. pyannote post-processing. Limitations (speaker count uncertainty, host vs. guest confusion) are noted.
+  2. A `voice_share` metric is defined: words spoken per appearance, normalized to episode total. Stored in analysis output alongside existing `appearance_count`.
+  3. At least one Phase 50 visualization shows voice share distribution by gender and by occupation.
+  4. Correlation between `voice_share` and Wikidata prominence (page rank or P18 image) is computed and documented.
+- Notes: Speaker count per Lanz episode is typically 3–5 (host + guests). Diarization accuracy is sufficient for word-count estimation even without perfect speaker labelling — the key signal is "total words attributed to identified guest X" not sentence-level attribution. Manual spot-check on 5 episodes should validate the approach before full corpus run.
+
+---
+
+### TODO-055: Named entity co-mention analysis across the corpus
+
+- Priority: low
+- Status: open
+- Area: analysis
+- Summary: Persons mentioned in episode descriptions or transcripts who never appear as guests are an invisible but significant layer of the public discourse graph; mining this co-mention layer would reveal whose names travel through the show without their presence.
+- Evidence: `analysis_advanced.ipynb` extracts named entities from NLP artifacts per episode and tracks their frequency over time. In the talk show context this distinguishes three populations: (A) guests who appear and are mentioned, (B) persons mentioned but never appearing, (C) guests who appear but are rarely mentioned outside their own episode. Requires only description text for a first version; transcript NER would add significantly more mentions. Named entity extraction can use spaCy `de_core_news_lg` or `flair/ner-german-large`.
+- Definition of done:
+  1. Named entities are extracted from at least episode description text using a German NER model; results stored per episode as a JSON artifact.
+  2. A co-mention table is produced: for each Wikidata-resolved guest, their mention count in episodes where they did NOT appear as a guest.
+  3. The "mentioned but never guest" population is characterized: count, Wikidata resolution rate, and gender/occupation distribution compared to the actual guest population.
+  4. Results are incorporated into Phase 50 output or documented in `documentation/analysis/`.
+- Notes: The co-mention analysis is a direct input to link prediction (the currently unimplemented Phase 4/P4): "person X is frequently co-mentioned with show Y → candidate for future guest or related entity". High-prominence persons who are frequently mentioned but never appear may represent a systematic invitation gap.
+
+---
+
+### TODO-056: Topic × guest demographic correlation in Phase 50
+
+- Priority: low
+- Status: open
+- Area: analysis
+- Summary: Adding topic labels (TODO-052) as a new dimension to Phase 50 would reveal whether specific topics are discussed with systematically different guest demographics — a key question for diversity analysis beyond aggregate counts.
+- Evidence: Lanz-und-Precht `analysis_advanced.ipynb` cross-references thematic evolution with publication cadence. In the talk show context the question is: "do climate episodes have different gender distribution than economy episodes?" or "has the gender balance on international-politics episodes shifted post-2020?". This requires TODO-052 (topic labels) and the existing Phase 50 demographic data.
+- Definition of done:
+  1. Topic labels from TODO-052 are joined with the deduped persons data used in Phase 50 analysis.
+  2. At least two new visualizations are produced: (a) gender distribution by topic (bar chart), (b) temporal gender trend per topic (line chart).
+  3. Statistical significance of topic × gender differences is tested and documented using the existing Mann-Whitney U infrastructure in `statistical_tests.py`.
+  4. Findings are added to `documentation/analysis/README.md` as planned analysis angles.
+- Notes: Depends on TODO-052 for topic labels. Can be prototyped with ZDF-provided single topic labels first (already in Phase 10 output) before multi-topic labels are available. This task directly extends the published paper's analysis scope.
+
+---
+
+## Phase 50 Analysis — Implementation Backlog
+
+The tasks below (TODO-057 through TODO-074) were recovered from `documentation/archive/50_Analysis/` open-task files (TASK-A, TASK-B, TASK-F series). They were archived without migration during the 2026-05-22 synthesis pass — a process error. Each is still open or partially implemented. Source archive: `documentation/archive/50_Analysis/2026-05-04_finalization/open-tasks.md` (primary), `2026-04-29_Initialization/open-tasks.md`, and `2026-04-30_restructuring/open-tasks.md`.
+
+---
+
+### TODO-057: Phase 50 — Dynamic property-driven analysis pipeline
+
+- Priority: medium
+- Status: open
+- Area: analysis
+- Summary: All suitable analyses and visualizations for every configured property should run automatically from `data/00_setup/analysis_properties.csv` without manual wiring per new property.
+- Evidence: `documentation/archive/50_Analysis/2026-05-04_finalization/open-tasks.md` TASK-F02.
+- Definition of done:
+  1. Analysis routing reads from `analysis_properties.csv`; adding a new property row causes it to appear in all applicable chart families without code changes.
+  2. Cross-property combination analyses run automatically for all ordered property pairs of type `item`.
+  3. Per-property and cross-property visualization outputs are produced in one notebook run without manually specifying pairs.
+
+---
+
+### TODO-058: Phase 50 — Class hierarchy walk completion and loop resolution
+
+- Priority: medium
+- Status: open
+- Area: analysis
+- Summary: The P279 hierarchy walk is incomplete: mid-level class mapping is missing, loop detection uses no configuration, and occupation rollup breakages (visible in top-10 lists as duplicate "Schauspieler", "Teacher" variants) remain unfixed.
+- Evidence: `documentation/archive/50_Analysis/2026-05-04_finalization/open-tasks.md` TASK-F03; `documentation/archive/50_Analysis/2026-04-29_Initialization/open-tasks.md` TASK-A02 known issues. See also TODO-042 (P279 walk architecture).
+- Definition of done:
+  1. P279 hierarchy walk completes for all first-level classes including Q488205 (Singer-Songwriter) and other QIDs currently missing resolution.
+  2. Loop detection consults `data/00_setup/loop_resolution.csv`; unlisted cycles use lowest-QID fallback; loop diagnostics (`number_of_loops`, `classes_in_loops`) are published.
+  3. Mid-level class mapping is defined and applied: sunburst/hierarchy charts show meaningful mid-level groups rather than direct top-level or first-level only.
+  4. "Two kinds of Schauspieler" symptom is gone from top-10 occupation lists.
+- Notes: Depends on TODO-042 for architectural design. Blocked on V4 Wikidata entity access until basic_fetch is reliable (see T02).
+
+---
+
+### TODO-059: Phase 50 — Standardized property statistics tables
+
+- Priority: medium
+- Status: open
+- Area: analysis
+- Summary: A generic `carrier_stats` + `episode_appearance_stats` function pair should produce standardized per-value statistics tables for every configured property, including min/max/mean/median per episode, episode-% without, unique persons, and total appearances.
+- Evidence: `documentation/archive/50_Analysis/2026-05-04_finalization/open-tasks.md` TASK-F04; `2026-04-29_Initialization/open-tasks.md` TASK-A04.
+- Definition of done:
+  1. `carrier_stats(property_id, data)` and `episode_appearance_stats(property_id, data)` are generalized and work for all property types (item, quantity, string, time).
+  2. Both functions emit an explicit "Unknown / no data" row, `person_count`, and `appearance_count` columns.
+  3. Combination tables (within-property and cross-property) are produced automatically for all item-type properties.
+  4. Remaining work from TASK-F04: downstream combination tables verified; dominance ratio and outlier flag confirmed present in all property output directories.
+
+---
+
+### TODO-060: Phase 50 — Visualization infrastructure: layout, file naming, and language
+
+- Priority: medium
+- Status: open
+- Area: analysis
+- Summary: Several visualization infrastructure items remain open: language variants (DE/EN with fully localized chart text), file naming convention enforcement (`{chart_type}_{pid}_{short_label}`), per-show chart runs for cross-property charts (ALL ↔ per-show symmetry), and episode-level property pipeline (duration, guest count, description, topic).
+- Evidence: `documentation/archive/50_Analysis/2026-05-04_finalization/open-tasks.md` TASK-F05 and TASK-F09 remaining work sections.
+- Definition of done:
+  1. Every output file includes both the PID and a ≤25-char slug: `{chart_type}_{pid}_{short_label}.{ext}`.
+  2. Language variant support: EN and DE localization controlled by a single config constant. At least `visualization-principles.md` documents the DE/EN capitalization rule.
+  3. Cross-property charts run per show in addition to the combined "all" scope.
+  4. Episode-level property pipeline produces duration, guest-count, and description outputs where data is available.
+  5. Source coverage dashboard shows unique-to-source episode count.
+
+---
+
+### TODO-061: Phase 50 — Universal and cross-property chart completion
+
+- Priority: medium
+- Status: open
+- Area: analysis
+- Summary: Universal visualizations need full ColorRegistry integration (currently uses palette cycling); cross-property `% A over B` stacked bar families need the per-show scope; and cross-property charts need verification that `guest_label`/`canonical_label` column is always available.
+- Evidence: `documentation/archive/50_Analysis/2026-05-04_finalization/open-tasks.md` TASK-F06 remaining work.
+- Definition of done:
+  1. All universal charts load colors exclusively from `ColorRegistry`; no local palette definitions remain in any `viz_*.py` module.
+  2. Cross-property stacked bar charts run per show as well as combined.
+  3. `guest_label` / `canonical_label` inconsistency is resolved; frames always carry the expected column name.
+
+---
+
+### TODO-062: Phase 50 — Hierarchical item visualizations (sunburst, Sankey, timeline)
+
+- Priority: medium
+- Status: open
+- Area: analysis
+- Summary: Hierarchical visualizations for occupation and role data (sunburst, Sankey, mid-level class charts) and timeline visualizations with adaptive granularity are not yet implemented.
+- Evidence: `documentation/archive/50_Analysis/2026-05-04_finalization/open-tasks.md` TASK-F07; `2026-04-29_Initialization/open-tasks.md` TASK-A02. Blocked on TODO-058 (hierarchy completion).
+- Definition of done:
+  1. Sunburst chart for occupation: combined + per-show; 5% "Other" cutoff; innermost ring = top-level classes. Center section is a meaningful class label, not "Person".
+  2. Sankey diagram for occupation hierarchy: combined + per-show; flow width = appearances and unique guests.
+  3. Mid-level class dedicated stacked bars and sunbursts for each designated mid-level class.
+  4. Timeline visualizations with adaptive granularity (max 50 data points, progressive coarsening).
+  5. All outputs exported PNG + PDF to `data/50_analysis/visualizations/`.
+- Notes: Multi-parent strategy needed for subclasses with multiple superclasses (primary-parent assignment or proportional count split) — document chosen strategy in notebook cell.
+
+---
+
+### TODO-063: Phase 50 — Remaining scalar and extended plot families
+
+- Priority: low
+- Status: open
+- Area: analysis
+- Summary: Two remaining items in the scalar/extended plot family: birth-year × gender frequency scatter (cross-scalar) and stacked area charts for temporal property-value prevalence.
+- Evidence: `documentation/archive/50_Analysis/2026-05-04_finalization/open-tasks.md` TASK-F08 remaining work.
+- Definition of done:
+  1. Birth-year × gender scatter is implemented: X = birth year, Y = appearance count, color = gender. Written to `visualizations/scatter_birthyear_vs_appearances_by_gender.png`.
+  2. Stacked area charts for temporal property value prevalence implemented once timeline module (TODO-062 item 4) is available.
+
+---
+
+### TODO-064: Phase 50 — Person-level analysis completion
+
+- Priority: medium
+- Status: open
+- Area: analysis
+- Summary: Two items from TASK-F10 remain: within-category per-person charts (for each property value, who are the top guests?) and empty-property reporting for top-N most-appeared guests.
+- Evidence: `documentation/archive/50_Analysis/2026-05-04_finalization/open-tasks.md` TASK-F10 remaining work.
+- Definition of done:
+  1. For each top-N value of every item-type property, a "within-category top persons" chart is produced showing top guests carrying that value, segmented by show.
+  2. For the top-N most-appeared guests, a report lists which configured properties had no Wikidata value (e.g., "Robin Alexander — employer field empty"). Written to `all/top_guests_property_gaps.csv`.
+
+---
+
+### TODO-065: Phase 50 — Data quality follow-ups: age outliers and apparent QID duplicates
+
+- Priority: medium
+- Status: open
+- Area: analysis
+- Summary: Two data quality issues require investigation: (1) implausible age outliers (3-year-old and 117-year-old guest) in distribution outputs; (2) semantically equivalent values split across multiple QIDs (e.g. "Doktor phil" vs "Doktor Philosophiae", capitalization variants of church names).
+- Evidence: `documentation/archive/50_Analysis/2026-05-04_finalization/open-tasks.md` TASK-F12; `2026-04-29_Initialization/open-tasks.md` TASK-A09.
+- Definition of done:
+  1. Age outliers investigated: specific QIDs/labels identified, birth year correctness in Wikidata verified, formula confirmed or corrected, finding documented as bug fix or data limitation.
+  2. Apparent QID duplicates catalogued: a list of value-pairs that appear to represent the same real-world concept is produced. For each pair: either merged in pipeline (via alias/normalization rule) or documented as a genuine Wikidata distinction.
+  3. Any corrections propagated through Phase 50 re-run.
+- Notes: See also TODO-040 (audit guest classification accuracy) which overlaps with item 1.
+
+---
+
+### TODO-066: Phase 50 — Analysis taxonomy and notebook structural compliance
+
+- Priority: low
+- Status: open
+- Area: docs
+- Summary: The analysis angle taxonomy (property types A/B/C/D, function types F1–F5) and its visualization mapping must be consistently applied across all documentation and all notebook cells.
+- Evidence: `documentation/archive/50_Analysis/2026-05-04_finalization/open-tasks.md` TASK-F13; `2026-04-29_Initialization/open-tasks.md` TASK-A12.
+- Definition of done:
+  1. `documentation/analysis/README.md` lists all analysis angles by property type (A/B/C/D) and function type (F1–F5).
+  2. `50_analysis.ipynb`: each Step C cell opens with a comment identifying its F-type (e.g. `# F1 — gender distribution`).
+  3. The §6 visualization mapping table (in `documentation/analysis/`) covers every F-type and matches `visualization-principles.md`.
+  4. No analysis angle is described only in narrative terms — all reference their property type and function type.
+
+---
+
+### TODO-067: Phase 50 — Exploratory analysis angles
+
+- Priority: low
+- Status: open
+- Area: analysis
+- Summary: A set of exploratory analysis angles deferred from the initial design: subset dominance analysis, cross-show guest overlap, career arc patterns (shooting star vs. evergreen), property co-occurrence predictive analysis, and temporal chunking by year/decade.
+- Evidence: `documentation/archive/50_Analysis/2026-05-04_finalization/open-tasks.md` TASK-F14; `2026-04-29_Initialization/open-tasks.md` TASK-A05.
+- Definition of done:
+  1. Each analysis angle is prototyped in `50_analysis.ipynb` and produces at least one output artifact.
+  2. Findings from each angle are documented in `documentation/analysis/README.md`.
+  3. Career arc patterns (shooting star / evergreen) have an operational definition documented before implementation.
+- Notes: These are exploratory — implementation can be incremental. Party affiliation history deep-dive and Poisson applicability check are sub-items.
+
+---
+
+### TODO-068: Phase 50 — Quality tier classification and filtering
+
+- Priority: medium
+- Status: open
+- Area: analysis
+- Summary: The `data_quality_tier` column exists in `build_person_catalogue` but property stats expansion inputs are not yet filtered to Tiers 1+2, per-show tier breakdowns are missing from `person_quality_tiers.csv`, and the analysis documentation does not explain how many Tier 3/4 entries are excluded.
+- Evidence: `documentation/archive/50_Analysis/2026-05-04_finalization/open-tasks.md` TASK-F16 remaining work.
+- Definition of done:
+  1. `data_quality_tier.isin([1, 2])` filter applied to all property stats and visualization expansion inputs; only Wikidata-reconciled persons enter property statistics.
+  2. `person_quality_tiers.csv` includes per-show tier breakdown rows.
+  3. `data/50_analysis/all/README.md` or `documentation/analysis/README.md` documents the tier exclusion: how many Tier 3+4 entries exist and what they represent.
+
+---
+
+### TODO-069: Phase 50 — Structured output folder README generation
+
+- Priority: medium
+- Status: open
+- Area: docs
+- Summary: `readme_generator.py` exists and is wired, but the embedded visualization list in `all/README.md` needs expanding as more chart types are completed, per-show visualizations need adding once per-show charts exist, and output needs visual validation on GitHub.
+- Evidence: `documentation/archive/50_Analysis/2026-05-04_finalization/open-tasks.md` TASK-F17 remaining work.
+- Definition of done:
+  1. `all/README.md` embeds all chart types produced by the completed Phase 50 pipeline (at minimum: universal bars, treemaps, cross-property stacked bars, coverage dashboard, pareto, cooccurrence heatmap).
+  2. Each per-show README embeds show-specific visualizations.
+  3. Output visually validated by navigating the GitHub repository after a commit.
+  4. Every subdirectory under `data/50_analysis/` has a README (binding principle from TASK-F17).
+
+---
+
+### TODO-070: Phase 50 — GitIgnore tuning for analysis outputs
+
+- Priority: medium
+- Status: open
+- Area: workflow
+- Summary: The root `.gitignore` has initial analysis output rules but they need verification and fine-tuning once the full Phase 50 output set is known; a dedicated `data/50_analysis/.gitignore` may be needed for finer control.
+- Evidence: `documentation/archive/50_Analysis/2026-05-04_finalization/open-tasks.md` TASK-F18 remaining work.
+- Definition of done:
+  1. `git check-ignore` confirms all raw occurrence matrices and per-person CSV files are excluded.
+  2. All aggregate/summary CSVs (carrier_stats, episode_stats, per_show_statistics, top_guests) are tracked.
+  3. PNG visualizations are tracked; PDF and HTML are not.
+  4. `data/50_analysis/.gitignore` created with rules specific to the analysis output tree if root rules are insufficient.
+
+---
+
+### TODO-071: Phase 50 — Appearance totals validation and occurrence source completeness
+
+- Priority: medium
+- Status: open
+- Area: analysis
+- Summary: Episode appearance totals have not been validated against expected bounds (25,902 total appearances vs per-property totals); Wikidata is not yet wired as a third occurrence source alongside ZDF and fernsehserien.de.
+- Evidence: `documentation/archive/50_Analysis/2026-05-04_finalization/open-tasks.md` TASK-F01 remaining work and TASK-F12 item "Add Wikidata as 3rd source".
+- Definition of done:
+  1. End-to-end appearance totals validated: `sum(occurrence_matrix)` ≈ expected 25,902 total appearances; per-property appearance totals do not exceed that total.
+  2. Wikidata raw_import and normalized episode data wired as a third source in `build_person_catalogue` (alongside ZDF and FS sources already implemented).
+  3. Source attribution breakdown in `person_quality_tiers.csv` shows counts from each of the three sources.
+
+---
+
+### TODO-072: Phase 50 — Unclassified persons fernsehserien.de link investigation
+
+- Priority: low
+- Status: open
+- Area: modeling
+- Summary: 215 canonical persons have `match_strategy=wikidata_person_only_baseline` and no fernsehserien.de episode link; at least one confirmed false negative (Marie-Agnes Strack-Zimmermann, Q15391841). Each should be verified against fernsehserien.de episode pages.
+- Evidence: `documentation/archive/50_Analysis/2026-04-29_Initialization/open-tasks.md` TASK-A13.
+- Definition of done:
+  1. All 215 persons individually verified against fernsehserien.de.
+  2. True missing-link cases have corrected `fernsehserien_de_id` in reconciliation data; Phase 31 → 32 → 50 re-run for corrections.
+  3. Remaining persons confirmed as genuinely unlinked and documented as such.
+- Notes: Can be done manually or with an agent. Volume: 215 persons.
+
+---
+
+### TODO-073: Document v4 Wikidata architecture design in living Wikidata docs
+
+- Priority: medium
+- Status: open
+- Area: architecture
+- Summary: The v4 Wikidata redesign (implemented as TODO-044) is documented in `documentation/Wikidata/archive/2026-04-26_investigation/13_architecture_design.md` but its 6 design principles are not yet mirrored into a living `documentation/Wikidata/` doc. Before T02 (V3 archive removal) can happen, this gap must be filled.
+- Evidence: `documentation/Wikidata/archive/2026-04-26_investigation/13_architecture_design.md` — 6 principles: event store is sole source of truth; no post-hoc repair; two actor types (EventHandlers vs ExternalEventReaders); queues persisted in handler projections; rules are config (CSV files); backward compatibility permanent.
+- Definition of done:
+  1. A new `documentation/Wikidata/v4_architecture.md` (or equivalent section in `Wikidata.md`) documents the 6 v4 design principles in pipeline-neutral terms.
+  2. The module layout and handler responsibilities from `13_architecture_design.md` are summarized.
+  3. T02 (V3 archive removal) can proceed without losing this design knowledge.
+- Notes: Dependency for T02. Low urgency while V4 is ~20% complete. Recovery: `documentation/Wikidata/archive/2026-04-26_investigation/13_architecture_design.md` is the canonical source.

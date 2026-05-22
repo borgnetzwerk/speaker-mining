@@ -12,7 +12,7 @@ Use this as the single place to understand how the repository works, what standa
 4. [notebook-observability.md](notebook-observability.md)
 5. [mention-detection.md](mention-detection.md)
 6. [coding-principles.md](coding-principles.md)
-7. [open-tasks.md](open-tasks.md)
+7. [tasks/00_index.md](tasks/00_index.md)
 8. [findings.md](findings.md)
 
 ## Scope Of This Documentation
@@ -39,20 +39,18 @@ Use this as the single place to understand how the repository works, what standa
 - Wikidata pipeline architecture and V3/V4 transition: [Wikidata/README.md](Wikidata/README.md)
 - fernsehserien.de scraping spec and event contract: [fernsehserien_de/fernsehserien_de_specification.md](fernsehserien_de/fernsehserien_de_specification.md)
 - Verified pipeline output counts and data facts: [data_reference.md](data_reference.md)
-- Open and solved work items: [open-tasks.md](open-tasks.md)
+- Open tasks (index): [tasks/00_index.md](tasks/00_index.md)
+- Task governance rules: [task-principles.md](task-principles.md)
 - Research and evidence notes: [findings.md](findings.md)
 
 ## Tracking Model
 
-- There is one unified work item type in [open-tasks.md](open-tasks.md).
-- Items are sorted by priority (`high`, `medium`, `low`) and solved items are listed at the end.
-
-Use the inline template at the top of [open-tasks.md](open-tasks.md) for new entries.
+Tasks are indexed in [tasks/00_index.md](tasks/00_index.md) using a three-tier structure (small / medium / large). See [task-principles.md](task-principles.md) for size definitions, naming rules, and the archiving process.
 
 ## Maintenance Rules
 
 - If notebook order, output schema, or process modules change, update `repository-overview.md`, `workflow.md`, and `contracts.md` in the same PR.
-- If a bug, gap, or improvement is discovered, add one entry to `open-tasks.md`.
+- If a bug, gap, or improvement is discovered, add it to `documentation/tasks/00_index.md` (small task row) or create a task file there.
 - Keep `findings.md` as the aggregated evidence reference.
 - When mentioning a governed topic in any other document, link to its authoritative file instead of copying long operational lists.
 

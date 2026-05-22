@@ -7,7 +7,7 @@ Governance reference model:
 - Authoritative execution order and phase ownership source: `workflow.md`
 - Authoritative architecture and module map source: `repository-overview.md`
 - Authoritative output contract source: `contracts.md`
-- Authoritative work tracking source: `open-tasks.md`
+- Authoritative work tracking source: `documentation/tasks/00_index.md`
 - Authoritative findings and evidence source: `findings.md`
 
 ## Guiding Principles
@@ -64,7 +64,7 @@ Governance reference model:
 2. Guarded writers must catch lock-related write failures (for example Windows `PermissionError`) and persist a recovery snapshot under a separate `*.recovery` filename.
 3. After writing a recovery snapshot, fail fast with a clear stop message; do not continue processing with partially persisted state.
 4. On the next run, guarded writers/loaders must detect recovery snapshots first, restore/merge them back into the primary file, and only then proceed.
-5. New process modules must not introduce unguarded output writes; migrations of legacy direct writes should be tracked in `open-tasks.md`.
+5. New process modules must not introduce unguarded output writes; migrations of legacy direct writes should be tracked in `documentation/tasks/00_index.md`.
 6. Exception for append-only event logs: JSONL event streams may use buffered append writes in the hot path (instead of full-file atomic rewrite) as long as flush-on-read and flush-on-close boundaries are enforced.
 
 ## Archive And Backup Protection Principles
@@ -108,7 +108,7 @@ Governance reference model:
 1. `workflow.md` is the authoritative source for execution order and phase ownership.
 2. `repository-overview.md` is the authoritative source for architecture and module mapping.
 3. `contracts.md` is the authoritative source for output files and schema contracts.
-4. `open-tasks.md` is the authoritative source for open and solved work items.
+4. `documentation/tasks/00_index.md` is the authoritative source for open work items; see `documentation/tasks/archive/` for resolved and superseded items.
 5. `findings.md` is the authoritative source for aggregated analysis and evidence.
 6. If a governed topic is mentioned in another document, reference its authoritative file instead of duplicating long operational lists.
 
@@ -139,6 +139,6 @@ Governance reference model:
 1. Notebook paths and order still valid.
 2. No phase writes outside owned `data/<phase>` folder.
 3. CSV headers still match contract docs or contract docs updated.
-4. New work item entered in `open-tasks.md`.
-5. Remaining work entered in `open-tasks.md`.
+4. New work item entered in `documentation/tasks/00_index.md`.
+5. Remaining work entered in `documentation/tasks/00_index.md`.
 6. For network-backed changes, include evidence of a cache-only validation pass (`max_network_calls=0`) whenever feasible.
